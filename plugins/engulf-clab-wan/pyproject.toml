@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-wan"
+version = "0.1.0"
+description = "Forticlab-style managed WAN bridges for engulf-clab"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.2,<2",
+    "engulf-clab>=0.1,<0.2",
+    "PyYAML>=6.0",
+]
+
+[project.entry-points."engulf.plugins.v1.engulf_clab"]
+wan = "engulf_clab_wan:plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_wan"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/AGENTS.md",
+    "/LICENSE",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_wan"]

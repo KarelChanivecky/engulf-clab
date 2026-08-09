@@ -10,6 +10,12 @@ engulf-clab/   Wrapper application distribution
 plugins/       Future plugin distribution directories
 ```
 
+Current plugin packages:
+
+```text
+plugins/engulf-clab-wan/   Forticlab-style managed DHCP WAN bridges
+```
+
 Plugins are discovered as installed Python packages. A plugin for this wrapper
 should depend on `engulf-api` and publish an entry point in:
 
