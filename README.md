@@ -13,6 +13,7 @@ plugins/       Future plugin distribution directories
 Current plugin packages:
 
 ```text
+plugins/engulf-clab-plugins/   Meta-package that installs every plugin
 plugins/engulf-clab-wan/   Forticlab-style managed DHCP WAN bridges
 ```
 

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-plugins"
+version = "0.1.0"
+description = "Meta-package that installs all engulf-clab plugins"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-clab-wan>=0.1,<0.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_plugins"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/AGENTS.md",
+    "/LICENSE",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_plugins"]
