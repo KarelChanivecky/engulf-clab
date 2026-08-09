@@ -19,3 +19,12 @@ engulf.plugins.v1.engulf_clab
 
 The wrapper application imports the `engulf` runtime. Plugin packages should
 import `engulf_api`, not `engulf`.
+
+## Licensing
+
+The monorepo is MIT licensed. Each plugin package should include its own MIT
+`LICENSE` file using:
+
+```text
+Copyright (c) 2026 Karel Chanivecky
+```
