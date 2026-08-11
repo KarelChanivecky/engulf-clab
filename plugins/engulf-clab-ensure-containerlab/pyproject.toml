@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-ensure-containerlab"
+version = "0.1.0"
+description = "Provision a Containerlab executable for engulf-clab"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-ensure-checkout>=0.1,<0.2",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.ensure_containerlab" = "engulf_clab_ensure_containerlab:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.ensure_containerlab" = "engulf_clab_ensure_containerlab:plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_ensure_containerlab"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_ensure_containerlab"]

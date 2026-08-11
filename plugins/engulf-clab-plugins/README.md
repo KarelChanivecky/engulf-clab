@@ -9,5 +9,8 @@ plugins it depends on.
 Current dependencies:
 
 ```text
+engulf-clab-ensure-vrnetlab
+engulf-clab-ensure-containerlab
+engulf-clab-vrnetlab
 engulf-clab-wan
 ```

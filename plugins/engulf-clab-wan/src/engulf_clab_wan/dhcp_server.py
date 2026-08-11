@@ -84,7 +84,7 @@ def parse_options(payload: bytes) -> dict[int, list[bytes]]:
             break
         length = payload[index]
         index += 1
-        value = payload[index:index + length]
+        value = payload[index : index + length]
         index += length
         options.setdefault(code, []).append(value)
     return options
@@ -95,7 +95,9 @@ def option(options: dict[int, list[bytes]], code: int) -> bytes | None:
     return values[-1] if values else None
 
 
-def option_ip(options: dict[int, list[bytes]], code: int) -> ipaddress.IPv4Address | None:
+def option_ip(
+    options: dict[int, list[bytes]], code: int
+) -> ipaddress.IPv4Address | None:
     value = option(options, code)
     if value is None or len(value) != 4:
         return None
@@ -248,13 +250,13 @@ def dhcp_payload_from_frame(frame: bytes) -> bytes | None:
     if protocol != IP_PROTO_UDP:
         return None
 
-    total_length = struct.unpack("!H", frame[ip_start + 2:ip_start + 4])[0]
+    total_length = struct.unpack("!H", frame[ip_start + 2 : ip_start + 4])[0]
     udp_start = ip_start + ihl
     if len(frame) < udp_start + 8:
         return None
     source_port, destination_port, udp_length, _checksum = struct.unpack(
         "!HHHH",
-        frame[udp_start:udp_start + 8],
+        frame[udp_start : udp_start + 8],
     )
     if source_port != 68 or destination_port != 67:
         return None
@@ -375,7 +377,10 @@ def main(argv: list[str] | None = None) -> int:
     config = config_from_file(Path(args.config))
     pid_file = Path(args.pid_file)
     pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(f"{os.getpid()}\n")
+    pid_file.write_text(
+        json.dumps({"config": args.config, "pid": os.getpid()}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     serve(config)
     return 0
 

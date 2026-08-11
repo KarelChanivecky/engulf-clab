@@ -17,11 +17,25 @@ topology:
 Before `engulf-clab deploy` runs Containerlab, the plugin creates/configures the
 host Linux bridge, assigns the gateway address, starts a packaged Python DHCP
 server, enables IPv4 forwarding, and installs iptables NAT toward the host
-uplink. After a successful `engulf-clab destroy`, it removes the plugin-managed
-runtime resources.
+uplink. After a successful `engulf-clab destroy`, it removes that workspace's
+claim. Host resources remain until their final workspace claim is removed. A
+successful `destroy -a` or `destroy --all` cleans every WAN workspace recorded in
+Engulf's state catalog.
 
-Runtime state is stored next to the topology in `.forticlab/` for compatibility
-with existing Forticlab-managed labs.
+Workspace state stores only bridge claims. A user-scoped registry owns the shared
+bridge configuration, workspace references, provisioning journal, DHCP runtime
+files, and the original IPv4-forwarding setting. The plugin leases each bridge
+before host mutation, adds an ownership comment to every iptables rule, and only
+removes gateway addresses or bridges that it created. `engulf-clab` uses the
+topology directory as the canonical workspace, including when `--topo` names a
+topology outside the current directory. The plugin does not create a
+`.forticlab/` directory.
+
+The detached DHCP server uses managed user-state paths for its configuration, PID,
+leases, and log. Its PID is verified against the managed configuration before it
+is stopped. Failed provisioning records completed actions in a journal and rolls
+them back; an interrupted attempt is recovered before a later deploy of the same
+bridge.
 
 Optional labels:
 

@@ -15,13 +15,31 @@ wrapper and separately publishable Engulf plugin packages.
 - Wrapper applications import the `engulf` runtime.
 - Plugin packages import `engulf_api`, not `engulf`.
 - The wrapper application ID is `engulf-clab`.
-- Plugins for this wrapper must publish entry points in:
+- The wrapper's canonical workspace is the directory containing an explicitly
+  selected topology, or the current directory when no filesystem topology is
+  selected. Keep this identity stable for persisted workspace state.
+- The wrapper uses `ExecutableWrapperGoal` and `PluginPolicy.declared()`.
+- Plugins for this wrapper must publish a goal catalog declaration and an
+  application declaration, both with the exact plugin ID as their entry-point
+  name:
 
 ```text
-engulf.plugins.v1.engulf_clab
+engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
+engulf.plugins.v1.application.engulf_clab
 ```
 
-- Plugin packages should declare `engulf-api>=1.2,<2`.
+- Plugin packages should declare `engulf-api>=1.0,<2` and
+  `engulf-executable-wrapper-api>=1.0,<2`; plugin code imports neither runtime
+  package.
+- Derive adapters from `ExecutableWrapperPlugin`. `analyze_call()` must be
+  side-effect free and returns an immutable `CallContribution`; put external
+  work in `prepare_call()` and cleanup in `after_call()`. These callbacks use
+  `InvocationAPI`.
+- Annotate `help()` with executable-wrapper `HelpAPI` and registration callbacks
+  with `RegistrationAPI`. Emit diagnostics only through callback-bound
+  `api.logger`; never configure logging or print operational messages directly.
+- Use `api.leases()` for long-running shared host resources and short
+  `StateStore.transaction()` blocks for state read-modify-write operations.
 - Do not use the legacy local plugin directory loading model for production
   plugins. Plugins should be installed/discovered as Python packages.
 

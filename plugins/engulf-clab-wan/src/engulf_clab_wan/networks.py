@@ -7,13 +7,29 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from engulf_api import StateStore, WorkspaceState
+
 from .errors import WanError
 from .logging import info
 from .process import run
+from .registry import (
+    begin_rollback,
+    bridge_metadata_for_workspace,
+    claim_bridge,
+    complete_provisioning,
+    complete_release,
+    complete_rollback,
+    load_registry,
+    record_provision_step,
+    release_bridge,
+    save_registry,
+    workspace_bridge_names,
+)
 
 MARKER_LABEL = "FCLAB_DHCP_WAN"
 DEFAULT_SUBNET = "198.19.0.0/24"
@@ -22,7 +38,7 @@ DEFAULT_POOL_START = "198.19.0.100"
 DEFAULT_POOL_END = "198.19.0.200"
 DEFAULT_DNS = "1.1.1.1"
 DEFAULT_LEASE_TIME = 12 * 60 * 60
-RUNTIME_DIR_NAME = ".forticlab"
+METADATA_FILENAME = "dhcp-wan.json"
 
 
 @dataclass(frozen=True)
@@ -38,10 +54,6 @@ class DhcpWanBridge:
     @property
     def gateway_with_prefix(self) -> str:
         return f"{self.gateway}/{self.subnet.prefixlen}"
-
-
-def runtime_dir(topology_path: Path) -> Path:
-    return topology_path.resolve().parent / RUNTIME_DIR_NAME
 
 
 def labels_include_marker(labels: Any) -> bool:
@@ -80,7 +92,9 @@ def parse_bridge(name: str, node_data: dict[str, Any]) -> DhcpWanBridge:
         label_value(labels, "FCLAB_DHCP_POOL_END", DEFAULT_POOL_END)
     )
     dns = ipaddress.IPv4Address(label_value(labels, "FCLAB_DHCP_DNS", DEFAULT_DNS))
-    lease_time = int(label_value(labels, "FCLAB_DHCP_LEASE_TIME", str(DEFAULT_LEASE_TIME)))
+    lease_time = int(
+        label_value(labels, "FCLAB_DHCP_LEASE_TIME", str(DEFAULT_LEASE_TIME))
+    )
 
     if gateway not in subnet:
         raise WanError(f"{name}: FCLAB_DHCP_GATEWAY must be inside FCLAB_DHCP_SUBNET")
@@ -123,7 +137,7 @@ def dhcp_wan_bridges(topology_data: dict[str, Any]) -> list[DhcpWanBridge]:
     return bridges
 
 
-def require_root(bridges: list[DhcpWanBridge]) -> None:
+def require_root(bridges: Sequence[object]) -> None:
     if bridges and hasattr(os, "geteuid") and os.geteuid() != 0:
         raise WanError(f"{MARKER_LABEL} bridge setup requires root")
 
@@ -136,6 +150,17 @@ def interface_exists(name: str) -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def interface_has_address(name: str, address: str) -> bool:
+    result = subprocess.run(
+        ["ip", "-4", "-o", "addr", "show", "dev", name],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        text=True,
+    )
+    return any(address in line.split() for line in result.stdout.splitlines())
 
 
 def command_exists(name: str) -> bool:
@@ -216,20 +241,79 @@ def detect_uplink_interface() -> str:
     raise WanError("could not detect host uplink interface; set FCLAB_UPLINK_IF")
 
 
-def config_path(run_dir: Path, bridge: DhcpWanBridge) -> Path:
-    return run_dir / f"{bridge.name}.dhcp.json"
+def _ip_forward_value() -> str:
+    result = subprocess.run(
+        ["sysctl", "-n", "net.ipv4.ip_forward"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    value = result.stdout.strip()
+    if value not in {"0", "1"}:
+        raise WanError(f"unexpected net.ipv4.ip_forward value: {value!r}")
+    return value
 
 
-def pid_path(run_dir: Path, bridge_name: str) -> Path:
-    return run_dir / f"{bridge_name}.dhcp.pid"
+def ensure_ip_forwarding(state: StateStore) -> None:
+    current = _ip_forward_value()
+    with state.transaction() as locked:
+        registry = load_registry(locked)
+        forwarding = registry.get("ip_forward")
+        if forwarding is None:
+            registry["ip_forward"] = {"original": current}
+            save_registry(locked, registry)
+        elif not isinstance(forwarding, dict) or forwarding.get("original") not in {
+            "0",
+            "1",
+        }:
+            raise WanError("WAN registry has invalid IPv4 forwarding metadata")
+    if current != "1":
+        info("enabling IPv4 forwarding")
+        run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
 
 
-def lease_path(run_dir: Path, bridge: DhcpWanBridge) -> Path:
-    return run_dir / f"{bridge.name}.leases.json"
+def restore_ip_forwarding_if_unused(state: StateStore) -> None:
+    with state.transaction() as locked:
+        registry = load_registry(locked)
+        bridges = registry["bridges"]
+        assert isinstance(bridges, dict)
+        forwarding = registry.get("ip_forward")
+        if bridges or forwarding is None:
+            return
+        if not isinstance(forwarding, dict) or forwarding.get("original") not in {
+            "0",
+            "1",
+        }:
+            raise WanError("WAN registry has invalid IPv4 forwarding metadata")
+        original = str(forwarding["original"])
+
+    if original != "1" and _ip_forward_value() == "1":
+        info(f"restoring IPv4 forwarding to {original}")
+        run(["sysctl", "-w", f"net.ipv4.ip_forward={original}"])
+
+    with state.transaction() as locked:
+        registry = load_registry(locked)
+        bridges = registry["bridges"]
+        assert isinstance(bridges, dict)
+        if not bridges:
+            registry.pop("ip_forward", None)
+            save_registry(locked, registry)
 
 
-def metadata_path(run_dir: Path) -> Path:
-    return run_dir / "dhcp-wan.json"
+def config_filename(bridge: DhcpWanBridge) -> str:
+    return f"{bridge.name}.dhcp.json"
+
+
+def pid_filename(bridge_name: str) -> str:
+    return f"{bridge_name}.dhcp.pid"
+
+
+def lease_filename(bridge: DhcpWanBridge) -> str:
+    return f"{bridge.name}.leases.json"
+
+
+def log_filename(bridge: DhcpWanBridge) -> str:
+    return f"{bridge.name}.dhcp.log"
 
 
 def process_alive(pid: int) -> bool:
@@ -242,26 +326,62 @@ def process_alive(pid: int) -> bool:
     return True
 
 
-def stop_pid_file(path: Path) -> None:
-    if not path.exists():
+def managed_dhcp_process(pid: int, config_file: Path) -> bool:
+    try:
+        command_line = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return False
+    return (
+        b"engulf_clab_wan.dhcp_server" in command_line
+        and os.fsencode(config_file) in command_line
+    )
+
+
+def _pid_from_state(state: StateStore, filename: str) -> int:
+    content = state.read_text(filename).strip()
+    try:
+        value: Any = json.loads(content)
+    except json.JSONDecodeError:
+        value = content
+    if isinstance(value, dict):
+        pid = value.get("pid")
+        if isinstance(pid, int):
+            return pid
+    try:
+        return int(value)
+    except (TypeError, ValueError) as error:
+        raise WanError(f"invalid DHCP server PID record: {filename}") from error
+
+
+def stop_pid_file(state: StateStore, filename: str) -> None:
+    if not state.exists(filename):
         return
     try:
-        pid = int(path.read_text(encoding="utf-8").strip())
-    except ValueError:
-        path.unlink()
+        pid = _pid_from_state(state, filename)
+    except WanError:
+        state.delete(filename)
         return
     if process_alive(pid):
+        config_name = filename.removesuffix(".dhcp.pid") + ".dhcp.json"
+        if not managed_dhcp_process(pid, state.path(config_name)):
+            raise WanError(
+                f"DHCP server pid={pid} does not match managed configuration"
+            )
         info(f"stopping DHCP server pid={pid}")
         os.kill(pid, signal.SIGTERM)
         for _ in range(20):
             if not process_alive(pid):
                 break
             time.sleep(0.1)
-    path.unlink(missing_ok=True)
+        if process_alive(pid):
+            raise WanError(f"DHCP server pid={pid} did not stop")
+    state.delete(filename, missing_ok=True)
 
 
-def start_dhcp_server(run_dir: Path, bridge: DhcpWanBridge) -> None:
-    stop_pid_file(pid_path(run_dir, bridge.name))
+def start_dhcp_server(state: StateStore, bridge: DhcpWanBridge) -> None:
+    pid_name = pid_filename(bridge.name)
+    stop_pid_file(state, pid_name)
+    lease_file = state.path(lease_filename(bridge))
     config = {
         "interface": bridge.name,
         "subnet": str(bridge.subnet),
@@ -270,12 +390,14 @@ def start_dhcp_server(run_dir: Path, bridge: DhcpWanBridge) -> None:
         "pool_end": str(bridge.pool_end),
         "dns": str(bridge.dns),
         "lease_time": bridge.lease_time,
-        "lease_file": str(lease_path(run_dir, bridge)),
+        "lease_file": str(lease_file),
     }
-    config_file = config_path(run_dir, bridge)
-    pid_file = pid_path(run_dir, bridge.name)
-    log_file = run_dir / f"{bridge.name}.dhcp.log"
-    config_file.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
+    config_name = config_filename(bridge)
+    state.write_text(config_name, json.dumps(config, indent=2, sort_keys=True) + "\n")
+    config_file = state.path(config_name)
+    pid_file = state.path(pid_name)
+    log_name = log_filename(bridge)
+    log_file = state.path(log_name)
 
     with log_file.open("ab") as log:
         info(
@@ -299,10 +421,10 @@ def start_dhcp_server(run_dir: Path, bridge: DhcpWanBridge) -> None:
     for _ in range(20):
         if process.poll() is not None:
             break
-        if pid_file.exists():
+        if state.exists(pid_name):
             try:
-                pid = int(pid_file.read_text(encoding="utf-8").strip())
-            except ValueError:
+                pid = _pid_from_state(state, pid_name)
+            except WanError:
                 pid = 0
             if pid and process_alive(pid):
                 info(f"DHCP server running bridge={bridge.name} pid={pid}")
@@ -310,13 +432,15 @@ def start_dhcp_server(run_dir: Path, bridge: DhcpWanBridge) -> None:
         time.sleep(0.1)
 
     output = ""
-    if log_file.exists():
-        output = log_file.read_text(errors="replace").strip()
+    if state.exists(log_name):
+        output = state.read_text(log_name, errors="replace").strip()
     detail = f"; log: {output}" if output else ""
     raise WanError(f"DHCP server failed to start for bridge {bridge.name}{detail}")
 
 
-def bridge_metadata(bridge: DhcpWanBridge, created: bool, uplink: str) -> dict[str, Any]:
+def bridge_metadata(
+    bridge: DhcpWanBridge, created: bool, gateway_added: bool, uplink: str
+) -> dict[str, Any]:
     data = asdict(bridge)
     data.update(
         {
@@ -327,44 +451,75 @@ def bridge_metadata(bridge: DhcpWanBridge, created: bool, uplink: str) -> dict[s
             "pool_end": str(bridge.pool_end),
             "dns": str(bridge.dns),
             "created": created,
+            "gateway_added": gateway_added,
             "uplink": uplink,
         }
     )
     return data
 
 
-def save_metadata(run_dir: Path, entries: list[dict[str, Any]]) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    metadata_path(run_dir).write_text(
-        json.dumps(entries, indent=2, sort_keys=True) + "\n"
+def bridge_configuration(bridge: DhcpWanBridge, uplink: str) -> dict[str, Any]:
+    data = bridge_metadata(bridge, created=False, gateway_added=False, uplink=uplink)
+    data.pop("created")
+    data.pop("gateway_added")
+    return data
+
+
+def save_metadata(state: StateStore, entries: list[dict[str, Any]]) -> None:
+    state.write_text(
+        METADATA_FILENAME,
+        json.dumps(entries, indent=2, sort_keys=True) + "\n",
     )
 
 
-def load_metadata(run_dir: Path) -> list[dict[str, Any]]:
-    path = metadata_path(run_dir)
-    if not path.exists():
+def load_metadata(state: StateStore) -> list[dict[str, Any]]:
+    if not state.exists(METADATA_FILENAME):
         return []
-    with path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
+    data = json.loads(state.read_text(METADATA_FILENAME))
     return data if isinstance(data, list) else []
 
 
-def setup_bridge(bridge: DhcpWanBridge, run_dir: Path, uplink: str) -> dict[str, Any]:
+def setup_bridge(
+    bridge: DhcpWanBridge,
+    state: StateStore,
+    uplink: str,
+    record_step: Callable[[str], None],
+) -> dict[str, Any]:
     created = not interface_exists(bridge.name)
     if created:
         info(f"creating Linux bridge {bridge.name}")
         run(["ip", "link", "add", bridge.name, "type", "bridge"])
+        record_step("bridge-created")
     else:
         info(f"using existing Linux bridge {bridge.name}")
 
-    info(f"configuring {bridge.name} gateway {bridge.gateway_with_prefix}")
-    run(["ip", "addr", "replace", bridge.gateway_with_prefix, "dev", bridge.name])
+    gateway_added = False
+    if not interface_has_address(bridge.name, bridge.gateway_with_prefix):
+        info(f"adding {bridge.name} gateway {bridge.gateway_with_prefix}")
+        run(["ip", "addr", "add", bridge.gateway_with_prefix, "dev", bridge.name])
+        gateway_added = True
+        record_step("gateway-added")
     run(["ip", "link", "set", bridge.name, "up"])
-    info("enabling IPv4 forwarding")
-    run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
-
     subnet = str(bridge.subnet)
-    iptables_add(["FORWARD", "-i", bridge.name, "-o", uplink, "-s", subnet, "-j", "ACCEPT"])
+    marker = f"engulf-clab-wan:{bridge.name}"
+    iptables_add(
+        [
+            "FORWARD",
+            "-i",
+            bridge.name,
+            "-o",
+            uplink,
+            "-s",
+            subnet,
+            "-m",
+            "comment",
+            "--comment",
+            marker,
+            "-j",
+            "ACCEPT",
+        ]
+    )
+    record_step("forward-out")
     iptables_add(
         [
             "FORWARD",
@@ -378,16 +533,41 @@ def setup_bridge(bridge: DhcpWanBridge, run_dir: Path, uplink: str) -> dict[str,
             "conntrack",
             "--ctstate",
             "RELATED,ESTABLISHED",
+            "-m",
+            "comment",
+            "--comment",
+            marker,
             "-j",
             "ACCEPT",
         ]
     )
-    iptables_nat_add(["POSTROUTING", "-s", subnet, "-o", uplink, "-j", "MASQUERADE"])
-    start_dhcp_server(run_dir, bridge)
-    return bridge_metadata(bridge, created, uplink)
+    record_step("forward-in")
+    iptables_nat_add(
+        [
+            "POSTROUTING",
+            "-s",
+            subnet,
+            "-o",
+            uplink,
+            "-m",
+            "comment",
+            "--comment",
+            marker,
+            "-j",
+            "MASQUERADE",
+        ]
+    )
+    record_step("nat")
+    start_dhcp_server(state, bridge)
+    record_step("dhcp")
+    return bridge_metadata(bridge, created, gateway_added, uplink)
 
 
-def setup_dhcp_wan_bridges(topology_path: Path, topology_data: dict[str, Any]) -> None:
+def setup_dhcp_wan_bridges(
+    topology_data: dict[str, Any],
+    workspace: WorkspaceState,
+    user_state: StateStore,
+) -> None:
     bridges = dhcp_wan_bridges(topology_data)
     require_root(bridges)
     if not bridges:
@@ -397,24 +577,94 @@ def setup_dhcp_wan_bridges(topology_path: Path, topology_data: dict[str, Any]) -
     info(f"found {len(bridges)} FCLAB_DHCP_WAN bridge(s)")
     require_commands(["ip", "iptables", "sysctl", "sh"])
 
-    run_dir = runtime_dir(topology_path)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    info(f"using runtime directory {run_dir}")
+    info(f"using Engulf user registry {user_state.directory}")
     uplink = detect_uplink_interface()
-    entries: list[dict[str, Any]] = []
+    ensure_ip_forwarding(user_state)
+    workspace_name = os.fspath(workspace.root)
+    claims: list[str] = []
     for bridge in bridges:
-        entries.append(setup_bridge(bridge, run_dir, uplink))
-        save_metadata(run_dir, entries)
+        rollback_metadata = begin_rollback(user_state, bridge.name)
+        if rollback_metadata is not None:
+            info(f"recovering unfinished WAN bridge provisioning for {bridge.name}")
+            cleanup_entry(user_state, rollback_metadata)
+            if complete_rollback(user_state, bridge.name):
+                restore_ip_forwarding_if_unused(user_state)
+
+        configuration = bridge_configuration(bridge, uplink)
+        needs_provisioning, _entry = claim_bridge(
+            user_state,
+            workspace=workspace_name,
+            configuration=configuration,
+        )
+        if needs_provisioning:
+
+            def record_step(step: str, *, name: str = bridge.name) -> None:
+                record_provision_step(user_state, name, step)
+
+            try:
+                metadata = setup_bridge(
+                    bridge,
+                    user_state,
+                    uplink,
+                    record_step,
+                )
+                complete_provisioning(user_state, bridge.name, metadata)
+            except Exception as error:
+                rollback_metadata = begin_rollback(user_state, bridge.name)
+                assert rollback_metadata is not None
+                try:
+                    cleanup_entry(user_state, rollback_metadata)
+                    if complete_rollback(user_state, bridge.name):
+                        restore_ip_forwarding_if_unused(user_state)
+                except Exception as rollback_error:  # noqa: BLE001 - preserve failed rollback state.
+                    raise WanError(
+                        f"WAN bridge {bridge.name} provisioning failed and rollback failed: "
+                        f"{rollback_error}"
+                    ) from error
+                raise
+        claims.append(bridge.name)
+    bridge_metadata_for_workspace(workspace, claims)
 
 
-def cleanup_entry(run_dir: Path, entry: dict[str, Any]) -> None:
+def cleanup_entry(state: StateStore, entry: dict[str, Any]) -> None:
     name = str(entry["name"])
     subnet = str(entry["subnet"])
     uplink = str(entry["uplink"])
+    marker = f"engulf-clab-wan:{name}"
 
-    stop_pid_file(pid_path(run_dir, name))
-    iptables_nat_delete_all(["POSTROUTING", "-s", subnet, "-o", uplink, "-j", "MASQUERADE"])
-    iptables_delete_all(["FORWARD", "-i", name, "-o", uplink, "-s", subnet, "-j", "ACCEPT"])
+    stop_pid_file(state, pid_filename(name))
+    iptables_nat_delete_all(
+        [
+            "POSTROUTING",
+            "-s",
+            subnet,
+            "-o",
+            uplink,
+            "-m",
+            "comment",
+            "--comment",
+            marker,
+            "-j",
+            "MASQUERADE",
+        ]
+    )
+    iptables_delete_all(
+        [
+            "FORWARD",
+            "-i",
+            name,
+            "-o",
+            uplink,
+            "-s",
+            subnet,
+            "-m",
+            "comment",
+            "--comment",
+            marker,
+            "-j",
+            "ACCEPT",
+        ]
+    )
     iptables_delete_all(
         [
             "FORWARD",
@@ -428,6 +678,10 @@ def cleanup_entry(run_dir: Path, entry: dict[str, Any]) -> None:
             "conntrack",
             "--ctstate",
             "RELATED,ESTABLISHED",
+            "-m",
+            "comment",
+            "--comment",
+            marker,
             "-j",
             "ACCEPT",
         ]
@@ -436,32 +690,43 @@ def cleanup_entry(run_dir: Path, entry: dict[str, Any]) -> None:
         info(f"deleting Linux bridge {name}")
         run(["ip", "link", "delete", name])
     elif interface_exists(name):
+        if bool(entry.get("gateway_added")):
+            info(f"removing plugin-added gateway {entry['gateway']}")
+            run(
+                [
+                    "ip",
+                    "addr",
+                    "del",
+                    f"{entry['gateway']}/{ipaddress.IPv4Network(str(entry['subnet']), strict=False).prefixlen}",
+                    "dev",
+                    name,
+                ]
+            )
         info(f"leaving pre-existing Linux bridge {name}")
 
 
-def cleanup_dhcp_wan_bridges(topology_path: Path) -> None:
-    run_dir = runtime_dir(topology_path)
-    entries = load_metadata(run_dir)
-    require_root(
-        [
-            DhcpWanBridge(
-                name=str(entry["name"]),
-                subnet=ipaddress.IPv4Network(str(entry["subnet"]), strict=False),
-                gateway=ipaddress.IPv4Address(str(entry["gateway"])),
-                pool_start=ipaddress.IPv4Address(str(entry["pool_start"])),
-                pool_end=ipaddress.IPv4Address(str(entry["pool_end"])),
-                dns=ipaddress.IPv4Address(str(entry["dns"])),
-                lease_time=int(entry.get("lease_time", DEFAULT_LEASE_TIME)),
-            )
-            for entry in entries
-        ]
-    )
-    if not entries:
-        info("no forticlab DHCP WAN runtime metadata found")
+def cleanup_dhcp_wan_bridges(workspace: WorkspaceState, user_state: StateStore) -> None:
+    names = workspace_bridge_names(workspace)
+    if not names:
+        info(f"no DHCP WAN metadata found for workspace {workspace.root}")
+        restore_ip_forwarding_if_unused(user_state)
+        workspace.destroy()
         return
 
+    require_root(names)
     require_commands(["ip", "iptables", "sh"])
-    info(f"cleaning up {len(entries)} FCLAB_DHCP_WAN bridge(s)")
-    for entry in entries:
-        cleanup_entry(run_dir, entry)
-    metadata_path(run_dir).unlink(missing_ok=True)
+    info(f"cleaning up {len(names)} FCLAB_DHCP_WAN bridge(s) for {workspace.root}")
+    failures: list[str] = []
+    workspace_name = os.fspath(workspace.root)
+    for name in names:
+        try:
+            entry = release_bridge(user_state, workspace=workspace_name, name=name)
+            if entry is not None:
+                cleanup_entry(user_state, entry)
+                if complete_release(user_state, name):
+                    restore_ip_forwarding_if_unused(user_state)
+        except Exception as error:  # noqa: BLE001 - every bridge must be attempted.
+            failures.append(f"{name}: {error}")
+    if failures:
+        raise WanError("DHCP WAN bridge cleanup failed: " + "; ".join(failures))
+    workspace.destroy()

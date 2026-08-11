@@ -9,7 +9,10 @@ description = "Engulf wrapper for Containerlab"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
-dependencies = ["engulf>=0.1,<0.5"]
+dependencies = [
+    "engulf>=0.1,<1",
+    "engulf-executable-wrapper>=0.1,<1",
+]
 
 [project.scripts]
 engulf-clab = "engulf_clab.cli:main"
