@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-engulf-clab = "engulf_clab.cli:main"
+eclab = "engulf_clab.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab"]

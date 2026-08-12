@@ -24,9 +24,10 @@ from engulf_executable_wrapper_api import (
 from .workspace import workspace_root
 
 APPLICATION_ID = "engulf-clab"
-DISPLAY_NAME = "engulf-clab"
+DISPLAY_NAME = "eclab"
 VENDOR = "ECLAB"
 PRODUCT = "Engulf Containerlab"
+SHORT_PRODUCT_NAME = "eclab"
 VERSION = "0.1.0"
 CONTAINERLAB_BINARY = "containerlab"
 
@@ -55,6 +56,7 @@ CONTAINERLAB_APPLICATION = ApplicationDefinition[CallOutcome](
     goal_factory=_containerlab_goal,
     vendor=VENDOR,
     product=PRODUCT,
+    short_product_name=SHORT_PRODUCT_NAME,
     version=VERSION,
     plugin_policy=PluginPolicy.declared(),
     workspace_root_resolver=workspace_root,
@@ -76,6 +78,7 @@ class ContainerlabApp(Application[CallOutcome]):
         display_name: str = DISPLAY_NAME,
         vendor: str = VENDOR,
         product: str = PRODUCT,
+        short_product_name: str = SHORT_PRODUCT_NAME,
         version: str = VERSION,
         logging_config: LoggingConfig | None = None,
         plugin_policy: PluginPolicy | None = None,
@@ -101,6 +104,7 @@ class ContainerlabApp(Application[CallOutcome]):
             display_name=display_name,
             vendor=vendor,
             product=product,
+            short_product_name=short_product_name,
             version=version,
             logging_config=logging_config,
             plugin_policy=(
