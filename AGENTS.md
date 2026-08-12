@@ -60,7 +60,7 @@ Copyright (c) 2026 Karel Chanivecky
 ```
 
 Plugin IDs must be globally unique, lowercase, dot-qualified identifiers, for
-example `dev.karel.engulf_clab.example`.
+example `engulf_clab.example`.
 
 ## Development Notes
 

@@ -1,75 +1,97 @@
-# engulf-clab
+# eclab
 
-`engulf-clab` is an Engulf wrapper for Containerlab.
+The `eclab` command, distributed by the `engulf-clab` package, wraps the
+`containerlab` command and discovers
+installed Engulf extensions for the `engulf_clab` application ID. It preserves
+Containerlab command syntax while giving plugins lifecycle hooks before and
+after the wrapped call.
 
-`CONTAINERLAB_DIR` may point at a directory containing a `containerlab` binary. If
-that binary is absent, the wrapper falls back to resolving `containerlab` from
-`PATH`.
+## Install and run
 
-Engulf supplies per-call diagnostic controls. For example,
-`--engulf-clab-log-level INFO` enables informational messages, while
-`--engulf-clab-plugin-log-level dev.karel.engulf_clab.wan=DEBUG` targets one
-plugin. These wrapper options are removed before Containerlab is invoked.
+```bash
+python3.14 -m venv .venv
+. .venv/bin/activate
+python -m pip install engulf-clab engulf-clab-all-plugins
 
-## Releasing an edition
-
-The package exports a side-effect-free application definition. A separately
-released launcher can create an edition with its own command-facing name while
-keeping the `engulf-clab` application identity, declared plugins, workspace state,
-and leases:
-
-```python
-from engulf_clab import CONTAINERLAB_APPLICATION
-
-VENDOR_CONTAINERLAB = CONTAINERLAB_APPLICATION.edition(
-    display_name="vendor-clab",
-    vendor="Vendor Networks",
-    include_plugins={"com.example.vendor.containerlab"},
-)
-
-
-def main() -> int:
-    with VENDOR_CONTAINERLAB.create() as application:
-        return application.run()
+eclab deploy -t lab.clab.yml
+eclab inspect -t lab.clab.yml
+eclab destroy -t lab.clab.yml
 ```
 
-The edition launcher should be its own distribution and console-script entry point.
-Its plugin should publish its executable-wrapper goal declaration and be included
-explicitly, rather than declaring the shared `engulf_clab` application entry point.
+The application itself does not require a fixed Containerlab installation path.
+Install `engulf-clab-ensure-containerlab` to resolve an executable from an
+explicit binary, a checkout, `PATH`, or a managed clone.
 
-The vrnetlab topology environment prefix derives from the launcher name. The
-official launcher uses `ENGULF_CLAB_VRNETLAB_TYPE` and
-`ENGULF_CLAB_VRNETLAB_IMG_PATH`; the example edition uses
-`VENDOR_CLAB_VRNETLAB_TYPE` and `VENDOR_CLAB_VRNETLAB_IMG_PATH`.
-The official launcher still accepts the former `ECLAB_*` names for compatibility.
+## Diagnostics and workspace identity
 
-## Custom application instances
+Engulf options are consumed by the wrapper and never passed to Containerlab.
 
-The reusable application class remains public for callers that need custom runtime
-configuration without importing its console entry point:
-
-```python
-from engulf_clab import ContainerlabApp
-
-
-class MyContainerlabApp(ContainerlabApp):
-    pass
+```bash
+eclab --eclab-log-level INFO deploy -t lab.clab.yml
+eclab --eclab-plugin-log-level .engulf_clab.wan=DEBUG deploy -t lab.clab.yml
 ```
 
-`ContainerlabApp` accepts executable-wrapper goal, plugin policy, completion,
-workspace, state, and diagnostics configuration options. The `engulf-clab` command
-itself is only a thin launcher for this class.
+The directory containing an explicitly selected topology is the canonical
+workspace for plugin state. Therefore a `-t /labs/demo/lab.clab.yml` deployment
+uses the same workspace when launched from any current directory. With no
+filesystem topology, the current directory is the workspace.
 
-Installed executable-wrapper plugins are discovered through Engulf's goal catalog
-and application declaration:
+## Plugin discovery
+
+Install plugins as Python packages. They publish both of these entry points with
+their exact plugin ID as the entry-point name:
 
 ```text
 engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
 engulf.plugins.v1.application.engulf_clab
 ```
 
-For Engulf workspace state, the wrapper uses the directory containing the
-Containerlab topology. Explicit file paths passed with `-t`, `--topo`, or
-`--topology` therefore select the same workspace even when invoked from another
-directory. Topology directories select themselves; URLs, `stdin`, and calls
-without an explicit topology use the current directory.
+The companion `engulf-clab-all-plugins` package installs all maintained extensions;
+individual feature packages can be installed instead for a smaller footprint.
+
+## Freeze a shareable lab
+
+With `engulf-clab-freeze` installed, create a sanitized archive without changing
+the source lab:
+
+```bash
+eclab freeze -t lab.clab.yml --output lab-share.tar.gz
+```
+
+Extract it and run `./run-eclab.sh`. License values are redacted and prompt the
+recipient for their own file, pool, or environment variable at deployment time.
+
+## Editions
+
+Edition launchers reuse the side-effect-free application definition while
+providing a different command name and selected plugin set. The command name
+does not determine topology environment keys. Those derive from short product
+metadata (or full product metadata when no short name is available):
+`eclab` uses `ECLAB_*`, while a short product name of `vendor clab` uses
+`VENDOR_CLAB_*`.
+
+```python
+from engulf_clab import CONTAINERLAB_APPLICATION
+
+VENDOR_CLAB = CONTAINERLAB_APPLICATION.edition(
+    display_name="vendor-clab",
+    vendor="Vendor Networks",
+    short_product_name="vendor clab",
+    include_plugins={"com.example.vendor.containerlab"},
+)
+```
+
+The edition launcher belongs in its own distribution and console-script entry
+point. It should include its own plugin explicitly rather than publishing a
+second shared `engulf_clab` application declaration.
+
+## Library use
+
+`ContainerlabApp` remains public for callers that need to customize the wrapper
+goal, policy, state, completion, workspace, or diagnostics configuration.
+
+```python
+from engulf_clab import ContainerlabApp
+
+app = ContainerlabApp()
+```
