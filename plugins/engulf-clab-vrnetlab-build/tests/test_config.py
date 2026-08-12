@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from engulf_clab_vrnetlab.config import (
+from engulf_clab_vrnetlab_build.config import (
     VRNETLAB_IMAGE_PATH,
     VRNETLAB_TYPE,
     build_requests_from_topology,
@@ -12,8 +12,8 @@ from engulf_clab_vrnetlab.config import (
     resolve_image_expression,
     scoped_variable_names,
 )
-from engulf_clab_vrnetlab.errors import VrnetlabError
-from engulf_clab_vrnetlab.topology import topology_path_from_args
+from engulf_clab_vrnetlab_build.errors import VrnetlabError
+from engulf_clab_vrnetlab_build.topology import topology_path_from_args
 
 
 def topology(node: dict[str, object]) -> dict[str, object]:

@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_clab_ensure_vrnetlab.checkout import ensure_checkout
+from engulf_clab_ensure_vrnetlab.checkout import ensure_checkout, require_vrnetlab_dependencies
 from engulf_clab_ensure_vrnetlab.errors import EnsureVrnetlabError
 
 
@@ -29,6 +29,13 @@ def make_checkout(path: Path) -> None:
 
 
 class EnsureCheckoutTest(unittest.TestCase):
+    @patch("engulf_clab_ensure_vrnetlab.checkout.shutil.which", return_value=None)
+    def test_missing_vrnetlab_host_dependencies_are_reported(self, _which: Mock) -> None:
+        with self.assertRaisesRegex(
+            EnsureVrnetlabError, "docker, qemu-img, qemu-system-x86_64"
+        ):
+            require_vrnetlab_dependencies()
+
     @patch("engulf_clab_ensure_vrnetlab.checkout._run")
     def test_valid_environment_checkout_takes_precedence(self, run: Mock) -> None:
         with TemporaryDirectory() as directory:

@@ -47,7 +47,7 @@ class TopologyTest(unittest.TestCase):
         }
 
         self.assertTrue(topology_needs_vrnetlab(topology, application_name="acme-clab"))
-        self.assertTrue(topology_needs_vrnetlab(topology, application_name="engulf-clab"))
+        self.assertTrue(topology_needs_vrnetlab(topology, application_name="eclab"))
         self.assertFalse(topology_needs_vrnetlab(topology, application_name="other-clab"))
         self.assertFalse(
             topology_needs_vrnetlab(

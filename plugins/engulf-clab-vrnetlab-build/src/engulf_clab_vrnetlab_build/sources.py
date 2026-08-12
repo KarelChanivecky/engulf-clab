@@ -68,7 +68,7 @@ def prepared_qcow2(source: Path) -> Iterator[Path]:
         yield source
         return
 
-    with tempfile.TemporaryDirectory(prefix="engulf-clab-vrnetlab-source-") as directory:
+    with tempfile.TemporaryDirectory(prefix="engulf-clab-vrnetlab-build-source-") as directory:
         output_dir = Path(directory)
         if lower_name.endswith(".zip"):
             yield _extract_zip(source, output_dir)

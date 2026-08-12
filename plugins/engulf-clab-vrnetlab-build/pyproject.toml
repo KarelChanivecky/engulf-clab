@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "engulf-clab-vrnetlab"
+name = "engulf-clab-vrnetlab-build"
 version = "0.1.0"
 description = "Build node images with vrnetlab before engulf-clab deploys"
 readme = "README.md"
@@ -13,17 +13,18 @@ dependencies = [
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
     "engulf-clab-ensure-vrnetlab>=0.1,<0.2",
+    "engulf-clab-lab-parser>=0.1,<0.2",
     "PyYAML>=6.0",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
-"dev.karel.engulf_clab.vrnetlab" = "engulf_clab_vrnetlab:plugin"
+"engulf_clab.vrnetlab_build" = "engulf_clab_vrnetlab_build:plugin"
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
-"dev.karel.engulf_clab.vrnetlab" = "engulf_clab_vrnetlab:plugin"
+"engulf_clab.vrnetlab_build" = "engulf_clab_vrnetlab_build:plugin"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/engulf_clab_vrnetlab"]
+packages = ["src/engulf_clab_vrnetlab_build"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -42,4 +43,4 @@ line-length = 100
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src/engulf_clab_vrnetlab"]
+files = ["src/engulf_clab_vrnetlab_build"]

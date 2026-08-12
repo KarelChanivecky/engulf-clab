@@ -1,40 +1,43 @@
 # engulf-clab-ensure-vrnetlab
 
-`engulf-clab-ensure-vrnetlab` prepares the vrnetlab checkout consumed by the
-`engulf-clab-vrnetlab` image-build plugin.
+Prepares the vrnetlab checkout used by `engulf-clab-vrnetlab-build`. Install it with
+`python -m pip install engulf-clab-ensure-vrnetlab`; installing the vrnetlab
+builder or `engulf-clab-all-plugins` installs it automatically.
 
-The plugin activates before `engulf-clab deploy` only when the selected topology
-contains a node with a nonempty `ENGULF_CLAB_VRNETLAB_TYPE` value. An edition
-derives the prefix from its `display_name` (for example, `acme-clab` uses
-`ACME_CLAB_VRNETLAB_TYPE`). It resolves the
-checkout in this order:
+The plugin activates for `deploy` only when at least one node has a nonempty
+`ECLAB_VRNETLAB_TYPE` environment value. Editions derive this prefix from their
+short product name, falling back to full product metadata; for example, a short
+product name of `acme clab` uses `ACME_CLAB_VRNETLAB_TYPE`.
 
-1. A valid checkout named by `VRNETLAB_DIR`.
-2. The plugin's user-scoped Engulf state checkout.
-3. A new clone of `VRNETLAB_REPO` into that managed location.
+For an opted-in deployment, the plugin checks that `docker`, `qemu-img`, and
+`qemu-system-x86_64` are on `PATH` before provisioning the checkout.
 
-`VRNETLAB_REPO` defaults to:
-
-```text
-https://github.com/srl-labs/vrnetlab.git
+```yaml
+topology:
+  nodes:
+    router:
+      image: vrnetlab/vr-example:1.0
+      env:
+        ECLAB_VRNETLAB_TYPE: vendor/router
 ```
 
-An invalid `VRNETLAB_DIR` is reported and ignored. An existing but invalid
-managed checkout is not overwritten; remove it explicitly before retrying.
-Existing valid checkouts are never pulled, reset, or cleaned.
+## Invocation environment
 
-After resolution, the plugin publishes the canonical path in Engulf context:
+| Variable | Meaning |
+| --- | --- |
+| `VRNETLAB_DIR` | Existing valid vrnetlab checkout. |
+| `VRNETLAB_REPO` | Managed clone source; default `https://github.com/srl-labs/vrnetlab.git`. |
+| `VRNETLAB_UPDATE=1` | Check a Git checkout for updates, at most once daily. |
+| `VRNETLAB_VERSION` | Clamp to a tag, commit, or Git revision; also enables checking. |
 
-```text
-engulf_clab.vrnetlab.path
-```
+Resolution order is `VRNETLAB_DIR`, a managed user-state checkout, then a new
+managed clone. Invalid configured paths are ignored with a diagnostic; an
+invalid existing managed checkout is never overwritten. Managed cloning and
+updates are serialized by a user-scoped lease.
 
-The build plugin has a hard dependency on this plugin and consumes that context
-after ensure-vrnetlab completes. Clone operations are staged in a temporary
-sibling directory so a failed clone does not leave the managed target partially
-populated.
+Git updates prefer the highest version-style release tag reachable from the
+checkout branch, or fast-forward by commit when no release tags exist. Non-Git
+checkouts are not changed; dirty Git checkouts are rejected rather than reset.
 
-Managed checkout discovery and cloning run under the application/user lease
-`repository-cache:vrnetlab`. This serializes cooperating deployments while the
-checkout tree is inspected or created; the temporary staging directory still
-protects against interrupted clone publication.
+The resolved checkout is published as context `engulf_clab.vrnetlab.path` for
+the vrnetlab build plugin. This plugin itself does not build images.

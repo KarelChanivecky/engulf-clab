@@ -1,6 +1,6 @@
 # Plugin Instructions
 
-This directory contains the `engulf-clab-vrnetlab` plugin distribution.
+This directory contains the `engulf-clab-vrnetlab-build` plugin distribution.
 
 ## Purpose
 
@@ -13,8 +13,8 @@ checkout.
 
 - Goal catalog: `engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper`
 - Application declaration: `engulf.plugins.v1.application.engulf_clab`
-- Plugin import package: `engulf_clab_vrnetlab`
-- Plugin ID: `dev.karel.engulf_clab.vrnetlab`
+- Plugin import package: `engulf_clab_vrnetlab_build`
+- Plugin ID: `engulf_clab.vrnetlab_build`
 - Prepared-checkout context ID: `engulf_clab.vrnetlab.path`
 - Required producer plugin ID: `engulf_clab.ensure_vrnetlab`
 
@@ -26,9 +26,10 @@ It derives from `ExecutableWrapperPlugin` supplied by
 
 - Keep the plugin vendor-neutral. Builder-specific behavior belongs in the
   selected vrnetlab `vendor/type` directory, not in Python conditionals.
-- Derive `<PREFIX>` from callback-bound `api.application.display_name`. The
-  official application uses `ENGULF_CLAB`; a normalized edition display name selects another
-  prefix without changing the shared application identity.
+- Derive `<PREFIX>` from callback-bound `api.application.short_product_name`,
+  falling back to `api.application.product`. The official application uses
+  `ECLAB`; a normalized edition short product name selects another prefix
+  without changing the shared application identity.
 - Preserve the source qcow2 basename because vrnetlab Makefiles commonly
   derive the native Docker tag from it.
 - Never extract an archive wholesale. Stream its one qcow2 member into a

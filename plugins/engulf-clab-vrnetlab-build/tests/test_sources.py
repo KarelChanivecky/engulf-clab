@@ -7,8 +7,8 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from engulf_clab_vrnetlab.errors import VrnetlabError
-from engulf_clab_vrnetlab.sources import file_sha256, prepared_qcow2
+from engulf_clab_vrnetlab_build.errors import VrnetlabError
+from engulf_clab_vrnetlab_build.sources import file_sha256, prepared_qcow2
 
 
 class ImageSourceTest(unittest.TestCase):

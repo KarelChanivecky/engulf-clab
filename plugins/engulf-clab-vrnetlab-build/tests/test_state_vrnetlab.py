@@ -6,14 +6,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from engulf_clab_vrnetlab.errors import VrnetlabError
-from engulf_clab_vrnetlab.state import (
+from engulf_clab_vrnetlab_build.errors import VrnetlabError
+from engulf_clab_vrnetlab_build.state import (
     STATE_BASENAME,
     BuildFingerprint,
     load_state,
     save_state,
 )
-from engulf_clab_vrnetlab.vrnetlab import builder_directory, vrnetlab_root
+from engulf_clab_vrnetlab_build.vrnetlab import builder_directory, vrnetlab_root
 
 
 class MemoryStateStore:

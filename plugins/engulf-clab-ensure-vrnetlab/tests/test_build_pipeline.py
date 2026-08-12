@@ -20,8 +20,12 @@ def write_plugin_directory(directory: Path) -> Path:
         "from engulf_clab_ensure_vrnetlab.plugin import plugin\n",
         encoding="utf-8",
     )
+    (plugin_dir / "topology.py").write_text(
+        "from engulf_clab_lab_parser import plugin\n",
+        encoding="utf-8",
+    )
     (plugin_dir / "vrnetlab.py").write_text(
-        "from engulf_clab_vrnetlab.plugin import plugin\n",
+        "from engulf_clab_vrnetlab_build.plugin import plugin\n",
         encoding="utf-8",
     )
     return plugin_dir
@@ -81,12 +85,17 @@ topology:
                     "engulf_clab_ensure_vrnetlab.plugin.ensure_checkout",
                     return_value=checkout,
                 ) as ensure,
-                patch("engulf_clab_vrnetlab.plugin.ensure_images") as build,
+                patch("engulf_clab_ensure_vrnetlab.plugin.require_vrnetlab_dependencies"),
+                patch("engulf_clab_ensure_vrnetlab.plugin.update_vrnetlab"),
+                patch("engulf_clab_vrnetlab_build.plugin.ensure_images") as build,
             ):
                 result = wrapper.run(("deploy", "-t", str(topology)))
 
             self.assertEqual(result, 0)
-            self.assertEqual(wrapper.plugins[0].plugin_id, ENSURE_VRNETLAB_PLUGIN_ID)
+            self.assertLess(
+                [item.plugin_id for item in wrapper.plugins].index("engulf_clab.lab_parser"),
+                [item.plugin_id for item in wrapper.plugins].index(ENSURE_VRNETLAB_PLUGIN_ID),
+            )
             ensure.assert_called_once()
             self.assertEqual(build.call_args.kwargs["checkout_context"], str(checkout))
 

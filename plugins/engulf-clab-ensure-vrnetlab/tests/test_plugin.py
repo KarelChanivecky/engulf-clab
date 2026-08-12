@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from engulf_api import InvocationAPI, StateScope
+from engulf_clab_lab_parser import TopologySession, load_topology
 from engulf_executable_wrapper_api import BeforeCallEvent, CallMode, PreparedCallEvent
 
 from engulf_clab_ensure_vrnetlab.contract import (
@@ -28,6 +29,8 @@ def write_topology(path: Path, *, opted_in: bool) -> None:
 def invocation_api() -> Mock:
     api = Mock(spec=InvocationAPI)
     api.application.display_name = "engulf-clab"
+    api.application.product = "Engulf Containerlab"
+    api.application.short_product_name = "eclab"
     return api
 
 
@@ -53,8 +56,12 @@ class PluginLifecycleTest(unittest.TestCase):
         api.state.assert_not_called()
         api.set_context.assert_not_called()
 
+    @patch("engulf_clab_ensure_vrnetlab.plugin.require_vrnetlab_dependencies")
+    @patch("engulf_clab_ensure_vrnetlab.plugin.update_vrnetlab")
     @patch("engulf_clab_ensure_vrnetlab.plugin.ensure_checkout")
-    def test_opted_topology_publishes_user_checkout(self, ensure: Mock) -> None:
+    def test_opted_topology_publishes_user_checkout(
+        self, ensure: Mock, _update: Mock, _dependencies: Mock
+    ) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
             write_topology(topology, opted_in=True)
@@ -64,6 +71,7 @@ class PluginLifecycleTest(unittest.TestCase):
             api = invocation_api()
             api.lease.return_value = nullcontext()
             api.state.return_value = state
+            api.require_context.return_value = TopologySession(topology, load_topology(topology))
 
             EnsureVrnetlabPlugin().prepare_call(
                 PreparedCallEvent(
@@ -84,12 +92,14 @@ class PluginLifecycleTest(unittest.TestCase):
         "engulf_clab_ensure_vrnetlab.plugin.ensure_checkout",
         side_effect=EnsureVrnetlabError("clone failed"),
     )
-    def test_expected_failure_preempts_deploy(self, _ensure: Mock) -> None:
+    @patch("engulf_clab_ensure_vrnetlab.plugin.require_vrnetlab_dependencies")
+    def test_expected_failure_preempts_deploy(self, _dependencies: Mock, _ensure: Mock) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
             write_topology(topology, opted_in=True)
             api = invocation_api()
             api.lease.return_value = nullcontext()
+            api.require_context.return_value = TopologySession(topology, load_topology(topology))
 
             with self.assertRaises(EnsureVrnetlabError):
                 EnsureVrnetlabPlugin().prepare_call(

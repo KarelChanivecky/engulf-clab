@@ -22,9 +22,10 @@ It derives from `ExecutableWrapperPlugin` supplied by
 
 ## Development Notes
 
-- Derive the environment prefix from callback-bound `api.application.display_name`:
-  the official application uses `ENGULF_CLAB`, while `acme-clab` uses
-  `ACME_CLAB`. Analyze `deploy` calls without side effects, then provision only during
+- Derive the environment prefix from callback-bound
+  `api.application.short_product_name`, falling back to `api.application.product`:
+  the official application uses `ECLAB`, while a short product name of `acme clab`
+  uses `ACME_CLAB`. Analyze `deploy` calls without side effects, then provision only during
   `prepare_call()` once every analyzer has accepted the invocation. The plugin
   still activates only when the topology contains a node
   with a nonempty `<PREFIX>_VRNETLAB_TYPE` environment value.

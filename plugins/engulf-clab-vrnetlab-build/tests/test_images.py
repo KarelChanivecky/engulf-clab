@@ -7,10 +7,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock, call, patch
 
-from engulf_clab_vrnetlab.config import BuildRequest
-from engulf_clab_vrnetlab.errors import VrnetlabError
-from engulf_clab_vrnetlab.images import build_native_image, ensure_images
-from engulf_clab_vrnetlab.state import BuildFingerprint, save_state
+from engulf_clab_vrnetlab_build.config import BuildRequest
+from engulf_clab_vrnetlab_build.errors import VrnetlabError
+from engulf_clab_vrnetlab_build.images import build_native_image, ensure_images
+from engulf_clab_vrnetlab_build.state import BuildFingerprint, save_state
 
 
 class MemoryStateStore:
@@ -40,8 +40,8 @@ def lease_api() -> MagicMock:
 
 
 class EnsureImagesTest(unittest.TestCase):
-    @patch("engulf_clab_vrnetlab.images._require_command")
-    @patch("engulf_clab_vrnetlab.images.docker_image_exists", return_value=True)
+    @patch("engulf_clab_vrnetlab_build.images._require_command")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=True)
     def test_existing_image_without_source_is_used(
         self, image_exists: Mock, require_command: Mock
     ) -> None:
@@ -57,13 +57,13 @@ class EnsureImagesTest(unittest.TestCase):
         require_command.assert_called_once_with("docker")
         api.lease.assert_called_once_with("docker-image:vrnetlab/router:1")
 
-    @patch("engulf_clab_vrnetlab.images._require_command")
-    @patch("engulf_clab_vrnetlab.images.docker_image_exists", return_value=False)
+    @patch("engulf_clab_vrnetlab_build.images._require_command")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
     def test_missing_image_without_source_fails(
         self, image_exists: Mock, require_command: Mock
     ) -> None:
         request = BuildRequest("r1", "vrnetlab/router:1", "vendor/router", None)
-        with self.assertRaisesRegex(VrnetlabError, "no ENGULF_CLAB_VRNETLAB_IMG_PATH"):
+        with self.assertRaisesRegex(VrnetlabError, "no ECLAB_VRNETLAB_IMG_PATH"):
             ensure_images(
                 [request],
                 api=lease_api(),
@@ -71,10 +71,10 @@ class EnsureImagesTest(unittest.TestCase):
                 state_store=MemoryStateStore(),
             )
 
-    @patch("engulf_clab_vrnetlab.images.build_native_image")
-    @patch("engulf_clab_vrnetlab.images.vrnetlab_fingerprint", return_value="git:abc")
-    @patch("engulf_clab_vrnetlab.images._require_command")
-    @patch("engulf_clab_vrnetlab.images.docker_image_exists", return_value=True)
+    @patch("engulf_clab_vrnetlab_build.images.build_native_image")
+    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
+    @patch("engulf_clab_vrnetlab_build.images._require_command")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=True)
     def test_matching_fingerprint_skips_build(
         self,
         image_exists: Mock,
@@ -112,10 +112,10 @@ class EnsureImagesTest(unittest.TestCase):
             ("docker-image:vrnetlab/router:1", f"vrnetlab-builder:{builder.resolve()}")
         )
 
-    @patch("engulf_clab_vrnetlab.images.build_native_image")
-    @patch("engulf_clab_vrnetlab.images.vrnetlab_fingerprint", return_value="git:abc")
-    @patch("engulf_clab_vrnetlab.images._require_command")
-    @patch("engulf_clab_vrnetlab.images.docker_image_exists", return_value=False)
+    @patch("engulf_clab_vrnetlab_build.images.build_native_image")
+    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
+    @patch("engulf_clab_vrnetlab_build.images._require_command")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
     def test_conflicting_sources_for_one_tag_fail_before_build(
         self,
         image_exists: Mock,
@@ -149,9 +149,9 @@ class EnsureImagesTest(unittest.TestCase):
 
 
 class NativeBuildTest(unittest.TestCase):
-    @patch("engulf_clab_vrnetlab.images._protect_target_image", return_value=None)
-    @patch("engulf_clab_vrnetlab.images.docker_image_exists", return_value=True)
-    @patch("engulf_clab_vrnetlab.images._run")
+    @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value=None)
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=True)
+    @patch("engulf_clab_vrnetlab_build.images._run")
     def test_builder_files_are_cleaned_and_restored(
         self, run: Mock, image_exists: Mock, protect: Mock
     ) -> None:
@@ -174,16 +174,69 @@ class NativeBuildTest(unittest.TestCase):
             self.assertFalse(stale.exists())
             run.assert_called_once_with(["make"], cwd=builder)
 
-    @patch("engulf_clab_vrnetlab.images._restore_target_image")
-    @patch("engulf_clab_vrnetlab.images._protect_target_image", return_value="backup:tag")
-    @patch("engulf_clab_vrnetlab.images.docker_image_exists", return_value=False)
-    @patch("engulf_clab_vrnetlab.images._run")
+    @patch(
+        "engulf_clab_vrnetlab_build.images._native_image_tag_from_make",
+        return_value="vrnetlab/vr-fortios:fortios",
+    )
+    @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value=None)
+    @patch(
+        "engulf_clab_vrnetlab_build.images.docker_image_exists",
+        side_effect=(False, True),
+    )
+    @patch("engulf_clab_vrnetlab_build.images._run")
+    def test_native_image_is_tagged_with_requested_name(
+        self,
+        run: Mock,
+        image_exists: Mock,
+        protect: Mock,
+        native_tag: Mock,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            builder = root / "fortinet" / "fortigate"
+            builder.mkdir(parents=True)
+            source = root / "fortios.qcow2"
+            source.write_bytes(b"source")
+            requested = "vrnetlab/fortinet_fortigate:8.0.0"
+
+            build_native_image(source, builder, requested)
+
+        self.assertEqual(
+            run.call_args_list,
+            [
+                call(["make"], cwd=builder),
+                call(
+                    [
+                        "docker",
+                        "tag",
+                        "vrnetlab/vr-fortios:fortios",
+                        requested,
+                    ]
+                ),
+            ],
+        )
+        self.assertEqual(
+            image_exists.call_args_list,
+            [call(requested), call("vrnetlab/vr-fortios:fortios")],
+        )
+        protect.assert_called_once_with(requested)
+        native_tag.assert_called_once_with(builder)
+
+    @patch(
+        "engulf_clab_vrnetlab_build.images._native_image_tag_from_make",
+        return_value=None,
+    )
+    @patch("engulf_clab_vrnetlab_build.images._restore_target_image")
+    @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value="backup:tag")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
+    @patch("engulf_clab_vrnetlab_build.images._run")
     def test_missing_native_tag_restores_previous_target(
         self,
         run: Mock,
         image_exists: Mock,
         protect: Mock,
         restore: Mock,
+        native_tag: Mock,
     ) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -197,6 +250,7 @@ class NativeBuildTest(unittest.TestCase):
 
         restore.assert_called_once_with("backup:tag", "vrnetlab/router:1")
         self.assertEqual(run.call_args_list, [call(["make"], cwd=builder)])
+        native_tag.assert_called_once_with(builder)
 
 
 if __name__ == "__main__":

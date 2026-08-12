@@ -54,6 +54,40 @@ def docker_image_exists(image: str) -> bool:
     return docker_image_id(image) is not None
 
 
+def _native_image_tag_from_make(builder: Path) -> str | None:
+    target = "engulf-print-native-image"
+    rule = (
+        f"{target}: ; "
+        '@printf "%s\\n" "$(if $(VR_NAME),$(REGISTRY)vr-$(VR_NAME),'
+        '$(IMG_REPOSITORY)):$(VERSION)"'
+    )
+    result = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--silent",
+            f"--eval={rule}",
+            target,
+        ],
+        cwd=builder,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        return None
+
+    for line in reversed(result.stdout.splitlines()):
+        candidate = line.strip()
+        repository, separator, tag = candidate.rpartition(":")
+        if separator and repository and tag and not any(
+            character.isspace() for character in candidate
+        ):
+            return candidate
+    return None
+
+
 def _remove_image_tag(image: str, *, check: bool) -> None:
     subprocess.run(
         ["docker", "image", "rm", image],
@@ -67,7 +101,7 @@ def _protect_target_image(image: str) -> str | None:
     if not docker_image_exists(image):
         return None
 
-    backup = f"engulf-clab-vrnetlab-backup:{uuid.uuid4().hex}"
+    backup = f"engulf-clab-vrnetlab-build-backup:{uuid.uuid4().hex}"
     _run(["docker", "tag", image, backup])
     try:
         _run(["docker", "image", "rm", image])
@@ -142,7 +176,7 @@ def _cleanup_builder(builder: Path, backup_dir: Path, staged_name: str) -> None:
 
 
 def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
-    with tempfile.TemporaryDirectory(prefix="engulf-clab-vrnetlab-build-") as directory:
+    with tempfile.TemporaryDirectory(prefix="engulf-clab-vrnetlab-build-build-") as directory:
         work_dir = Path(directory)
         backup_dir = work_dir / "existing-qcow2"
         source_for_staging = qcow2
@@ -162,9 +196,14 @@ def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
             try:
                 _run(["make"], cwd=builder)
                 if not docker_image_exists(image):
-                    raise VrnetlabError(
-                        f"vrnetlab builder completed without creating required image {image}"
-                    )
+                    native_image = _native_image_tag_from_make(builder)
+                    if native_image is None or not docker_image_exists(native_image):
+                        raise VrnetlabError(
+                            "vrnetlab builder completed without creating required image "
+                            f"{image}"
+                        )
+                    info(f"tagging native vrnetlab image {native_image} as {image}")
+                    _run(["docker", "tag", native_image, image])
             except (OSError, subprocess.SubprocessError, VrnetlabError) as build_error:
                 if target_backup is not None:
                     backup_to_restore = target_backup
@@ -257,7 +296,7 @@ def ensure_images(
     api: InvocationAPI,
     checkout_context: object | None,
     state_store: StateStore,
-    source_environment: str = "ENGULF_CLAB_VRNETLAB_IMG_PATH",
+    source_environment: str = "ECLAB_VRNETLAB_IMG_PATH",
 ) -> None:
     if not requests:
         return

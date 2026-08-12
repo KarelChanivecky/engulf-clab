@@ -7,11 +7,12 @@ from unittest.mock import Mock, patch
 
 from engulf_api import InvocationAPI, StateScope
 from engulf_clab_ensure_vrnetlab import ENSURE_VRNETLAB_PLUGIN_ID
+from engulf_clab_lab_parser import TopologySession
 from engulf_executable_wrapper_api import BeforeCallEvent, CallMode, PreparedCallEvent
 
-from engulf_clab_vrnetlab.errors import VrnetlabError
-from engulf_clab_vrnetlab.plugin import VrnetlabPlugin
-from engulf_clab_vrnetlab.topology import load_topology
+from engulf_clab_vrnetlab_build.errors import VrnetlabError
+from engulf_clab_vrnetlab_build.plugin import VrnetlabPlugin
+from engulf_clab_vrnetlab_build.topology import load_topology
 
 
 class PluginLifecycleTest(unittest.TestCase):
@@ -19,6 +20,8 @@ class PluginLifecycleTest(unittest.TestCase):
     def api() -> Mock:
         api = Mock(spec=InvocationAPI)
         api.application.display_name = "engulf-clab"
+        api.application.product = "Engulf Containerlab"
+        api.application.short_product_name = "eclab"
         return api
 
     def test_ensure_vrnetlab_is_a_hard_preprocess_dependency(self) -> None:
@@ -48,7 +51,7 @@ class PluginLifecycleTest(unittest.TestCase):
             with self.assertRaises(VrnetlabError):
                 load_topology(topology)
 
-    @patch("engulf_clab_vrnetlab.plugin.ensure_images")
+    @patch("engulf_clab_vrnetlab_build.plugin.ensure_images")
     def test_deploy_without_opted_in_nodes_does_not_touch_checkout(self, ensure: Mock) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
@@ -79,7 +82,7 @@ topology:
         api.get_context.assert_not_called()
         api.state.assert_not_called()
 
-    @patch("engulf_clab_vrnetlab.plugin.ensure_images")
+    @patch("engulf_clab_vrnetlab_build.plugin.ensure_images")
     def test_opted_in_deploy_uses_user_state(self, ensure: Mock) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
@@ -100,6 +103,9 @@ topology:
             state_store = object()
             api.get_context.return_value = "/managed/vrnetlab"
             api.state.return_value = state_store
+            api.require_context.return_value = TopologySession(
+                topology, load_topology(topology)
+            )
 
             plugin.prepare_call(
                 PreparedCallEvent(
