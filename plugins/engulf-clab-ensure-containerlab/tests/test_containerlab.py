@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_clab_ensure_containerlab.containerlab import ensure_binary, ensure_repo_binary
+from engulf_clab_ensure_containerlab.containerlab import (
+    ensure_binary,
+    ensure_repo_binary,
+    require_containerlab_dependencies,
+)
 from engulf_clab_ensure_containerlab.errors import EnsureContainerlabError
 
 
@@ -34,6 +37,11 @@ def make_checkout(path: Path, *, binary: bool = False) -> None:
 
 
 class EnsureContainerlabTest(unittest.TestCase):
+    @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which", return_value=None)
+    def test_missing_docker_is_reported(self, _which: Mock) -> None:
+        with self.assertRaisesRegex(EnsureContainerlabError, "missing required command: docker"):
+            require_containerlab_dependencies()
+
     def test_executable_environment_override_takes_precedence(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

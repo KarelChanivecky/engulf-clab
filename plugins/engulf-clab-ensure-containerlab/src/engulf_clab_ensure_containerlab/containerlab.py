@@ -9,7 +9,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from engulf_api import StateStore
-from engulf_clab_ensure_checkout import CheckoutConfig, CheckoutError, ensure_checkout
+from engulf_clab_ensure_checkout import (
+    CheckoutConfig,
+    CheckoutError,
+    UpdateConfig,
+    ensure_checkout,
+    update_checkout,
+)
 
 from .errors import EnsureContainerlabError
 from .logging import info, warning
@@ -23,10 +29,34 @@ _CHECKOUT_CONFIG = CheckoutConfig(
     repository_env="CONTAINERLAB_REPO",
     default_repository=DEFAULT_CONTAINERLAB_REPO,
 )
+_UPDATE_CONFIG = UpdateConfig(
+    label="Containerlab",
+    update_env="CONTAINERLAB_UPDATE",
+    version_env="CONTAINERLAB_VERSION",
+)
+
+
+def update_containerlab(
+    state: StateStore,
+    checkout: Path,
+    environ: Mapping[str, str],
+) -> bool:
+    try:
+        return update_checkout(
+            state, checkout, environ, config=_UPDATE_CONFIG, info=info
+        )
+    except CheckoutError as error:
+        raise EnsureContainerlabError(str(error)) from error
 
 
 def executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
+
+
+def require_containerlab_dependencies() -> None:
+    """Fail before a wrapped call when the Containerlab Docker dependency is absent."""
+    if shutil.which("docker") is None:
+        raise EnsureContainerlabError("missing required command: docker")
 
 
 def valid_containerlab_checkout(path: Path) -> bool:
@@ -49,8 +79,8 @@ def _run(argv: Sequence[str], *, cwd: Path | None = None) -> None:
         ) from error
 
 
-def ensure_repo_binary(checkout: Path) -> Path:
-    if binary := find_repo_binary(checkout):
+def ensure_repo_binary(checkout: Path, *, rebuild: bool = False) -> Path:
+    if not rebuild and (binary := find_repo_binary(checkout)):
         return binary
     if shutil.which("go") is None:
         raise EnsureContainerlabError("missing required command: go")
@@ -83,6 +113,9 @@ def ensure_binary(
         candidate = Path(configured_checkout).expanduser().resolve()
         if valid_containerlab_checkout(candidate):
             info(f"using CONTAINERLAB_DIR checkout {candidate}")
+            changed = update_containerlab(state, candidate, current_env)
+            if changed:
+                return ensure_repo_binary(candidate, rebuild=True)
             return ensure_repo_binary(candidate)
 
     if path_binary := shutil.which("containerlab"):
@@ -102,4 +135,7 @@ def ensure_binary(
         )
     except CheckoutError as error:
         raise EnsureContainerlabError(str(error)) from error
+    changed = update_containerlab(state, checkout, current_env)
+    if changed:
+        return ensure_repo_binary(checkout, rebuild=True)
     return ensure_repo_binary(checkout)

@@ -15,8 +15,9 @@ from engulf_clab_ensure_containerlab.plugin import EnsureContainerlabPlugin
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_dependencies")
     @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
-    def test_prepare_exposes_binary_for_the_wrapped_call(self, ensure: Mock) -> None:
+    def test_prepare_exposes_binary_for_the_wrapped_call(self, ensure: Mock, _dependencies: Mock) -> None:
         with TemporaryDirectory() as directory:
             binary = Path(directory) / "containerlab"
             binary.write_text("#!/bin/sh\n", encoding="utf-8")
