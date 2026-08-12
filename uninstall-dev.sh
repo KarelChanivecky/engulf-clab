@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Remove development-installed Engulf and eclab distributions from one venv.
+set -euo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+venv_dir="${VENV_DIR:-${repository_root}/.venv}"
+python_executable="${venv_dir}/bin/python"
+
+if [[ ! -x "${python_executable}" ]]; then
+    echo "No development virtual environment at ${venv_dir}; nothing to uninstall."
+    exit 0
+fi
+
+"${python_executable}" -m pip uninstall --yes \
+    engulf-clab \
+    engulf-clab-all-plugins \
+    engulf-clab-plugins \
+    engulf-clab-license-pool \
+    engulf-clab-freeze \
+    engulf-clab-health-gates \
+    engulf-clab-wan \
+    engulf-clab-vrnetlab-build \
+    engulf-clab-vrnetlab \
+    engulf-clab-ensure-vrnetlab \
+    engulf-clab-ensure-containerlab \
+    engulf-clab-dockerfile-build \
+    engulf-clab-dockerfile \
+    engulf-clab-lab-writer \
+    engulf-clab-lab-parser \
+    engulf-clab-topology-collector \
+    engulf-clab-topology \
+    engulf-clab-ensure-checkout \
+    engulf \
+    engulf-executable-wrapper \
+    engulf-executable-wrapper-api \
+    engulf-api
+
+echo "Removed development eclab packages from ${venv_dir}."
+echo "The virtual environment itself was kept; remove it manually if no longer needed."
