@@ -12,14 +12,16 @@ license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-lab-parser>=0.1,<0.2",
+    "engulf-clab-lab-writer>=0.1,<0.2",
     "PyYAML>=6.0",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
-"dev.karel.engulf_clab.wan" = "engulf_clab_wan:plugin"
+"engulf_clab.wan" = "engulf_clab_wan:plugin"
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
-"dev.karel.engulf_clab.wan" = "engulf_clab_wan:plugin"
+"engulf_clab.wan" = "engulf_clab_wan:plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_wan"]

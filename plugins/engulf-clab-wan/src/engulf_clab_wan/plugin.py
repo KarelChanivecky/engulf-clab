@@ -3,7 +3,8 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Iterable
 
-from engulf_api import InvocationAPI, StateScope, WorkspaceState
+from engulf_api import DependencyPosition, InvocationAPI, PluginDependency, StateScope, WorkspaceState
+from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
     BeforeCallEvent,
@@ -34,8 +35,13 @@ def destroy_all_requested(args: tuple[str, ...]) -> bool:
 
 
 class WanPlugin(ExecutableWrapperPlugin):
-    plugin_id = "dev.karel.engulf_clab.wan"
+    plugin_id = "engulf_clab.wan"
     priority = 50
+    plugin_dependencies = (
+        PluginDependency("engulf_clab.lab_parser", preprocess=DependencyPosition.BEFORE, postprocess=None),
+        PluginDependency("engulf_clab.lab_writer", preprocess=DependencyPosition.AFTER, postprocess=None),
+    )
+    context_reads = frozenset({TOPOLOGY_CONTEXT})
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering DHCP WAN help")
@@ -90,7 +96,10 @@ class WanPlugin(ExecutableWrapperPlugin):
     def _setup_before_deploy(self, args: tuple[str, ...], api: InvocationAPI) -> None:
         try:
             topology_path = topology_path_from_args(args)
-            topology_data = load_topology(topology_path)
+            session = api.require_context(TOPOLOGY_CONTEXT)
+            if not isinstance(session, TopologySession):
+                raise WanError("invalid shared topology session")
+            topology_data = session.original_document()
             bridges = dhcp_wan_bridges(topology_data)
             if not bridges:
                 return
@@ -104,6 +113,15 @@ class WanPlugin(ExecutableWrapperPlugin):
                     api.state(StateScope.WORKSPACE),
                     api.state(StateScope.USER),
                 )
+                mutation = editor(api, self.plugin_id)
+                topology = topology_data.get("topology", {})
+                nodes = topology.get("nodes", {}) if isinstance(topology, dict) else {}
+                for bridge in bridges:
+                    labels = nodes.get(bridge.name, {}).get("labels", {}) if isinstance(nodes, dict) else {}
+                    if isinstance(labels, dict):
+                        for key in labels:
+                            if str(key).startswith("FCLAB_DHCP_"):
+                                mutation.delete(("topology", "nodes", bridge.name, "labels", str(key)))
         except (WanError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)
             raise

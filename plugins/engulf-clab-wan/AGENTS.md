@@ -19,7 +19,7 @@ It watches Containerlab calls for:
 - Goal catalog: `engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper`
 - Application declaration: `engulf.plugins.v1.application.engulf_clab`
 - Plugin import package: `engulf_clab_wan`
-- Plugin ID: `dev.karel.engulf_clab.wan`
+- Plugin ID: `engulf_clab.wan`
 
 Plugin code imports `engulf_api`, not `engulf`.
 It derives from `ExecutableWrapperPlugin` supplied by

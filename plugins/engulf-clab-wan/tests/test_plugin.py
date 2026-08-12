@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, call, patch
 
 from engulf_api import InvocationAPI, StateScope, StateStore, WorkspaceState
+from engulf_clab_lab_parser import TopologySession, load_topology
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
     CallMode,
@@ -56,6 +57,9 @@ class PluginStateLifecycleTest(unittest.TestCase):
             user_state = Mock(spec=StateStore)
             api = Mock(spec=InvocationAPI)
             api.leases.return_value = nullcontext()
+            api.require_context.return_value = TopologySession(
+                topology, load_topology(topology)
+            )
             api.state.side_effect = lambda scope: (
                 workspace if scope is StateScope.WORKSPACE else user_state
             )

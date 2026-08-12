@@ -30,6 +30,14 @@ class EngulfStateIntegrationTest(unittest.TestCase):
 
             plugin_dir = root / "plugins"
             plugin_dir.mkdir()
+            (plugin_dir / "lab_parser.py").write_text(
+                "from engulf_clab_lab_parser import plugin\n",
+                encoding="utf-8",
+            )
+            (plugin_dir / "lab_writer.py").write_text(
+                "from engulf_clab_lab_writer import plugin\n",
+                encoding="utf-8",
+            )
             (plugin_dir / "wan.py").write_text(
                 "from engulf_clab_wan.plugin import plugin\n",
                 encoding="utf-8",
