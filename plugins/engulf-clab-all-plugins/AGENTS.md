@@ -1,6 +1,6 @@
 # Plugin Instructions
 
-This directory contains the `engulf-clab-plugins` meta-package.
+This directory contains the `engulf-clab-all-plugins` meta-package.
 
 ## Purpose
 

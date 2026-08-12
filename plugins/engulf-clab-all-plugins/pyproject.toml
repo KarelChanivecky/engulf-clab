@@ -3,21 +3,27 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "engulf-clab-plugins"
+name = "engulf-clab-all-plugins"
 version = "0.1.0"
 description = "Meta-package that installs all engulf-clab plugins"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
+    "engulf-clab-health-gates>=0.1,<0.2",
+    "engulf-clab-license-pool>=0.1,<0.2",
+    "engulf-clab-freeze>=0.1,<0.2",
+    "engulf-clab-lab-parser>=0.1,<0.2",
+    "engulf-clab-lab-writer>=0.1,<0.2",
+    "engulf-clab-dockerfile-build>=0.1,<0.2",
     "engulf-clab-ensure-containerlab>=0.1,<0.2",
     "engulf-clab-ensure-vrnetlab>=0.1,<0.2",
-    "engulf-clab-vrnetlab>=0.1,<0.2",
+    "engulf-clab-vrnetlab-build>=0.1,<0.2",
     "engulf-clab-wan>=0.1,<0.2",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/engulf_clab_plugins"]
+packages = ["src/engulf_clab_all_plugins"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -34,4 +40,4 @@ target-version = "py314"
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src/engulf_clab_plugins"]
+files = ["src/engulf_clab_all_plugins"]
