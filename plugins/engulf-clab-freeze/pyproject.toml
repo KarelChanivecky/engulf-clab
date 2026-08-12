@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-freeze"
+version = "0.1.0"
+description = "Create portable, sanitized frozen engulf-clab lab archives"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-lab-parser>=0.1,<0.2",
+    "engulf-clab-vrnetlab-build>=0.1,<0.2",
+    "PyYAML>=6.0",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.freeze" = "engulf_clab_freeze:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.freeze" = "engulf_clab_freeze:plugin"
+
+[project.entry-points."engulf_clab.freeze_commands"]
+freeze = "engulf_clab_freeze.command:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_freeze"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]
