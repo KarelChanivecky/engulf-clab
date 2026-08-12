@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+[project]
+name = "engulf-clab-lab-writer"
+version = "0.1.0"
+description = "Render deferred engulf-clab topology mutations"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = ["engulf-api>=1.0,<2", "engulf-executable-wrapper-api>=1.0,<2", "engulf-clab-lab-parser>=0.1,<0.2", "PyYAML>=6.0"]
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.lab_writer" = "engulf_clab_lab_writer:plugin"
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.lab_writer" = "engulf_clab_lab_writer:plugin"
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_lab_writer"]
