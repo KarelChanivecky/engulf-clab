@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-mcp"
+version = "0.1.0"
+description = "Privileged local MCP control plane for engulf-clab"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-clab>=0.1,<0.2",
+    "engulf-plugin-list>=0.1,<0.2",
+    "mcp>=1.26,<2",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+all-plugins = ["engulf-clab-all-plugins>=0.1,<0.2"]
+
+[project.scripts]
+eclab-mcp = "engulf_clab_mcp.bridge:main"
+eclab-mcpd = "engulf_clab_mcp.daemon:main"
+eclab-mcp-install-system = "engulf_clab_mcp.system_install:install_main"
+eclab-mcp-uninstall-system = "engulf_clab_mcp.system_install:uninstall_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_mcp"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"systemd/eclab-mcpd.service" = "engulf_clab_mcp/systemd/eclab-mcpd.service"
+"scripts/install-system.sh" = "engulf_clab_mcp/scripts/install-system.sh"
+"scripts/uninstall-system.sh" = "engulf_clab_mcp/scripts/uninstall-system.sh"
+"etc/eclab-mcp/config.toml.example" = "engulf_clab_mcp/etc/eclab-mcp/config.toml.example"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/systemd",
+    "/etc",
+    "/scripts",
+    "/AGENTS.md",
+    "/LICENSE",
+    "/README.md",
+    "/build.sh",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src"]

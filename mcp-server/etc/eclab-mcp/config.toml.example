@@ -1,0 +1,31 @@
+# This file is read only by the root-owned eclab-mcpd service.
+# Install it as /etc/eclab-mcp/config.toml with mode 0600.
+
+[service]
+socket_path = "/run/eclab-mcp/eclab-mcp.sock"
+socket_group = "eclab-mcp"
+eclab_binary = "/usr/local/bin/eclab"
+containerlab_binary = "/usr/bin/containerlab"
+docker_binary = "/usr/bin/docker"
+state_dir = "/var/lib/eclab-mcp"
+log_dir = "/var/log/eclab-mcp"
+runtime_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+job_retention_days = 14
+max_job_log_bytes = 2097152
+max_rpc_frame_bytes = 65536
+max_read_output_bytes = 65536
+read_timeout_seconds = 30
+cancel_grace_seconds = 10
+
+# Add every directory whose topology files agents may operate on. Paths must
+# already exist, be absolute, and not be symlinks.
+[[lab_roots]]
+id = "labs"
+path = "/srv/eclab-labs"
+
+# Environment carries root-owned ordinary defaults. Secrets cannot be overridden
+# by clients and neither map is logged. Pool paths used by `license: $POOL` and
+# frozen-license choices belong here, never in agent-provided environment values.
+[profiles.default]
+environment = { FORTIGATE_LICENSES = "/srv/eclab/licenses/fortigate" }
+secrets = { PRIVATE_REGISTRY_TOKEN = "replace-before-starting-the-service" }

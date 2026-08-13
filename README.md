@@ -68,6 +68,60 @@ Use `./uninstall-dev.sh` to remove the development distributions from that
 virtual environment without deleting the environment itself. Set `VENV_DIR` to
 use a location other than `.venv`.
 
+## Local MCP control service
+
+`engulf-clab-mcp` is an optional local control plane for MCP agents that need to
+deploy and destroy labs without a general-purpose `sudo` path. An unprivileged
+`eclab-mcp` bridge uses standard MCP stdio and sends narrowly typed requests to
+a root-owned `eclab-mcpd` daemon over a group-protected Unix socket. It exposes
+lab discovery, validation, deploy/destroy jobs, status, node logs, diagnostics,
+and job controls—never arbitrary commands, arbitrary flags, arbitrary paths, or
+`destroy --all`.
+
+From a source checkout, one guided command installs the root-owned service
+runtime, creates the local-only service, and collects the initial configuration:
+
+```bash
+ENGULF_DIR=../engulf ./install-mcp.sh
+```
+
+It asks for allowed topology roots, the local users allowed to operate labs, and
+optional service-owned profile variables (with a hidden prompt for secrets).
+It then validates the generated configuration and starts the service. Docker,
+Containerlab, and Python 3.14 must already be available on the host.
+
+For an unattended installation, provide the trusted root and operator directly:
+
+```bash
+ENGULF_DIR=../engulf ./install-mcp.sh --noninteractive \
+  --lab-root labs=/srv/eclab-labs \
+  --user "$USER"
+```
+
+After publishing the packages, install the service runtime in an
+administrator-owned environment and use the same guided service installer:
+
+```bash
+sudo python3.14 -m venv /opt/eclab-mcp/venv
+sudo /opt/eclab-mcp/venv/bin/python -m pip install 'engulf-clab-mcp[all-plugins]'
+sudo /opt/eclab-mcp/venv/bin/eclab-mcp-install-system --interactive
+```
+
+Or pass the configuration explicitly:
+
+```bash
+sudo /opt/eclab-mcp/venv/bin/eclab-mcp-install-system \
+  --lab-root labs=/srv/eclab-labs \
+  --user "$USER"
+```
+
+See [the MCP server guide](mcp-server/README.md) for its root-owned TOML
+configuration, client setup, environment override boundary, and uninstall
+procedure. Members of the `eclab-mcp` group are trusted lab operators; a
+writable configured lab root is privileged input. The guided source installer
+uses `/opt/eclab-mcp/venv`, not this user-writable development virtual
+environment.
+
 Engulf discovers installed plugin entry points automatically. `eclab`
 passes ordinary arguments through to Containerlab. Wrapper diagnostic options
 are removed before Containerlab runs; for example,
@@ -108,6 +162,7 @@ required host tools, and cleanup behavior.
 | Package | Purpose |
 | --- | --- |
 | `engulf-clab` | Distribution that installs the `eclab` Containerlab wrapper command. |
+| `engulf-clab-mcp` | Local Unix-socket privileged MCP executor and standard-stdio bridge. |
 | `engulf-clab-all-plugins` | Meta-package that installs all maintained plugins. |
 | `engulf-clab-containers-api` | Typed contract for independently published container collections. |
 | `engulf-clab-containers` | Injects active collection recipes into temporary topologies. |

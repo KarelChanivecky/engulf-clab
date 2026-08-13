@@ -1,0 +1,27 @@
+[Unit]
+Description=Privileged local eclab MCP executor
+Documentation=file:///usr/share/doc/engulf-clab-mcp/README.md
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=@ECLAB_MCPD@ --config /etc/eclab-mcp/config.toml
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=75s
+UMask=0077
+Environment=PYTHONNOUSERSITE=1
+RuntimeDirectory=eclab-mcp
+# Socket access is controlled by its root:eclab-mcp 0660 mode. Group users need
+# directory traversal but must not be able to replace files in the directory.
+RuntimeDirectoryMode=0711
+StateDirectory=eclab-mcp
+StateDirectoryMode=0700
+LogsDirectory=eclab-mcp
+LogsDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

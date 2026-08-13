@@ -45,7 +45,10 @@ if ! "${python_executable}" -m pip --version >/dev/null 2>&1; then
     fi
 fi
 
-"${python_executable}" -m pip install --upgrade 'build>=1.2,<2' 'PyYAML>=6.0'
+"${python_executable}" -m pip install --upgrade \
+    'build>=1.2,<2' \
+    'mcp>=1.26,<2' \
+    'PyYAML>=6.0'
 
 # Engulf owns its own build environment and validates its artifacts there.
 "${engulf_root}/build.sh"
@@ -66,6 +69,7 @@ local_packages=(
     "plugins/engulf-clab-freeze"
     "plugins/engulf-clab-all-plugins"
     "engulf-clab"
+    "mcp-server"
 )
 
 for package in "${local_packages[@]}"; do
@@ -105,6 +109,7 @@ engulf_packages=(
     "engulf-executable-wrapper-api"
     "engulf-executable-wrapper"
     "engulf"
+    "plugins/engulf-plugin-list"
 )
 for package in "${engulf_packages[@]}"; do
     install_wheel "${engulf_root}/${package}"
@@ -117,11 +122,12 @@ done
 "${python_executable}" -c \
     'from engulf_clab import CONTAINERLAB_APPLICATION; application = CONTAINERLAB_APPLICATION.create(); application.close()'
 
-if [[ ! -x "${venv_dir}/bin/eclab" ]]; then
-    echo "error: local install did not produce ${venv_dir}/bin/eclab" >&2
+if [[ ! -x "${venv_dir}/bin/eclab" || ! -x "${venv_dir}/bin/eclab-mcp" || ! -x "${venv_dir}/bin/eclab-mcpd" ]]; then
+    echo "error: local install did not produce eclab, eclab-mcp, and eclab-mcpd commands" >&2
     exit 1
 fi
 
 echo "Installed local development eclab: ${venv_dir}/bin/eclab"
+echo "Installed local development MCP bridge: ${venv_dir}/bin/eclab-mcp"
 echo "Use: source \"${venv_dir}/bin/activate\""
 echo "Or:  PATH=\"${venv_dir}/bin:\$PATH\" eclab --help"

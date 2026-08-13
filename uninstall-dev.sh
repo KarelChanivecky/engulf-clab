@@ -12,6 +12,7 @@ if [[ ! -x "${python_executable}" ]]; then
 fi
 
 "${python_executable}" -m pip uninstall --yes \
+    engulf-clab-mcp \
     engulf-clab \
     engulf-clab-all-plugins \
     engulf-clab-health-gates \
@@ -36,7 +37,9 @@ fi
     engulf \
     engulf-executable-wrapper \
     engulf-executable-wrapper-api \
-    engulf-api
+    engulf-api \
+    engulf-plugin-list \
+    mcp
 
 echo "Removed development eclab packages from ${venv_dir}."
 echo "The virtual environment itself was kept; remove it manually if no longer needed."
