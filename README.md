@@ -52,7 +52,6 @@ feature package you intend to exercise in editable mode:
 ```bash
 python -m pip install -e ./engulf-clab
 python -m pip install -e ./plugins/engulf-clab-ensure-containerlab
-python -m pip install -e ./plugins/engulf-clab-health-gates
 ```
 
 Alternatively, `install-dev.sh` builds the local Engulf and eclab trees into an
@@ -78,15 +77,11 @@ plugin.
 
 ## Typical topology
 
-This example builds an image, allocates a license, waits for the resulting
-nodes, and then deploys the normal Containerlab topology.
+This example builds an image, allocates a license, and then deploys the normal
+Containerlab topology.
 
 ```yaml
 name: demo
-
-x-engulf-clab-health-gates:
-  timeout: 180
-  nodes: [router]
 
 topology:
   nodes:
@@ -121,7 +116,6 @@ required host tools, and cleanup behavior.
 | `engulf-clab-license-pool` | Shares license files safely across labs. |
 | `engulf-clab-freeze` | Produces sanitized, portable frozen lab archives. |
 | `engulf-clab-wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
-| `engulf-clab-health-gates` | Waits for selected nodes to become ready. |
 | `engulf-clab-lab-parser` | Shared original-topology and deferred-mutation API. |
 | `engulf-clab-lab-writer` | Renders deferred mutations into a temporary topology. |
 

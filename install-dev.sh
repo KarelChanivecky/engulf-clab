@@ -59,7 +59,6 @@ local_packages=(
     "plugins/engulf-clab-dockerfile-build"
     "plugins/engulf-clab-vrnetlab-build"
     "plugins/engulf-clab-wan"
-    "plugins/engulf-clab-health-gates"
     "plugins/engulf-clab-license-pool"
     "plugins/engulf-clab-freeze"
     "plugins/engulf-clab-all-plugins"
@@ -95,6 +94,7 @@ install_wheel() {
     engulf-clab-vrnetlab \
     engulf-clab-topology-collector \
     engulf-clab-topology \
+    engulf-clab-health-gates \
     >/dev/null
 
 engulf_packages=(
