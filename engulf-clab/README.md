@@ -49,6 +49,29 @@ engulf.plugins.v1.application.engulf_clab
 The companion `engulf-clab-all-plugins` package installs all maintained extensions;
 individual feature packages can be installed instead for a smaller footprint.
 
+## Packaged container nodes
+
+The optional `engulf-clab-containers` manager consumes declarative recipes from
+independently installed collection plugins. Use
+`eclab --eclab-containers-help` to list the active images. The maintained
+`engulf-clab-containers-core` collection includes this host connector:
+
+```yaml
+topology:
+  nodes:
+    host-plug:
+      image: eclab.containers/host-connector
+      env:
+        ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"
+  links:
+    - endpoints: ["router:eth1", "host-plug:eth1"]
+```
+
+The connector keeps `eth0` for management and treats every other interface as
+lab-facing. It forwards all protocols from each VIP to its external target over
+the management network, with source NAT and per-interface reply steering. It
+does not create a general WAN or DHCP service.
+
 ## Freeze a shareable lab
 
 With `engulf-clab-freeze` installed, create a sanitized archive without changing

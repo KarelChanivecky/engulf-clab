@@ -14,10 +14,13 @@ fi
 "${python_executable}" -m pip uninstall --yes \
     engulf-clab \
     engulf-clab-all-plugins \
+    engulf-clab-health-gates \
+    engulf-clab-containers-core \
+    engulf-clab-containers \
+    engulf-clab-containers-api \
     engulf-clab-plugins \
     engulf-clab-license-pool \
     engulf-clab-freeze \
-    engulf-clab-health-gates \
     engulf-clab-wan \
     engulf-clab-vrnetlab-build \
     engulf-clab-vrnetlab \

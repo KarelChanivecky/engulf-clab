@@ -109,6 +109,9 @@ required host tools, and cleanup behavior.
 | --- | --- |
 | `engulf-clab` | Distribution that installs the `eclab` Containerlab wrapper command. |
 | `engulf-clab-all-plugins` | Meta-package that installs all maintained plugins. |
+| `engulf-clab-containers-api` | Typed contract for independently published container collections. |
+| `engulf-clab-containers` | Injects active collection recipes into temporary topologies. |
+| `engulf-clab-containers-core` | Core collection including the host connector. |
 | `engulf-clab-ensure-containerlab` | Finds, builds, or provisions Containerlab. |
 | `engulf-clab-dockerfile-build` | Builds node images declared with Dockerfile variables. |
 | `engulf-clab-ensure-vrnetlab` | Finds or provisions a vrnetlab checkout. |
@@ -118,6 +121,30 @@ required host tools, and cleanup behavior.
 | `engulf-clab-wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
 | `engulf-clab-lab-parser` | Shared original-topology and deferred-mutation API. |
 | `engulf-clab-lab-writer` | Renders deferred mutations into a temporary topology. |
+
+## Packaged containers
+
+Active collection plugins provide reusable node images without copying their
+Dockerfiles into each lab. List them with `eclab --eclab-containers-help`. A
+collection owns the image namespace derived from its plugin ID; the core
+`eclab.containers` collection provides:
+
+```yaml
+topology:
+  nodes:
+    outside-vm:
+      image: eclab.containers/host-connector
+      env:
+        ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"
+  links:
+    - endpoints: ["router:eth1", "outside-vm:eth1"]
+```
+
+The connector reserves `eth0` for Containerlab management and treats every
+other interface as lab-facing. It forwards all IPv4 or IPv6 protocols from each
+VIP to its external target and source-NATs through `eth0`; it does not provide
+DHCP, a general WAN, or an SSH service of its own. Use the unnumbered variable
+or `_0` (not both), followed by sparse numbered variables.
 
 ## Workspace and state
 
