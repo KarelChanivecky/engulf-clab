@@ -68,6 +68,24 @@ Use `./uninstall-dev.sh` to remove the development distributions from that
 virtual environment without deleting the environment itself. Set `VENV_DIR` to
 use a location other than `.venv`.
 
+## Publishing
+
+Publish every distribution in this monorepo to a PyPI-compatible repository by
+setting its explicit upload endpoint:
+
+```bash
+export TWINE_REPOSITORY_URL=https://packages.example.test/
+./publish.sh
+```
+
+The publisher removes and rebuilds the root `dist/` tree, validates every wheel
+and source distribution with Twine, and uploads only those fresh artifacts. If
+the URL matches the package repository managed by the neighboring Engulf
+checkout, it verifies that the managed container is active and loads its upload
+token and CA automatically. Set `ENGULF_DIR` when that checkout is not at
+`../engulf`; credentials for other repositories use Twine's normal environment
+variables or configuration.
+
 ## Local MCP control service
 
 `engulf-clab-mcp` is an optional local control plane for MCP agents that need to
