@@ -11,6 +11,7 @@ from engulf_clab_vrnetlab_build.config import (
     normalize_env_component,
     resolve_image_expression,
     scoped_variable_names,
+    vrnetlab_build_jobs,
 )
 from engulf_clab_vrnetlab_build.errors import VrnetlabError
 from engulf_clab_vrnetlab_build.topology import topology_path_from_args
@@ -21,6 +22,15 @@ def topology(node: dict[str, object]) -> dict[str, object]:
 
 
 class SourceConfigurationTest(unittest.TestCase):
+    def test_runtime_build_job_limit(self) -> None:
+        self.assertEqual(vrnetlab_build_jobs("eclab", {}), 2)
+        self.assertEqual(
+            vrnetlab_build_jobs("fclab", {"FCLAB_VRNETLAB_BUILD_JOBS": "3"}),
+            3,
+        )
+        with self.assertRaisesRegex(VrnetlabError, "positive integer"):
+            vrnetlab_build_jobs("eclab", {"ECLAB_VRNETLAB_BUILD_JOBS": "many"})
+
     def test_scoped_variable_precedence(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

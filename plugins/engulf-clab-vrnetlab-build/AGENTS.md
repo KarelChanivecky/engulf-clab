@@ -36,6 +36,11 @@ It derives from `ExecutableWrapperPlugin` supplied by
   temporary directory so archive paths cannot escape the extraction root.
 - Existing builder qcow2 files and Docker-context artifacts must be restored
   or cleaned in `finally` paths.
+- Parallelize across builder directories only. Images using the same builder
+  directory must remain serial because builds temporarily modify that directory.
+- Acquire the complete image/builder lease set in the callback thread before
+  launching workers. Invocation API lease contexts and state transactions must
+  not overlap across threads; perform fingerprint state operations serially.
 - Build fingerprints belong in `api.state(StateScope.USER)` because Docker
   tags are shared across workspaces. Use Engulf's managed `exists`,
   `read_text`, and `write_text` operations rather than direct filesystem I/O.

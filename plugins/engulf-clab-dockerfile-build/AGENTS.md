@@ -17,5 +17,8 @@ image tag built for another node.
 Derive `<PREFIX>` from callback-bound `api.application.short_product_name`,
 falling back to `api.application.product`; the official application uses
 `ECLAB` and a short product name of `acme clab` uses `ACME_CLAB`.
-The plugin runs `docker build` during `prepare_call()` only, acquires one lease
-per image tag, and must never build during analysis.
+The plugin runs `docker build` during `prepare_call()` only and must never build
+during analysis. Acquire one multi-lease context covering every image tag before
+launching parallel workers; callback-bound API lease contexts must not overlap.
+Read `TopologySession.materialize()` during preparation so earlier topology
+injectors can contribute packaged Dockerfile recipes.

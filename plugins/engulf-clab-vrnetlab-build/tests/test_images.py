@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Barrier, Lock
 from unittest.mock import MagicMock, Mock, call, patch
 
 from engulf_clab_vrnetlab_build.config import BuildRequest
@@ -40,6 +42,106 @@ def lease_api() -> MagicMock:
 
 
 class EnsureImagesTest(unittest.TestCase):
+    @patch("engulf_clab_vrnetlab_build.images.build_native_image")
+    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
+    @patch("engulf_clab_vrnetlab_build.images._require_command")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
+    def test_distinct_builders_run_concurrently(
+        self,
+        image_exists: Mock,
+        require_command: Mock,
+        checkout_fingerprint: Mock,
+        build: Mock,
+    ) -> None:
+        del image_exists, require_command, checkout_fingerprint
+        rendezvous = Barrier(2)
+        build.side_effect = lambda *_args: rendezvous.wait(timeout=2)
+        api = lease_api()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            requests: list[BuildRequest] = []
+            for node, builder_type in (("r1", "vendor/router"), ("fw1", "vendor/firewall")):
+                builder = root / builder_type
+                builder.mkdir(parents=True)
+                (builder / "Makefile").touch()
+                source = root / f"{node}.qcow2"
+                source.write_bytes(node.encode())
+                requests.append(
+                    BuildRequest(node, f"vrnetlab/{node}:1", builder_type, source)
+                )
+
+            ensure_images(
+                requests,
+                api=api,
+                checkout_context=root,
+                state_store=MemoryStateStore(),
+                max_workers=2,
+            )
+
+        self.assertEqual(build.call_count, 2)
+        api.leases.assert_called_once()
+        self.assertEqual(
+            set(api.leases.call_args.args[0]),
+            {
+                "docker-image:vrnetlab/r1:1",
+                "docker-image:vrnetlab/fw1:1",
+                f"vrnetlab-builder:{(root / 'vendor' / 'router').resolve()}",
+                f"vrnetlab-builder:{(root / 'vendor' / 'firewall').resolve()}",
+            },
+        )
+
+    @patch("engulf_clab_vrnetlab_build.images.build_native_image")
+    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
+    @patch("engulf_clab_vrnetlab_build.images._require_command")
+    @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
+    def test_same_builder_runs_serially(
+        self,
+        image_exists: Mock,
+        require_command: Mock,
+        checkout_fingerprint: Mock,
+        build: Mock,
+    ) -> None:
+        del image_exists, require_command, checkout_fingerprint
+        active = 0
+        peak = 0
+        guard = Lock()
+
+        def observe_build(*_args: object) -> None:
+            nonlocal active, peak
+            with guard:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.01)
+            with guard:
+                active -= 1
+
+        build.side_effect = observe_build
+        api = lease_api()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            builder = root / "vendor" / "router"
+            builder.mkdir(parents=True)
+            (builder / "Makefile").touch()
+            requests: list[BuildRequest] = []
+            for node in ("r1", "r2"):
+                source = root / f"{node}.qcow2"
+                source.write_bytes(node.encode())
+                requests.append(
+                    BuildRequest(node, f"vrnetlab/{node}:1", "vendor/router", source)
+                )
+
+            ensure_images(
+                requests,
+                api=api,
+                checkout_context=root,
+                state_store=MemoryStateStore(),
+                max_workers=2,
+            )
+
+        self.assertEqual(build.call_count, 2)
+        self.assertEqual(peak, 1)
+        api.leases.assert_called_once()
+
     @patch("engulf_clab_vrnetlab_build.images._require_command")
     @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=True)
     def test_existing_image_without_source_is_used(

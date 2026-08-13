@@ -17,13 +17,21 @@ topology:
       image: vrnetlab/vr-fortios:8.0.0
       env:
         ECLAB_VRNETLAB_TYPE: fortinet/fortigate
-        ECLAB_VRNETLAB_IMG_PATH: $IMAGE_SOURCE
 ```
 
 | Node `env` field | Meaning |
 | --- | --- |
 | `ECLAB_VRNETLAB_TYPE` | Required opt-in builder path beneath the vrnetlab checkout, for example `fortinet/fortigate`. |
-| `ECLAB_VRNETLAB_IMG_PATH` | Optional qcow2 or supported archive source. |
+
+Set the optional qcow2 or supported archive source in the runtime environment:
+
+```bash
+ECLAB_VRNETLAB_IMG_PATH=/images/fortios.qcow2 eclab deploy -t lab.clab.yml
+```
+
+`ECLAB_VRNETLAB_BUILD_JOBS` controls concurrent image builds and defaults to
+`2`. Editions use their application-specific prefix. Set it to `1` for serial
+builds or when builds compete for host memory or disk bandwidth.
 
 The node `image` may differ from the native tag emitted by the builder. After a
 successful build, the plugin retains the native tag and adds the requested node
@@ -33,7 +41,9 @@ metadata (`acme clab` becomes `ACME_CLAB`).
 
 ## Source selection
 
-`*_VRNETLAB_IMG_PATH` may be a literal path, `$VARIABLE`, or `${VARIABLE}`.
+The runtime `*_VRNETLAB_IMG_PATH` value may be a literal path, `$VARIABLE`, or
+`${VARIABLE}`. A node `env` value of the same name is also accepted and takes
+precedence over the runtime value.
 Relative paths resolve from the topology directory. For `$IMAGE_SOURCE` on node
 `fgt-1` in lab `my-lab`, the invocation environment is checked in this order:
 
@@ -57,4 +67,7 @@ The builder directory must contain a `Makefile`. Existing qcow2 files are moved
 aside and restored, and stale `docker/*.qcow2*` artifacts are removed around
 the build. Build fingerprints live in user-scoped Engulf state, keyed by image,
 source checksum/name, checkout fingerprint, and builder type. Leases serialize
-access to both the Docker tag and builder directory.
+access to both the Docker tag and builder directory. Builds using different
+builder directories can run concurrently up to the configured job limit;
+builds using the same `vendor/type` builder remain serialized because that
+directory is modified temporarily.

@@ -14,7 +14,13 @@ from engulf_executable_wrapper_api import (
 )
 
 from .build import build_images
-from .config import application_prefix_name, build_requests_from_topology, environment_prefix
+from .config import (
+    DEFAULT_DOCKER_BUILD_JOBS,
+    application_prefix_name,
+    build_requests_from_topology,
+    docker_build_jobs,
+    environment_prefix,
+)
 from .errors import DockerfileError
 from .topology import load_topology, topology_path_from_args
 
@@ -39,6 +45,9 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
             f"    {prefix}_DOCKER_CTX       Docker build-context directory\n"
             f"    {prefix}_DOCKER_VAR_name  Pass Docker --build-arg name=value\n"
             f"    {prefix}_DOCKER_ARGS      Additional docker build arguments\n"
+            "  Runtime environment:\n"
+            f"    {prefix}_DOCKER_BUILD_JOBS  Concurrent image builds "
+            f"(default: {DEFAULT_DOCKER_BUILD_JOBS})\n"
             "  The node image field is the built tag; --file and --tag are reserved."
         )
 
@@ -59,6 +68,7 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
                 load_topology(topology_path),
                 application_name=application_prefix_name(api.application),
             )
+            docker_build_jobs(application_prefix_name(api.application))
         except (DockerfileError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
@@ -71,13 +81,18 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
         try:
             topology_path = topology_path_from_args(tuple(rest))
             session = api.require_context(TOPOLOGY_CONTEXT)
-            if not isinstance(session, TopologySession): raise DockerfileError("invalid shared topology session")
+            if not isinstance(session, TopologySession):
+                raise DockerfileError("invalid shared topology session")
             requests = build_requests_from_topology(
                 topology_path,
-                session.original_document(),
+                session.materialize(),
                 application_name=application_prefix_name(api.application),
             )
-            build_images(requests, api=api)
+            build_images(
+                requests,
+                api=api,
+                max_workers=docker_build_jobs(application_prefix_name(api.application)),
+            )
         except (DockerfileError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("%s", error)
             raise

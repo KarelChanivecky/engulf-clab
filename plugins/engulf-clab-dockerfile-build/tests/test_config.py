@@ -4,11 +4,17 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from engulf_clab_dockerfile_build.config import build_requests_from_topology
+from engulf_clab_dockerfile_build.config import build_requests_from_topology, docker_build_jobs
 from engulf_clab_dockerfile_build.errors import DockerfileError
 
 
 class ConfigurationTest(unittest.TestCase):
+    def test_runtime_build_job_limit(self) -> None:
+        self.assertEqual(docker_build_jobs("eclab", {}), 2)
+        self.assertEqual(docker_build_jobs("fclab", {"FCLAB_DOCKER_BUILD_JOBS": "4"}), 4)
+        with self.assertRaisesRegex(DockerfileError, "positive integer"):
+            docker_build_jobs("eclab", {"ECLAB_DOCKER_BUILD_JOBS": "0"})
+
     def test_build_request_uses_node_image_and_relative_paths(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

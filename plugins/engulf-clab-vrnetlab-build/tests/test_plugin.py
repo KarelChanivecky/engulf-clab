@@ -28,6 +28,21 @@ class PluginLifecycleTest(unittest.TestCase):
         dependency = VrnetlabPlugin().plugin_dependencies[0]
         self.assertEqual(dependency.plugin_id, ENSURE_VRNETLAB_PLUGIN_ID)
 
+    def test_help_identifies_node_environment_fields(self) -> None:
+        help_text = VrnetlabPlugin().help(self.api())
+
+        self.assertIn("Node YAML env fields:", help_text)
+        self.assertIn(
+            "ECLAB_VRNETLAB_TYPE      Opt in and select the vrnetlab builder",
+            help_text,
+        )
+        self.assertIn(
+            "Runtime environment:\n"
+            "    ECLAB_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source",
+            help_text,
+        )
+        self.assertIn("ECLAB_VRNETLAB_BUILD_JOBS Concurrent image builds", help_text)
+
     def test_help_and_non_deploy_calls_do_nothing(self) -> None:
         plugin = VrnetlabPlugin()
         api = self.api()
@@ -121,6 +136,7 @@ topology:
         self.assertIs(ensure.call_args.kwargs["api"], api)
         self.assertEqual(ensure.call_args.kwargs["checkout_context"], "/managed/vrnetlab")
         self.assertIs(ensure.call_args.kwargs["state_store"], state_store)
+        self.assertEqual(ensure.call_args.kwargs["max_workers"], 2)
 
 
 if __name__ == "__main__":

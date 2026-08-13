@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from collections.abc import Mapping
@@ -14,6 +15,7 @@ from .topology import topology_nodes
 
 _NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
 _RESERVED_ARGUMENTS = frozenset(("-f", "--file", "-t", "--tag"))
+DEFAULT_DOCKER_BUILD_JOBS = 2
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,23 @@ def application_prefix_name(application: ApplicationMetadata) -> str:
     if isinstance(product, str) and product.strip():
         return product
     raise DockerfileError("application product metadata must be a nonempty string")
+
+
+def docker_build_jobs(
+    application_name: str,
+    environ: Mapping[str, str] | None = None,
+) -> int:
+    variable = f"{environment_prefix(application_name)}_DOCKER_BUILD_JOBS"
+    value = (os.environ if environ is None else environ).get(variable)
+    if value is None:
+        return DEFAULT_DOCKER_BUILD_JOBS
+    try:
+        jobs = int(value)
+    except ValueError as error:
+        raise DockerfileError(f"{variable} must be a positive integer") from error
+    if jobs < 1:
+        raise DockerfileError(f"{variable} must be a positive integer")
+    return jobs
 
 
 def _optional_string(mapping: Mapping[str, Any], key: str, *, owner: str) -> str | None:

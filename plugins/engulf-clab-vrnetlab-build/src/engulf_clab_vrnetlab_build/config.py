@@ -13,6 +13,7 @@ from engulf_clab_ensure_vrnetlab import (
     LEGACY_VRNETLAB_TYPE_ENV,
     VRNETLAB_IMAGE_PATH_ENV,
     VRNETLAB_TYPE_ENV,
+    environment_prefix,
     vrnetlab_image_path_env,
     vrnetlab_type_env,
 )
@@ -22,7 +23,8 @@ from .topology import topology_name, topology_nodes
 
 VRNETLAB_TYPE = VRNETLAB_TYPE_ENV
 VRNETLAB_IMAGE_PATH = VRNETLAB_IMAGE_PATH_ENV
-VRNETLAB_IMAGE_PATH_SHORT = "E_V_IMG_PATH"
+VRNETLAB_IMAGE_PATH_SHORT = "ECLAB_VM_SRC"
+DEFAULT_VRNETLAB_BUILD_JOBS = 2
 
 _IMAGE_EXPRESSION = re.compile(r"^\$\{([^}:]+)(?:(:?[-=])(.*))?\}$")
 _VARIABLE_REFERENCE = re.compile(r"^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$")
@@ -35,6 +37,23 @@ class BuildRequest:
     image: str
     builder_type: str
     source: Path | None
+
+
+def vrnetlab_build_jobs(
+    application_name: str,
+    environ: Mapping[str, str] | None = None,
+) -> int:
+    variable = f"{environment_prefix(application_name)}_VRNETLAB_BUILD_JOBS"
+    value = (os.environ if environ is None else environ).get(variable)
+    if value is None:
+        return DEFAULT_VRNETLAB_BUILD_JOBS
+    try:
+        jobs = int(value)
+    except ValueError as error:
+        raise VrnetlabError(f"{variable} must be a positive integer") from error
+    if jobs < 1:
+        raise VrnetlabError(f"{variable} must be a positive integer")
+    return jobs
 
 
 def resolve_image_expression(value: str, environ: Mapping[str, str]) -> str:

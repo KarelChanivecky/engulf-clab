@@ -22,7 +22,11 @@ from engulf_executable_wrapper_api import (
     PreparedCallEvent,
 )
 
-from .config import build_requests_from_topology
+from .config import (
+    DEFAULT_VRNETLAB_BUILD_JOBS,
+    build_requests_from_topology,
+    vrnetlab_build_jobs,
+)
 from .errors import VrnetlabError
 from .images import ensure_images
 from .logging import use_logger
@@ -50,8 +54,12 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
         api.logger.debug("rendering vrnetlab build help")
         prefix = environment_prefix(application_prefix_name(api.application))
         return (
-            f"  {prefix}_VRNETLAB_TYPE      Build configured vrnetlab node images\n"
-            f"  {prefix}_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source"
+            "  Node YAML env fields:\n"
+            f"    {prefix}_VRNETLAB_TYPE      Opt in and select the vrnetlab builder\n"
+            "  Runtime environment:\n"
+            f"    {prefix}_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source\n"
+            f"    {prefix}_VRNETLAB_BUILD_JOBS Concurrent image builds "
+            f"(default: {DEFAULT_VRNETLAB_BUILD_JOBS})"
         )
 
     def analyze_call(
@@ -75,6 +83,7 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
                 os.environ,
                 application_name=application_prefix_name(api.application),
             )
+            vrnetlab_build_jobs(application_prefix_name(api.application))
             if not requests:
                 api.logger.debug(
                     "no nodes declare %s; no vrnetlab images to build",
@@ -117,6 +126,9 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
                     checkout_context=checkout_context,
                     state_store=state_store,
                     source_environment=vrnetlab_image_path_env(
+                        application_prefix_name(api.application)
+                    ),
+                    max_workers=vrnetlab_build_jobs(
                         application_prefix_name(api.application)
                     ),
                 )

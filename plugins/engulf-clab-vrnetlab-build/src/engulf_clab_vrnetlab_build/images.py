@@ -5,13 +5,15 @@ import subprocess
 import tempfile
 import uuid
 from collections.abc import Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
+from contextvars import copy_context
 from dataclasses import dataclass
 from pathlib import Path
 
 from engulf_api import InvocationAPI, StateStore
 
-from .config import BuildRequest
+from .config import DEFAULT_VRNETLAB_BUILD_JOBS, BuildRequest
 from .errors import VrnetlabError
 from .logging import info
 from .sources import file_sha256, prepared_qcow2
@@ -290,6 +292,20 @@ def _record_fingerprint(
         save_state(locked, records)
 
 
+def _ensure_builder_images(
+    builds: Sequence[tuple[str, PreparedBuild]],
+) -> tuple[list[tuple[str, PreparedBuild]], list[str]]:
+    completed: list[tuple[str, PreparedBuild]] = []
+    failures: list[str] = []
+    for image, prepared in builds:
+        try:
+            build_native_image(prepared.qcow2, prepared.builder, image)
+            completed.append((image, prepared))
+        except (OSError, subprocess.SubprocessError, VrnetlabError) as error:
+            failures.append(f"{image}: {error}")
+    return completed, failures
+
+
 def ensure_images(
     requests: Sequence[BuildRequest],
     *,
@@ -297,6 +313,7 @@ def ensure_images(
     checkout_context: object | None,
     state_store: StateStore,
     source_environment: str = "ECLAB_VRNETLAB_IMG_PATH",
+    max_workers: int = DEFAULT_VRNETLAB_BUILD_JOBS,
 ) -> None:
     if not requests:
         return
@@ -349,8 +366,20 @@ def ensure_images(
                 continue
             prepared_by_image[request.image] = prepared
 
-        for image, prepared in prepared_by_image.items():
-            with api.leases((_image_lease(image), _builder_lease(prepared.builder))):
+        lease_names = tuple(
+            sorted(
+                {
+                    lease
+                    for image, prepared in prepared_by_image.items()
+                    for lease in (_image_lease(image), _builder_lease(prepared.builder))
+                }
+            )
+        )
+        failures: list[str] = []
+        completed: list[tuple[str, PreparedBuild]] = []
+        with api.leases(lease_names):
+            builds_by_builder: dict[Path, list[tuple[str, PreparedBuild]]] = {}
+            for image, prepared in prepared_by_image.items():
                 if docker_image_exists(image) and _matching_fingerprint(
                     state_store,
                     image,
@@ -358,7 +387,31 @@ def ensure_images(
                 ):
                     info(f"using existing image {image}; build fingerprints unchanged")
                     continue
+                builds_by_builder.setdefault(prepared.builder.resolve(), []).append(
+                    (image, prepared)
+                )
 
-                build_native_image(prepared.qcow2, prepared.builder, image)
+            if builds_by_builder:
+                with ThreadPoolExecutor(
+                    max_workers=min(max_workers, len(builds_by_builder))
+                ) as executor:
+                    futures: tuple[
+                        Future[tuple[list[tuple[str, PreparedBuild]], list[str]]], ...
+                    ] = tuple(
+                        executor.submit(
+                            copy_context().run,
+                            _ensure_builder_images,
+                            tuple(builds),
+                        )
+                        for builds in builds_by_builder.values()
+                    )
+                    for future in futures:
+                        built, build_failures = future.result()
+                        completed.extend(built)
+                        failures.extend(build_failures)
+
+            for image, prepared in completed:
                 _record_fingerprint(state_store, image, prepared.fingerprint)
                 info(f"recorded build fingerprint for {image}")
+        if failures:
+            raise VrnetlabError("vrnetlab image builds failed: " + "; ".join(failures))

@@ -43,9 +43,17 @@ their short product name, or full product name if no short name is available:
 The plugin owns `--file` and `--tag`; do not put either in
 `*_DOCKER_ARGS`. Docker is required on the host.
 
+## Runtime environment
+
+`ECLAB_DOCKER_BUILD_JOBS` controls how many distinct image tags may build at
+once and defaults to `2`. Editions use their application-specific prefix. Set it
+to `1` for serial builds or lower it when Docker builds compete for host memory
+or disk bandwidth.
+
 ## Behavior
 
-Builds run on each deploy and rely on Docker layer caching. Multiple definitions
-for one image tag must resolve to the same Dockerfile, context, build arguments,
-and extra arguments; identical definitions coalesce into one build. A node that
-only consumes an image tag has no build-related configuration.
+Builds run on each deploy and rely on Docker layer caching. Distinct image tags
+build concurrently up to the configured job limit. Multiple definitions for one
+image tag must resolve to the same Dockerfile, context, build arguments, and
+extra arguments; identical definitions coalesce into one leased build. A node
+that only consumes an image tag has no build-related configuration.
