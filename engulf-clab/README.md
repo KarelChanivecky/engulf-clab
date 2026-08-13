@@ -55,11 +55,17 @@ With `engulf-clab-freeze` installed, create a sanitized archive without changing
 the source lab:
 
 ```bash
-eclab freeze -t lab.clab.yml --output lab-share.tar.gz
+eclab freeze
 ```
 
 Extract it and run `./run-eclab.sh`. License values are redacted and prompt the
 recipient for their own file, pool, or environment variable at deployment time.
+Freeze detects the single recognized topology in the current directory; use
+`-t` / `--topology` to select one explicitly. Its default output is
+`<lab-directory-name>.tar.gz` in the lab directory; use `--output` for another
+destination. An interactive freeze asks before replacing an existing regular
+archive. Earlier archive outputs in the lab are remembered in workspace state
+and excluded from later freezes until removed.
 
 ## Editions
 

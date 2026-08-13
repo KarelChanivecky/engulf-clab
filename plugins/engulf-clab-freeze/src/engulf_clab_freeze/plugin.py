@@ -17,7 +17,7 @@ class FreezePlugin(ExecutableWrapperPlugin):
 
     def help(self, api: HelpAPI) -> str:
         del api
-        return "  freeze -t TOPOLOGY --output ARCHIVE  Create a sanitized portable lab archive"
+        return "  freeze [-t TOPOLOGY] [--output ARCHIVE]  Create a sanitized portable lab archive"
 
     def analyze_call(
         self, event: BeforeCallEvent, api: InvocationAPI

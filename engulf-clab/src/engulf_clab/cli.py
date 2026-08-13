@@ -6,8 +6,10 @@ import importlib.metadata
 import re
 import sys
 from pathlib import Path
+from typing import cast
 
 from .app import CONTAINERLAB_APPLICATION
+from .freeze_control import FreezeCommand, run_freeze_command
 
 
 def main() -> int:
@@ -32,7 +34,14 @@ def _freeze(arguments: tuple[str, ...]) -> int:
         )
         return 2
     command = point.load()
-    return int(command(list(arguments)))
+    if not callable(command):
+        print("eclab freeze command entry point is not callable", file=sys.stderr)
+        return 2
+    return run_freeze_command(
+        CONTAINERLAB_APPLICATION,
+        cast(FreezeCommand, command),
+        arguments,
+    )
 
 
 def _compatible(requirements: Path) -> int:

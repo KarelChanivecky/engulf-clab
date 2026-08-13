@@ -37,7 +37,7 @@ eclab deploy -t lab.clab.yml
 eclab destroy -t lab.clab.yml
 
 # Create a portable, sanitized copy for sharing.
-eclab freeze -t lab.clab.yml --output lab-share.tar.gz
+eclab freeze
 ```
 
 The ensure-containerlab plugin checks for `docker`. When a topology opts into
@@ -137,18 +137,31 @@ resources. Do not edit plugin state files while a deployment is running.
 
 ## Freezing a lab for sharing
 
-`eclab freeze -t lab.clab.yml --output lab-share.tar.gz` leaves the source lab
+`eclab freeze` leaves the source lab
 unchanged and creates one sanitized archive. It contains the copied frozen
 topology, exact Python package lock, best-effort wheelhouse, copied external VM
 inputs, and `run-eclab.sh`. The launcher reuses a compatible installed `eclab`,
 offers to use an incompatible one, or creates a lab-local virtual environment.
+
+When no topology option is supplied, freeze selects the one recognized topology
+in the current directory and writes `<lab-directory-name>.tar.gz` there. Pass
+`-t`, `--topo`, or `--topology` to select a lab from another directory or to
+disambiguate multiple topology files, or `--output ARCHIVE` for a custom
+destination. When an existing regular archive is selected, freeze asks whether
+to overwrite it; declining leaves the existing archive unchanged.
+
+Every archive previously produced inside a lab is recorded in that lab's Engulf
+workspace state. Subsequent freezes exclude the still-present recorded archives,
+preventing nested archives and unbounded source growth. Records for paths that
+have been removed or are no longer regular files are pruned automatically.
 
 Frozen licenses become `__ECLAB_LICENSE_PROMPT__`; pool paths, allocations,
 clamps, and license files are never included. The recipient supplies a file,
 pool directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
 `ECLAB_LICENSE_<NODE>`. Destroy an active lab before freezing it. Use
 `.eclab-freezeignore` for extra Git-ignore-style exclusions; external symlinks
-are rejected.
+are rejected. Containerlab's `clab-<lab-name>` runtime directory, legacy
+`.forticlab` state, and empty directories left after exclusions are omitted.
 
 ## Editions
 
