@@ -4,13 +4,7 @@ import unittest
 
 from engulf_clab_containers_api import ContainerCollectionPlugin, ContainerDefinition
 
-from engulf_clab_containers_core import (
-    HOST_CONNECTOR,
-    LDAP_389DS,
-    PROXY_NODE,
-    UBUNTU_FIREFOX_GUI,
-    plugin,
-)
+from engulf_clab_containers_core import HOST_CONNECTOR, plugin
 
 
 class CollectionTest(unittest.TestCase):
@@ -19,13 +13,13 @@ class CollectionTest(unittest.TestCase):
         self.assertEqual(plugin.plugin_id, "eclab.containers")
         self.assertEqual(
             tuple(item.name for item in plugin.containers),
-            ("host-connector", "ldap-389ds", "proxy-node", "ubuntu-firefox-gui"),
+            ("host-connector",),
         )
 
     def test_exported_definitions_are_registered_once(self) -> None:
         self.assertEqual(
             plugin.containers,
-            (HOST_CONNECTOR, LDAP_389DS, PROXY_NODE, UBUNTU_FIREFOX_GUI),
+            (HOST_CONNECTOR,),
         )
 
     def test_recipes_are_typed_and_inside_the_package_context(self) -> None:
@@ -51,14 +45,6 @@ class CollectionTest(unittest.TestCase):
                     (definition.build.context / source).exists(),
                     f"{definition.name}: missing COPY source {source}",
                 )
-
-    def test_default_ldap_seed_matches_default_suffix(self) -> None:
-        seed = (
-            LDAP_389DS.build.context / "containers" / "ldap-389ds" / "seed.ldif"
-        ).read_text(encoding="utf-8")
-        self.assertIn("dc=lab,dc=local", seed)
-        self.assertNotIn("dc=ldap,dc=fortinet,dc=com", seed)
-
 
 if __name__ == "__main__":
     unittest.main()

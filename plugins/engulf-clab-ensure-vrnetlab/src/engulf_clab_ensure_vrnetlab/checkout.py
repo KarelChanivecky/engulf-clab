@@ -18,7 +18,7 @@ from engulf_clab_ensure_checkout import ensure_checkout as ensure
 from .errors import EnsureVrnetlabError
 from .logging import info, warning
 
-DEFAULT_VRNETLAB_REPO = "https://github.com/srl-labs/vrnetlab.git"
+DEFAULT_VRNETLAB_REPO = "https://github.com/KarelChanivecky/vrnetlab/tree/ft_faster_reads"
 VRNETLAB_CHECKOUT_BASENAME = "vrnetlab"
 
 _CHECKOUT_CONFIG = CheckoutConfig(

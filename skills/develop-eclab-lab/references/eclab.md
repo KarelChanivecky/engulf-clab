@@ -273,7 +273,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-all-plugins` | None | Meta-package that installs all maintained plugins. |
 | `engulf-clab-containers-api` | Contract only | Typed contract for independently published container collections. |
 | `engulf-clab-containers` | `engulf_clab.containers` | Injects active collection recipes into temporary topologies. |
-| `engulf-clab-containers-core` | `eclab.containers` | Core host connector, LDAP, proxy, and Firefox GUI collection. |
+| `engulf-clab-containers-core` | `eclab.containers` | Core host-connector collection. |
 | `engulf-clab-ensure-checkout` | Library only | Shared safe Git checkout provisioning and update logic. |
 | `engulf-clab-ensure-containerlab` | `engulf_clab.ensure_containerlab` | Finds, builds, or provisions Containerlab. |
 | `engulf-clab-dockerfile-build` | `engulf_clab.dockerfile_build` | Builds node images declared with Dockerfile variables. |
@@ -290,8 +290,7 @@ required host tools, and cleanup behavior.
 Active collection plugins provide reusable node images without copying their
 Dockerfiles into each lab. List them with `eclab --eclab-containers-help`. A
 collection owns the image namespace derived from its plugin ID; the core
-`eclab.containers` collection provides `host-connector`, `ldap-389ds`,
-`proxy-node`, and `ubuntu-firefox-gui`:
+`eclab.containers` collection provides `host-connector`:
 
 ```yaml
 topology:
@@ -310,11 +309,9 @@ VIP to its external target and source-NATs through `eth0`; it does not provide
 DHCP, a general WAN, or an SSH service of its own. Use the unnumbered variable
 or `_0` (not both), followed by sparse numbered variables.
 
-The LDAP image serves 389 DS with Cockpit, the proxy image combines Squid,
-Dante, and a control UI, and the Firefox image exposes an XFCE desktop through
-noVNC. Their packaged recipes remain generic; labs provide addressing,
-credentials, seeds, certificates, and proxy policy through topology fields.
-See the core collection README for ports and environment variables.
+The host connector's packaged guide describes its interface mappings, required
+capabilities, packet flow, and troubleshooting. Labs provide addressing and
+routes through normal topology fields.
 
 ## Workspace and state
 

@@ -128,8 +128,8 @@ prevents one plugin from observing another plugin's incidental file rewrite.
 The optional `engulf-clab-containers` manager consumes declarative recipes from
 independently installed collection plugins. Use
 `eclab --eclab-containers-help` to list the active images. The maintained
-`engulf-clab-containers-core` collection includes `host-connector`,
-`ldap-389ds`, `proxy-node`, and `ubuntu-firefox-gui`. A host-connector example:
+`engulf-clab-containers-core` collection includes `host-connector`. A
+host-connector example:
 
 ```yaml
 topology:
@@ -147,10 +147,6 @@ lab-facing. It forwards all protocols from each VIP to its external target over
 the management network, with source NAT and per-interface reply steering. It
 does not create a general WAN or DHCP service.
 
-The additional core nodes provide 389 DS with Cockpit, Squid and Dante proxy
-services, and a Firefox/XFCE desktop over noVNC. Their lab-specific addresses,
-credentials, directory seed, certificates, and proxy policy remain topology
-configuration rather than image defaults.
 
 ## Freeze a shareable lab
 

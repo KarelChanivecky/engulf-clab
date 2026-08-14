@@ -28,18 +28,6 @@ LOCAL_SOURCES = {
         "plugins/engulf-clab-containers-core/src/engulf_clab_containers_core/"
         "containers/host-connector/README.md"
     ): "eclab-container-host-connector.md",
-    (
-        "plugins/engulf-clab-containers-core/src/engulf_clab_containers_core/"
-        "containers/ldap-389ds/README.md"
-    ): "eclab-container-ldap-389ds.md",
-    (
-        "plugins/engulf-clab-containers-core/src/engulf_clab_containers_core/"
-        "containers/proxy-node/README.md"
-    ): "eclab-container-proxy-node.md",
-    (
-        "plugins/engulf-clab-containers-core/src/engulf_clab_containers_core/"
-        "containers/ubuntu-firefox-gui/README.md"
-    ): "eclab-container-ubuntu-firefox-gui.md",
     "plugins/engulf-clab-containers/README.md": "eclab-containers.md",
     "plugins/engulf-clab-dockerfile-build/README.md": "eclab-dockerfile-build.md",
     "plugins/engulf-clab-ensure-checkout/README.md": "eclab-ensure-checkout.md",
@@ -78,13 +66,6 @@ ENGULF_SOURCES = {
 }
 
 NORMALIZATIONS = {
-    "eclab-container-ldap-389ds.md": (
-        ("FortiGate/EMS", "an appliance or management system"),
-        ("FortiGate", "appliance"),
-    ),
-    "eclab-container-proxy-node.md": (
-        ("FortiGate", "traffic-path appliance"),
-    ),
     "eclab-license-pool.md": (
         ("    fgt:\n", "    router:\n"),
         ("vrnetlab/vr-fortios:latest", "vrnetlab/vr-router:latest"),
@@ -355,6 +336,10 @@ def index_text(repo: Path, path: str) -> str:
     return result.stdout.decode("utf-8")
 
 
+def staged_exists(repo: Path, path: str) -> bool:
+    return run_git(repo, "cat-file", "-e", f":{path}", check=False).returncode == 0
+
+
 def validate_staged(repo: Path) -> None:
     changed = staged_paths(repo)
     for path in sorted(changed):
@@ -364,6 +349,7 @@ def validate_staged(repo: Path) -> None:
             and candidate.parts
             and Path(candidate.parts[0]) in _MIRRORED_ROOTS
             and path not in LOCAL_SOURCES
+            and staged_exists(repo, path)
         ):
             raise SkillError(
                 f"{path} is not bundled into develop-eclab-lab; add a source mapping"
@@ -376,6 +362,21 @@ def validate_staged(repo: Path) -> None:
             raise SkillError(
                 f"{source} changed without its skill reference {destination}\n"
                 "Run: ./scripts/update-develop-eclab-lab"
+            )
+        if not staged_exists(repo, source):
+            if staged_exists(repo, destination):
+                raise SkillError(
+                    f"{source} was deleted but its skill reference still exists: "
+                    f"{destination}\nRemove the obsolete reference and source mapping."
+                )
+            raise SkillError(
+                f"{source} was deleted; remove its source mapping from "
+                "scripts/develop_eclab_lab_skill.py"
+            )
+        if not staged_exists(repo, destination):
+            raise SkillError(
+                f"{destination} was deleted while its source {source} remains; "
+                "regenerate the skill reference"
             )
         expected = normalize_reference(destination_name, index_text(repo, source))
         if index_text(repo, destination) != expected:

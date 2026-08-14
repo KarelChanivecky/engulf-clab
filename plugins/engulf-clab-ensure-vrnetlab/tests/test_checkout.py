@@ -100,6 +100,34 @@ class EnsureCheckoutTest(unittest.TestCase):
 
     @patch("engulf_clab_ensure_checkout.checkout.shutil.which", return_value="/usr/bin/git")
     @patch("engulf_clab_ensure_vrnetlab.checkout._run")
+    def test_default_github_tree_url_clones_its_branch(
+        self, run: Mock, _which: Mock
+    ) -> None:
+        def clone(argv: list[str]) -> None:
+            make_checkout(Path(argv[-1]))
+
+        run.side_effect = clone
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_dir = root / "state"
+
+            ensure_checkout(FilesystemState(state_dir), {})
+
+            self.assertEqual(
+                run.call_args.args[0][0:7],
+                [
+                    "git",
+                    "clone",
+                    "--branch",
+                    "ft_faster_reads",
+                    "--",
+                    "https://github.com/KarelChanivecky/vrnetlab.git",
+                    run.call_args.args[0][-1],
+                ],
+            )
+
+    @patch("engulf_clab_ensure_checkout.checkout.shutil.which", return_value="/usr/bin/git")
+    @patch("engulf_clab_ensure_vrnetlab.checkout._run")
     def test_invalid_clone_does_not_install_target(self, _run: Mock, _which: Mock) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

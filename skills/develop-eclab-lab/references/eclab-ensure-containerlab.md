@@ -22,7 +22,7 @@ repository lease; help rendering and analysis remain side-effect free.
 | --- | --- |
 | `CONTAINERLAB_BIN` | Explicit executable. It is never updated or rebuilt. |
 | `CONTAINERLAB_DIR` | Existing source checkout. |
-| `CONTAINERLAB_REPO` | Clone source for a managed checkout; default is `https://github.com/srl-labs/containerlab.git`. |
+| `CONTAINERLAB_REPO` | Clone source for a managed checkout; default is `https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support`. GitHub `/tree/<branch>` URLs are cloned at that branch. |
 | `CONTAINERLAB_UPDATE=1` | Opt into a Git update check, at most daily per checkout. |
 | `CONTAINERLAB_VERSION` | Pin to a tag, commit, or Git revision; also enables checking. |
 

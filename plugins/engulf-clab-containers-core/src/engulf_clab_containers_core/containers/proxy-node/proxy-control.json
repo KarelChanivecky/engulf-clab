@@ -1,8 +1,0 @@
-{
-  "disable_cache": true,
-  "forward_proxy_auth": true,
-  "parent_enabled": false,
-  "parent_host": "10.1.100.6",
-  "parent_port": 8080,
-  "suppress_proxy_headers": true
-}

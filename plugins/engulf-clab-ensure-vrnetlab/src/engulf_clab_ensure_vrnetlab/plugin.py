@@ -43,7 +43,8 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
         api.logger.debug("rendering vrnetlab checkout help")
         return (
             "  VRNETLAB_DIR   Use an existing vrnetlab checkout\n"
-            "  VRNETLAB_REPO  Override the managed checkout clone source\n"
+            "  VRNETLAB_REPO  Override clone source (default: "
+            "KarelChanivecky/vrnetlab ft_faster_reads)\n"
             "  VRNETLAB_UPDATE=1  Check a Git checkout for updates (daily)\n"
             "  VRNETLAB_VERSION   Clamp to a Git tag, commit, or revision\n"
             "  Provisioning runs only for opted-in deploys and requires Docker, qemu-img, "

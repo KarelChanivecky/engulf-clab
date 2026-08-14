@@ -33,7 +33,8 @@ class EnsureContainerlabPlugin(ExecutableWrapperPlugin):
         return (
             "  CONTAINERLAB_BIN   Use an executable Containerlab binary\n"
             "  CONTAINERLAB_DIR   Use or build a Containerlab source checkout\n"
-            "  CONTAINERLAB_REPO  Override the managed checkout clone source\n"
+            "  CONTAINERLAB_REPO  Override clone source (default: "
+            "KarelChanivecky/containerlab ft_fgt_license_support)\n"
             "  CONTAINERLAB_UPDATE=1  Check a Git checkout for updates (daily)\n"
             "  CONTAINERLAB_VERSION   Clamp to a Git tag, commit, or revision\n"
             "  Resolution: BIN, DIR, PATH, then managed checkout; Docker is required, "

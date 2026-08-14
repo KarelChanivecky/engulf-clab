@@ -49,6 +49,9 @@ checkout. This package does not know what makes Containerlab or vrnetlab valid.
    directory under the state root, validate it, and rename it into place.
 
 The clone argv uses `git clone -- <repository> <staged-path>` without a shell.
+For GitHub URLs in the form `/tree/<branch>`, it converts the URL to the
+repository's `.git` URL and adds `--branch <branch>` so branch-pinned defaults
+are usable by Git directly.
 A failed or invalid staged clone is removed with its temporary directory and
 never becomes the managed checkout. If another protected caller publishes a
 valid target first, that checkout wins.

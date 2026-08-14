@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from engulf_api import StateStore
 
@@ -18,6 +19,23 @@ type Reporter = Callable[[str], None]
 
 class CheckoutError(RuntimeError):
     """A configured or managed checkout could not be used safely."""
+
+
+def clone_arguments(repository: str, destination: Path) -> list[str]:
+    """Build clone argv, accepting GitHub ``/tree/<branch>`` URLs."""
+    parsed = urlsplit(repository)
+    parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]
+    if (
+        parsed.scheme in {"http", "https"}
+        and parsed.netloc.lower() == "github.com"
+        and len(parts) >= 4
+        and parts[2] == "tree"
+        and parts[3:]
+    ):
+        clone_url = f"{parsed.scheme}://{parsed.netloc}/{parts[0]}/{parts[1]}.git"
+        branch = "/".join(parts[3:])
+        return ["git", "clone", "--branch", branch, "--", clone_url, str(destination)]
+    return ["git", "clone", "--", repository, str(destination)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +94,7 @@ def ensure_checkout(
     ) as directory:
         staged = Path(directory) / "checkout"
         info(f"cloning {config.label} into managed Engulf state")
-        run_clone(["git", "clone", "--", repository, str(staged)])
+        run_clone(clone_arguments(repository, staged))
         if not is_valid(staged):
             raise CheckoutError(f"downloaded {config.label} checkout is invalid")
         try:

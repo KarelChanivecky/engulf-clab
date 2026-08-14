@@ -24,9 +24,8 @@ python -m pip install \
 ```
 
 Run `eclab --eclab-containers-help` to list containers supplied by active
-collections. The maintained `eclab.containers` collection supplies the host
-connector, LDAP/389 DS, proxy, and Firefox GUI recipes. The list is emitted
-through Engulf diagnostics.
+collections. The maintained `eclab.containers` collection currently supplies
+the host-connector recipe. The list is emitted through Engulf diagnostics.
 
 ## Topology use
 
@@ -39,11 +38,9 @@ name: packaged-demo
 topology:
   nodes:
     client:
-      image: eclab.containers/ubuntu-firefox-gui
-      ports:
-        - "6080:6080"
+      image: eclab.containers/host-connector
       env:
-        GUI_RESOLUTION: 1440x900
+        ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"
   links: []
 ```
 

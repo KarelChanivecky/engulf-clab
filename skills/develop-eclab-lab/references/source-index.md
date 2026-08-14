@@ -25,9 +25,6 @@ checkout when one is available; otherwise use these package-local files.
 | `eclab-containers.md` | Container manager README |
 | `eclab-containers-core.md` | Core packaged-container collection README |
 | `eclab-container-host-connector.md` | Packaged host connector container README |
-| `eclab-container-ldap-389ds.md` | Packaged LDAP/389 DS container README |
-| `eclab-container-proxy-node.md` | Packaged proxy container README |
-| `eclab-container-ubuntu-firefox-gui.md` | Packaged Firefox GUI container README |
 | `eclab-dockerfile-build.md` | Dockerfile builder README |
 | `eclab-ensure-checkout.md` | Managed checkout helper README |
 | `eclab-ensure-containerlab.md` | Containerlab resolver README |

@@ -21,7 +21,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-vrnetlab-build` | Pre-deploy vrnetlab image builds from qcow2/archive sources. |
 | `engulf-clab-containers-api` | Typed contract for independently packaged container collections. |
 | `engulf-clab-containers` | Active collection catalog and temporary topology injection. |
-| `engulf-clab-containers-core` | Maintained host connector, LDAP, proxy, and Firefox GUI recipes. |
+| `engulf-clab-containers-core` | Maintained host-connector recipe. |
 | `engulf-clab-license-pool` | Leased shared license selection and lab-local copies. |
 | `engulf-clab-wan` | Privileged edition-aware DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Sanitized portable and strict offline lab archives. |

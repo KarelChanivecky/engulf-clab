@@ -31,7 +31,7 @@ topology:
 | Variable | Meaning |
 | --- | --- |
 | `VRNETLAB_DIR` | Existing valid vrnetlab checkout. |
-| `VRNETLAB_REPO` | Managed clone source; default `https://github.com/srl-labs/vrnetlab.git`. |
+| `VRNETLAB_REPO` | Managed clone source; default `https://github.com/KarelChanivecky/vrnetlab/tree/ft_faster_reads`. GitHub `/tree/<branch>` URLs are cloned at that branch. |
 | `VRNETLAB_UPDATE=1` | Check a Git checkout for updates, at most once daily. |
 | `VRNETLAB_VERSION` | Clamp to a tag, commit, or Git revision; also enables checking. |
 

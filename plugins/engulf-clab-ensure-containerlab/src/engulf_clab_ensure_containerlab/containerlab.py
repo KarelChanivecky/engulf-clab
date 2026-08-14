@@ -20,7 +20,9 @@ from engulf_clab_ensure_checkout import (
 from .errors import EnsureContainerlabError
 from .logging import info, warning
 
-DEFAULT_CONTAINERLAB_REPO = "https://github.com/srl-labs/containerlab.git"
+DEFAULT_CONTAINERLAB_REPO = (
+    "https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support"
+)
 
 _CHECKOUT_CONFIG = CheckoutConfig(
     label="Containerlab",

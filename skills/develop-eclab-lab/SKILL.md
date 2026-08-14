@@ -1,6 +1,6 @@
 ---
 name: develop-eclab-lab
-description: Build, refine, validate, operate, and troubleshoot Containerlab labs with eclab. Use for eclab topologies, minimal repro extraction, vrnetlab image inputs, license pools, edition-aware managed WAN bridges, packaged helper containers, browser/proxy/LDAP nodes, freeze workflows, MCP lifecycle operations, or Engulf-backed lab failures. Do not use as a general Engulf plugin-development tutorial.
+description: Build, refine, validate, operate, and troubleshoot Containerlab labs with eclab. Use for eclab topologies, minimal repro extraction, vrnetlab image inputs, license pools, edition-aware managed WAN bridges, packaged helper containers, freeze workflows, MCP lifecycle operations, or Engulf-backed lab failures. Do not use as a general Engulf plugin-development tutorial.
 ---
 
 # Develop CLAB with eclab
@@ -23,9 +23,8 @@ description: Build, refine, validate, operate, and troubleshoot Containerlab lab
    `AGENTS.md` and prefer it over the bundled snapshot. Use
    [source-index.md](references/source-index.md) to find the relevant source or
    development-guidance snapshot.
-6. Inspect first, then ask only for choices that materially affect the lab:
-   license source, host browser access, proxy path, seed identities, or an
-   explicitly multi-server LDAP topology.
+6. Inspect first, then ask only for choices that materially affect the lab,
+   such as license source or host access.
 
 ## Start from Containerlab YAML
 
@@ -135,13 +134,11 @@ plugin's current contract; for managed WANs use `<PREFIX>_DHCP_*` labels and
 4. For a managed DHCP WAN, configure the connected node to obtain its address
    and route through DHCP when that is the intended topology behavior.
 5. Prefer packaged `eclab.containers/*` nodes over copied Dockerfiles. Read
-   [eclab-containers-core.md](references/eclab-containers-core.md) for the host
-   connector, LDAP, proxy, and Firefox GUI catalog, then load the matching
-   `references/eclab-container-*.md` guide for the selected node's complete
-   environment, topology, security, and troubleshooting contract.
-6. Keep lab-specific addressing, routes, credentials, LDIF, certificates, and
-   browser policy in the consuming lab. Add servers or security features only
-   when the repro requires them.
+   [eclab-containers-core.md](references/eclab-containers-core.md) for the
+   active catalog and host-connector contract.
+6. Keep lab-specific addressing, routes, credentials, and security policy in
+   the consuming lab. Add servers or security features only when the repro
+   requires them.
 
 ## Validate and operate safely
 
