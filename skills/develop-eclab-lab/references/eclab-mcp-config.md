@@ -1,3 +1,8 @@
+# eclab MCP configuration example
+
+This is the complete packaged example for the root-owned local service.
+
+```toml
 # This file is read only by the root-owned eclab-mcpd service.
 # Install it as /etc/eclab-mcp/config.toml with mode 0600.
 
@@ -29,3 +34,4 @@ path = "/srv/eclab-labs"
 [profiles.default]
 environment = { ROUTER_LICENSES = "/srv/eclab/licenses/router" }
 secrets = { PRIVATE_REGISTRY_TOKEN = "replace-before-starting-the-service" }
+```

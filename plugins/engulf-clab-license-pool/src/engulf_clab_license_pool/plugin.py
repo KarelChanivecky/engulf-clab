@@ -1,10 +1,25 @@
 from __future__ import annotations
-import hashlib, json, os, shutil, sys
+
+import hashlib
+import json
+import os
+import shutil
+import sys
 from pathlib import Path
 from typing import Any
+
 from engulf_api import DependencyPosition, InvocationAPI, PluginDependency, StateScope
-from engulf_executable_wrapper_api import AfterCallEvent, BeforeCallEvent, CallContribution, CallMode, ExecutableWrapperPlugin, HelpAPI, PreparedCallEvent, OutcomeKind
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
+from engulf_executable_wrapper_api import (
+    AfterCallEvent,
+    BeforeCallEvent,
+    CallContribution,
+    CallMode,
+    ExecutableWrapperPlugin,
+    HelpAPI,
+    OutcomeKind,
+    PreparedCallEvent,
+)
 
 _FILE = "license-pools.json"
 _PROMPT = "__ECLAB_LICENSE_PROMPT__"
@@ -22,6 +37,7 @@ class LicensePoolPlugin(ExecutableWrapperPlugin):
             "    env.ECLAB_LIC_CLAMP: file   Require this available pool filename/path\n"
             f"    license: {_PROMPT}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
             "    ECLAB_LICENSE[_NODE]        Non-interactive value for a frozen license prompt\n"
+            "  Pools contain top-level regular files and are leased across workspaces.\n"
             "  Successful destroy releases claims and removes copied lab licenses."
         )
     def analyze_call(self, event: BeforeCallEvent, api: InvocationAPI) -> CallContribution | None: return None

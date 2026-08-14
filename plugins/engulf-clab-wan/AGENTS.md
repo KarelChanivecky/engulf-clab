@@ -57,3 +57,10 @@ It derives from `ExecutableWrapperPlugin` supplied by
   checks.
 - Keep `analyze_call()` side-effect free. Host setup belongs in `prepare_call()`;
   post-destroy cleanup remains in `after_call()`.
+- Keep runtime help, README label/default tables, edition prefix rejection,
+  uplink selection, resource ownership, and cleanup semantics synchronized.
+- Run topology, registry, state, plugin, and Engulf integration tests. Mock
+  effective UID and every `ip`/`iptables`/`sysctl`/process operation; never
+  mutate real host networking in automated tests.
+- Build/install the wheel with parser/writer and inspect edition-aware help.
+  Regenerate WAN skill references after behavior or documentation changes.

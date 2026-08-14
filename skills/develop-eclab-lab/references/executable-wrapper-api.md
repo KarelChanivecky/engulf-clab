@@ -9,6 +9,15 @@ The contract package is OS-independent and can be imported by plugin tooling on 
 supported Python platform. The current `engulf-executable-wrapper` goal runtime is
 Linux-specific.
 
+Import public contracts from `engulf_executable_wrapper_api`. The fixed contract
+constants are:
+
+| Constant | Value |
+| --- | --- |
+| `EXECUTABLE_WRAPPER_GOAL_ID` | `"org.engulf.executable-wrapper"` |
+| `EXECUTABLE_WRAPPER_API_MAJOR` | `1` |
+| `EXECUTABLE_WRAPPER_API_VERSION` | `"1.0.0"` |
+
 Plugins that manipulate privileged external resources declare their elevation
 behavior through the generic Engulf contract:
 
@@ -111,6 +120,55 @@ plugin = AuditPlugin()
 
 `ExecutableWrapperPlugin` supplies the correct `GoalRequirement`; subclasses do not
 repeat the goal ID or major.
+
+## Immutable Call Model
+
+All call-phase callbacks receive frozen event values. `wrapper_args` always means
+the original arguments after Engulf has removed its own logging controls. Added or
+removed arguments never leak back into another analyzer.
+
+| Event | Fields and timing |
+| --- | --- |
+| `BeforeCallEvent` | `binary`, original `wrapper_args`, and `mode`; sent to every analyzer. |
+| `PreparedCallEvent` | `binary`, original `wrapper_args`, merged `effective_args`, and `mode`; sent only for viable normal execution. |
+| `AfterCallEvent` | Both argument tuples, mode, final `CallOutcome`, and monotonic `duration_seconds`; sent after preemption or an execution attempt. |
+
+`CallMode.NORMAL` is ordinary execution. `CallMode.HELP` is selected only by an
+exact `--help` argument. Help-like values such as `--help=topic` remain normal.
+
+`CallOutcome` exposes `kind`, `exit_code`, and `process_started`, with optional
+`signal`, stable `preempted_by` plugin ID, and `error` text:
+
+| `OutcomeKind` | Runtime meaning |
+| --- | --- |
+| `COMPLETED` | The child exited normally, including with a nonzero domain exit. |
+| `PREEMPTED` | A plugin selected an exit without starting the child. |
+| `SPAWN_FAILED` | The executable could not be resolved or invoked. |
+| `SIGNALED` | The started child terminated from a signal. |
+| `FRAMEWORK_FAILED` | Contract representation for framework failure; current phase failures normally become an outer framework-failed `GoalResult` before an after-call event can be created. |
+
+Every outcome exit is an exact integer from 0 through 255. The goal runtime maps
+not-found to 127, other spawn errors to 126, and signals to at most
+`128 + signal` (capped at 255).
+
+## Contribution Model
+
+`CallContribution` contains a `frozenset` of zero-based original argument indexes to
+remove, a tuple of `ArgumentAddition` groups, and an optional
+`preempt_exit_code`. Each addition group is atomic and contains a nonempty tuple of
+NUL-free strings.
+
+| `AdditionPlacement` | Position in the merged call |
+| --- | --- |
+| `PREPEND` | Before every surviving original argument. |
+| `BEFORE_SEPARATOR` | Immediately before the first surviving `--`, or at the end when no separator survives. This is the default. |
+| `APPEND` | After every surviving original argument, including after `--`. |
+
+Removals apply only to the original tuple; they never index added values. An
+out-of-range removal is a plugin-attributed framework failure. Identical added
+argument tuples are coalesced across contributions, retaining the first placement;
+they are not coalesced against identical original arguments. Distinct groups keep
+phase execution order and each contribution's tuple order within their placement.
 
 ## Phase Semantics
 
@@ -227,7 +285,104 @@ initialized loggers. Argument declarations affect wrapper completion only; they 
 not parse, validate, consume, or automatically remove runtime arguments. Runtime
 argument behavior comes exclusively from returned `CallContribution` values.
 
+Register option metadata with every spelling in one call:
+
+```python
+def register_arguments(self, registry, api) -> None:
+    registry.option(
+        "-p",
+        "--profile",
+        takes_value=True,
+        metavar="NAME",
+        description="Select a profile",
+        value_completer=lambda context: ["dev", "staging", "production"],
+        visible_to_binary_completion=False,
+        repeatable=False,
+    )
+```
+
+`ArgumentRegistry.option()` returns an immutable `OptionSpec`. Names must begin with
+`-` and must not collide with any earlier registration. A `value_completer` requires
+`takes_value=True`. Before `--`, an option hidden from binary completion also hides
+its separate value; set `visible_to_binary_completion=True` only when the wrapped
+executable's native completer should see it. `repeatable=False` suppresses an option
+candidate after any spelling has already appeared. These flags still have no
+runtime parsing effect.
+
+The resulting fields are `names`, `takes_value`, `metavar`, `description`,
+`value_completer`, `visible_to_binary_completion`, and `repeatable`.
+
+`ArgumentRegistry.options` returns registrations in insertion order.
+`find_exact(word)` and `find_assignment(word)` are available to goal/completion
+tooling that needs to resolve registered metadata without reimplementing spelling
+rules.
+
+Register literal and dynamic top-level candidates separately:
+
+```python
+from engulf_executable_wrapper_api import CompletionCandidate
+
+
+def complete_targets(context):
+    return [
+        CompletionCandidate("server-a", "Primary server"),
+        "server-b",
+    ]
+
+
+def register_completions(self, registry, api) -> None:
+    registry.candidate(
+        "--audit-summary",
+        description="Print an audit summary",
+        when=lambda context: "--quiet" not in context.words,
+    )
+    registry.provider(complete_targets)
+```
+
+A provider may be a `CompletionCallable` or an object satisfying the runtime-checkable
+`CompletionProvider.complete()` protocol. It yields `CandidateLike` values: strings
+or `CompletionCandidate(value, description=None)`. Candidate values must be nonempty
+and NUL-free. `normalize_candidate()` converts either form, and `invoke_provider()`
+calls either provider style.
+
+`CompletionRegistry.providers` returns dynamic providers in registration order, and
+`static_candidates(context)` evaluates predicates and returns matching literal
+candidates for that context.
+
+`CompletionContext` contains `shell` (`Shell.BASH` or `Shell.ZSH`), the invoked
+`wrapper_command`, configured `binary`, argument `words` excluding the wrapper
+command, and the argument-relative `cursor_index`. Its `current` property safely
+returns the word being completed or `""`; `previous` returns the preceding word or
+`None`. Predicates and providers should be deterministic and should filter or
+generate candidates from this immutable context.
+
+At runtime, option-value candidates support both a separate value and
+`--option=value`. Literal candidates are prefix-filtered. Candidates from the
+application's optional binary provider, argument registry, static registry, and
+dynamic providers are merged in that order and deduplicated by value; the first
+description is retained unless a later duplicate supplies the first nonempty one.
+The application binary provider is consulted only when native executable completion
+was not found.
+
 These registration APIs intentionally accept mutable registries and Python
 completion callables, so they are local-execution contracts. A future isolated
 execution mode would need a separate declarative registration representation; do
 not serialize or persist registry/provider objects yourself.
+
+`help(api: HelpAPI)` is also collected during setup. `HelpAPI` exposes only
+immutable application metadata and a configured logger. Return an empty string for
+no section; the runtime strips trailing line endings and attributes every nonempty
+block to the stable plugin ID.
+
+## Public Import Surface
+
+| Area | Names |
+| --- | --- |
+| Contract | `EXECUTABLE_WRAPPER_GOAL_ID`, `EXECUTABLE_WRAPPER_API_MAJOR`, `EXECUTABLE_WRAPPER_API_VERSION`, `ExecutableWrapperPlugin`, `HelpAPI` |
+| Calls | `CallMode`, `BeforeCallEvent`, `PreparedCallEvent`, `AfterCallEvent`, `CallOutcome`, `OutcomeKind` |
+| Contributions | `CallContribution`, `ArgumentAddition`, `AdditionPlacement` |
+| Argument metadata | `ArgumentRegistry`, `OptionSpec` |
+| Completion | `Shell`, `CompletionContext`, `CompletionCandidate`, `CandidateLike`, `CompletionPredicate`, `CompletionCallable`, `CompletionProvider`, `CompletionRegistry`, `invoke_provider`, `normalize_candidate` |
+
+Generic lifecycle, metadata, state, context, logging, dependency, and elevation
+contracts remain owned by `engulf-api` and are imported from `engulf_api`.

@@ -12,6 +12,14 @@ Reusable Containerlab Linux client image with:
 - x11vnc bound internally to `127.0.0.1:5900`
 - common network tools: `curl`, `iproute2`, `iputils-ping`, `net-tools`
 
+## Guide
+
+- Image/runtime and Firefox defaults
+- Per-lab proxy policy
+- CA and client-certificate import
+- Build and Containerlab topology
+- noVNC access, security, and troubleshooting
+
 The image does not include Squid, Dante, custom proxy control software, lab
 certificates, static routes, static IP addresses, or browser proxy settings.
 Those belong in the consuming lab topology and documentation. When a lab
@@ -133,6 +141,14 @@ and imports lab certificates when the files are present:
 - `FIREFOX_CLIENT_P12_PASSWORD`, default empty
 - `FIREFOX_CA_NICKNAME`, default `Lab CA`
 
+Additional runtime variables are:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DISPLAY` | `:0` | X display used by Xvfb, XFCE, and x11vnc. |
+| `GUI_RESOLUTION` | `1440x900x24` | Xvfb screen width, height, and color depth. |
+| `FIREFOX_PROFILE_DIR` | `/home/ubuntu/.mozilla/firefox/default` | Primary profile initialized and searched for certificate imports. |
+
 For a lab with a client certificate, mount the certificate directory
 read-only and, only if the PKCS#12 file has a password, set it on the node:
 
@@ -168,7 +184,6 @@ docker build --tag eclab.containers/ubuntu-firefox-gui:latest \
   -f src/engulf_clab_containers_core/containers/ubuntu-firefox-gui/Dockerfile src/engulf_clab_containers_core
 ```
 
-
 ## Containerlab Usage
 
 ```yaml
@@ -191,3 +206,38 @@ http://127.0.0.1:6080/vnc.html?autoconnect=1
 
 Override the virtual display size with `GUI_RESOLUTION`, for example
 `1920x1080x24`.
+
+The startup sequence removes stale X locks, initializes/imports Firefox
+profiles, starts Xvfb, waits briefly for the display, starts an XFCE session as
+the `ubuntu` user, binds passwordless x11vnc only to container loopback port
+5900, and exposes it through websockify/noVNC on container port 6080. The
+websockify process remains PID 1 and determines container lifetime.
+
+## Security and troubleshooting
+
+noVNC is intentionally passwordless for isolated test labs. Always bind 6080 to
+host loopback as shown unless the user explicitly adds authentication/TLS and
+accepts remote exposure. The desktop may contain browser history, cookies,
+client keys, downloaded files, and mounted certificates; destroy/reset it as
+sensitive lab state.
+
+Certificate import is best effort so an optional bad/missing certificate does
+not prevent the desktop from starting. Verify expected entries in Firefox's
+certificate UI or with `certutil`/`pk12util`; do not infer success solely from
+container health. Avoid putting PKCS#12 passwords directly in a committed
+topology or frozen archive.
+
+For diagnosis:
+
+- inspect `docker logs clab-<lab>-client` and verify Xvfb, XFCE, x11vnc, and
+  websockify processes inside the node;
+- confirm host port 6080 is published on the intended address and not already in
+  use;
+- confirm `eth1` addressing/default route and DNS independently of management
+  `eth0` and the noVNC page;
+- verify mounted policy/PAC paths and use a hostname matching a secure proxy's
+  certificate;
+- check the exact Firefox profile selected by the desktop launcher before
+  diagnosing missing policy or certificates; and
+- redeploy the node after data-plane link loss rather than relying on a plain
+  Docker restart that does not recreate Containerlab links/exec configuration.

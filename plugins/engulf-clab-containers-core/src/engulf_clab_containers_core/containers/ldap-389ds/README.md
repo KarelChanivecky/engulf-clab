@@ -1,11 +1,20 @@
 # eclab.containers/ldap-389ds
 
-LDAP management node for eclab-managed FortiGate labs: 389 Directory Server
-with a Cockpit browser management UI. One co-located Linux node runs both.
-Keep LDAP on the FortiGate-facing data-plane segment and expose only Cockpit
-to the host.
+LDAP management node for eclab-managed labs: 389 Directory Server with a
+Cockpit browser management UI. One co-located Linux node runs both. Keep LDAP
+on the appliance-facing data-plane segment and expose only Cockpit to the host.
 
-## Contents
+## Guide
+
+- Image contents and services
+- Environment and first-run initialization
+- Containerlab topology and management access
+- Seeding and MemberOf behavior
+- Cockpit-in-container behavior
+- Design questions and optional replication
+- Security and troubleshooting
+
+## Image contents
 
 - `Dockerfile`: Fedora image with `389-ds-base`, `cockpit`, `cockpit-389-ds`,
   `openldap-clients`, `sudo`, `dbus-daemon`, and network/debug tools.
@@ -39,7 +48,7 @@ All settings have working defaults; labs override them per node:
 
 ## Topology
 
-Put the node on the FortiGate LDAP-side link with a static address, and
+Put the node on the appliance LDAP-side link with a static address, and
 publish Cockpit only:
 
 ```yaml
@@ -59,18 +68,18 @@ ldap:
 ```
 
 ```yaml
-- endpoints: ["ldap:eth1", "fgt:<ldap-port>"]
+- endpoints: ["ldap:eth1", "router:<ldap-port>"]
 ```
 
 Do not publish LDAP `389` or `636` to the host unless the user explicitly
-asks; the directory is for the FortiGate-facing segment. Open the management
+asks; the directory is for the appliance-facing segment. Open the management
 UI at `http://127.0.0.1:9090/` and log in with the `COCKPIT_ADMIN_USER`
 credentials (`admin/admin` by default).
 
-Use `cn=Directory Manager` only for directory administration. For FortiGate
+Use `cn=Directory Manager` only for directory administration. For appliance
 authentication, seed normal users such as
-`uid=user1,ou=people,<base-dn>` and reference them from the FortiGate LDAP
-server object, user group, and auth policy/profile objects.
+`uid=user1,ou=people,<base-dn>` and reference them from the consuming
+appliance's LDAP server, group, and authentication-policy objects.
 
 ## Seeding Rules
 
@@ -91,15 +100,15 @@ proxies `/run/cockpit/session` for Cockpit session activation, and moves
 nonessential Cockpit modules (`systemd`, `packagekit`, `apps`, `metrics`,
 `users`) aside so they cannot crash the bridge.
 
-## Questions To Ask The User
+## Design questions
 
 Before wiring this node into a lab, ask:
 
-- Whether FortiGate/EMS must be able to fetch or synchronize directory
+- Whether an appliance or management system must be able to fetch or synchronize directory
   records from LDAP.
 - Separately, whether the user explicitly wants a multi-server 389 DS
   replication topology. Do not infer additional LDAP nodes from a request to
-  enable replication or synchronization for FortiGate/EMS.
+  enable application-side directory synchronization.
 - Which domains/suffixes to seed, for example `dc=lab,dc=local`.
 - Which users and groups to seed, including bind passwords and group
   memberships.
@@ -116,9 +125,35 @@ multi-supplier/consumer 389 DS topology:
   assume replication when there is only one directory node.
 - Add extra LDAP nodes only after the user explicitly requests
   directory-server peers, failover, or a multi-server replication test. The
-  words "enable replication" alone, when describing FortiGate/EMS record
+  words "enable replication" alone, when describing application-side record
   retrieval, are insufficient authorization to add nodes.
-- Add only the FortiGate LDAP config needed to authenticate against the
-  replicated directory when the lab requires FortiGate integration. Keep
-  FortiGate config minimal: LDAP server object, user group, and referenced
-  auth policy/profile objects only.
+- Add only the consuming appliance configuration needed to authenticate against
+  the replicated directory. Keep it minimal: directory server, user/group, and
+  referenced authentication policy/profile objects only.
+
+## Security and troubleshooting
+
+The documented passwords and cleartext LDAP/Cockpit defaults are for isolated
+development labs only. Override them, bind published management ports to
+loopback, and do not expose the node to an untrusted network. Plain LDAP on 389
+does not protect bind credentials in transit; configure certificates and LDAPS
+in a lab that explicitly tests transport security.
+
+Initialization is keyed by `/etc/dirsrv/slapd-<LDAP_INSTANCE>` inside the
+container. A fresh Containerlab node initializes and seeds once; restarting the
+same container starts the existing instance without applying changed LDIF.
+Recreate the node or manage updates explicitly when seed data changes. Mount
+persistent directory state only when the lab requires it and document its reset
+procedure.
+
+For diagnosis:
+
+- inspect `docker logs clab-<lab>-ldap` for `dscreate`, LDAP readiness, seed,
+  DBus/polkit, Cockpit, and directory error output;
+- use `ldapsearch` inside the node against `127.0.0.1:389` before debugging the
+  appliance path;
+- confirm `LDAP_BASE_DN` matches the root entry and every DN in the mounted LDIF;
+- confirm `eth1` addressing/routes and appliance policy independently from
+  Cockpit's host port; and
+- remember that `ldapadd -c` can report individual seed errors while continuing,
+  so inspect its output rather than assuming the whole seed succeeded.

@@ -56,7 +56,12 @@ class ContainersPlugin(ExecutableWrapperPlugin):
     context_reads = frozenset({CONTAINER_COLLECTION_CONTEXT, TOPOLOGY_CONTEXT})
 
     def help(self, api: HelpAPI) -> str:
-        return f"  {_HELP_OPTION}   List packaged containers from active collections"
+        del api
+        return (
+            f"  {_HELP_OPTION}   List packaged containers from active collections\n"
+            "  Select one as <collection-namespace>/<name>[:latest]; deploy injects its "
+            "required node recipe."
+        )
 
     def analyze_call(self, event: BeforeCallEvent, api: InvocationAPI) -> CallContribution | None:
         try:

@@ -24,7 +24,7 @@ COPY containers/ldap-389ds/seed.ldif /etc/dirsrv/seed.ldif
 
 RUN chmod 0755 /usr/local/bin/ldap-start
 
-# 389/636 = directory (keep on the FortiGate-facing data plane; do not
+# 389/636 = directory (keep on the appliance-facing data plane; do not
 # publish to the host unless a lab explicitly requires it), 9090 = Cockpit.
 EXPOSE 389 636 9090
 

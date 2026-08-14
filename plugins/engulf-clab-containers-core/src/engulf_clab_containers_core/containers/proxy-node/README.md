@@ -6,6 +6,14 @@ HTTP/HTTPS forward proxy, a Dante SOCKS5 proxy, and a small control UI for
 changing Squid behavior at runtime. Prefer this tested recipe over ad hoc
 port-forwarded applications or custom proxy implementations.
 
+## Guide
+
+- Image contents and generic/lab-owned configuration
+- Containerlab topology and published ports
+- Squid control UI and generated configuration
+- Dante data-plane and DNS readiness
+- Browser usage, validation, security, and troubleshooting
+
 ## Contents
 
 - `Dockerfile`: image derived from `ubuntu/squid` with Python, `squidclient`,
@@ -28,10 +36,21 @@ The image is generic: it has no lab IP addresses, routes, or credentials
 (other than documented placeholder defaults). Lab specifics arrive through
 bind mounts and the topology's `exec` steps.
 
+Runtime environment is intentionally small:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SOCKS_EXTERNAL_IP` | Unset | Expected data-plane IP and readiness gate for Dante; must match `external` in `sockd.conf`. |
+| `SOCKS_WAIT_DNS` | Unset | Expected nameserver; Dante waits for the exact resolver entry and a successful test lookup. |
+
+The address wait is bounded at 120 seconds and DNS wait at 300 seconds. A timeout
+is logged and Dante starts anyway; neither wait blocks the already running
+Squid service or control UI.
+
 ## Topology
 
 Use one node for both client and proxy. The node should connect to the
-FortiGate client-side interface. Expose:
+traffic-path appliance's client-side interface. Expose:
 
 - `8888:8888` for the default Squid HTTP/HTTPS proxy
 - `1080:1080` for the default Dante SOCKS5 proxy
@@ -44,9 +63,9 @@ proxy:
   kind: linux
   image: eclab.containers/proxy-node
   ports:
-    - 8888:8888
-    - 1080:1080
-    - 8890:8890
+    - 127.0.0.1:8888:8888
+    - 127.0.0.1:1080:1080
+    - 127.0.0.1:8890:8890
   env:
     SOCKS_EXTERNAL_IP: "10.1.100.11"
   binds:
@@ -58,10 +77,10 @@ proxy:
     - ip route replace default via <fgt-client-ip> dev eth1
 ```
 
-Link it to the FortiGate:
+Link it to the traffic-path appliance:
 
 ```yaml
-- endpoints: ["proxy:eth1", "fgt:<client-port>"]
+- endpoints: ["proxy:eth1", "router:<client-port>"]
 ```
 
 The `squid.conf`, `proxy_control.py`, and `entrypoint.sh` defaults are baked
@@ -134,3 +153,42 @@ docker exec -it clab-<lab-name>-proxy squidclient -h 127.0.0.1 -p 8888 mgr:confi
 
 That checks the Squid daemon's loaded configuration, not merely the mounted
 file.
+
+## Control state
+
+The UI reads and writes `/etc/squid/proxy-control.json` and regenerates
+`/etc/squid/squid.conf`. Its supported fields are:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `suppress_proxy_headers` | `true` | Remove common forwarding/cache identity headers. |
+| `disable_cache` | `true` | Add `cache deny all`. |
+| `parent_enabled` | `false` | Send ordinary requests through one parent proxy. |
+| `parent_host` | Documentation placeholder | Parent hostname/address when enabled. |
+| `parent_port` | `8080` | Parent port, clamped to 1–65535 by the UI. |
+| `forward_proxy_auth` | `true` | Add Squid `login=PASS` for browser-supplied proxy authorization. |
+
+The entrypoint watches the generated Squid configuration modification time and
+requests a live reconfigure. The state mount and Squid configuration must be
+writable by the container when persistence/customization is needed.
+
+## Security and troubleshooting
+
+Squid's lab default permits all clients, Dante's example permits broad access,
+and the control UI has no authentication. Bind all host-published ports to
+`127.0.0.1` unless the user explicitly accepts wider exposure and supplies host
+firewall/authentication controls. Do not place real parent credentials in the
+committed JSON state.
+
+For diagnosis:
+
+- inspect `docker logs clab-<lab>-proxy` for Squid, Dante, UI, readiness timeout,
+  and reconfiguration output;
+- query Squid's loaded config with the documented `squidclient` command;
+- compare `SOCKS_EXTERNAL_IP` with the actual data-plane address and the
+  `external` value in the mounted `sockd.conf`;
+- verify `SOCKS_WAIT_DNS` appears exactly in `/etc/resolv.conf` and answers the
+  entrypoint's lookup;
+- verify host port mappings separately from the node's lab-side route; and
+- redeploy rather than using plain `docker restart` when Containerlab veth links
+  are missing.

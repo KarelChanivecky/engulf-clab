@@ -52,3 +52,11 @@ It derives from `ExecutableWrapperPlugin` supplied by
   dependency edge and consume only the published context path.
 - Do not run real Docker builds in automated tests. Mock Docker and Make and
   use temporary builder directories.
+- Keep dynamic help, README source precedence/formats, prefix derivation,
+  fingerprint components, native/requested tag behavior, and cleanup guarantees
+  synchronized.
+- Run config, source, image, state/vrnetlab, and plugin tests plus the
+  ensure-vrnetlab build-pipeline suite. Build/install both wheels and verify
+  discovery ordering/context wiring.
+- Regenerate the vrnetlab-build skill references after behavior or
+  documentation changes.

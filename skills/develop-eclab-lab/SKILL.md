@@ -136,7 +136,9 @@ plugin's current contract; for managed WANs use `<PREFIX>_DHCP_*` labels and
    and route through DHCP when that is the intended topology behavior.
 5. Prefer packaged `eclab.containers/*` nodes over copied Dockerfiles. Read
    [eclab-containers-core.md](references/eclab-containers-core.md) for the host
-   connector, LDAP, proxy, and Firefox GUI contracts.
+   connector, LDAP, proxy, and Firefox GUI catalog, then load the matching
+   `references/eclab-container-*.md` guide for the selected node's complete
+   environment, topology, security, and troubleshooting contract.
 6. Keep lab-specific addressing, routes, credentials, LDIF, certificates, and
    browser policy in the consuming lab. Add servers or security features only
    when the repro requires them.
@@ -183,4 +185,10 @@ plugin's current contract; for managed WANs use `<PREFIX>_DHCP_*` labels and
 - Executable-wrapper goal dispatch and lifecycle:
   [executable-wrapper.md](references/executable-wrapper.md)
 - eclab overview and package map: [eclab.md](references/eclab.md)
+- eclab checkout setup, validation, documentation, and release workflow when a
+  lab failure requires a source change:
+  [eclab-contributing.md](references/eclab-contributing.md)
+- Complete privileged-service configuration example when reviewing an MCP
+  profile or installation:
+  [eclab-mcp-config.md](references/eclab-mcp-config.md)
 - Exact plugin syntax: search `references/eclab-*.md` by feature or setting.

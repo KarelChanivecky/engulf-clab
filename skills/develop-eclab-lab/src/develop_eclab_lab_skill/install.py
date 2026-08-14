@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import argparse
 import filecmp
-from importlib import resources
-from importlib.resources.abc import Traversable
 import os
-from pathlib import Path
 import shutil
 import sys
 import time
+from importlib import resources
+from importlib.resources.abc import Traversable
+from pathlib import Path
 from typing import NoReturn
-
 
 SKILL_NAME = "develop-eclab-lab"
 
@@ -56,19 +55,45 @@ def same_tree(left: Path, right: Path) -> bool:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description=__doc__)
-    default_skills = Path(
-        os.environ.get("DEVELOP_ECLAB_LAB_SKILLS_DIR", Path.home() / ".agents" / "skills")
+    result = argparse.ArgumentParser(
+        prog="develop-eclab-lab-install",
+        description=__doc__,
+        epilog=(
+            "Defaults may also be set with DEVELOP_ECLAB_LAB_SKILLS_DIR and "
+            "DEVELOP_ECLAB_LAB_BACKUP_DIR. Otherwise the skills directory is "
+            "$CODEX_HOME/skills, falling back to ~/.codex/skills. Explicit "
+            "options take precedence."
+        ),
     )
+    configured_skills = os.environ.get("DEVELOP_ECLAB_LAB_SKILLS_DIR")
+    if configured_skills is not None:
+        default_skills = Path(configured_skills)
+    else:
+        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+        default_skills = codex_home / "skills"
     default_backups = Path(
         os.environ.get(
             "DEVELOP_ECLAB_LAB_BACKUP_DIR",
             Path.home() / ".local" / "state" / SKILL_NAME / "backups",
         )
     )
-    result.add_argument("--skills-dir", type=Path, default=default_skills)
-    result.add_argument("--backup-dir", type=Path, default=default_backups)
-    result.add_argument("--check", action="store_true")
+    result.add_argument(
+        "--skills-dir",
+        type=Path,
+        default=default_skills,
+        help=f"parent directory for installed skills (default: {default_skills})",
+    )
+    result.add_argument(
+        "--backup-dir",
+        type=Path,
+        default=default_backups,
+        help=f"directory for recognized previous installations (default: {default_backups})",
+    )
+    result.add_argument(
+        "--check",
+        action="store_true",
+        help="compare the installed tree with this package without replacing it",
+    )
     return result
 
 

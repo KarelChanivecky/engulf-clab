@@ -44,3 +44,11 @@ It derives from `ExecutableWrapperPlugin` supplied by
   by the build plugin.
 - Do not perform real network clones in automated tests. Mock Git and create
   temporary checkout markers.
+- Keep runtime help, README opt-in/resolution/update behavior, context IDs, and
+  dependency lists synchronized.
+- Run topology, checkout, plugin, and build-pipeline tests plus
+  ensure-checkout tests. Mock Docker/QEMU/Git lookup and never build vendor
+  images in unit tests.
+- Build/install the wheel and verify active help/discovery with the downstream
+  builder installed. Regenerate both ensure-vrnetlab skill references after
+  behavior or documentation changes.

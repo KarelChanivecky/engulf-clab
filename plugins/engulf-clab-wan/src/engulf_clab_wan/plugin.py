@@ -3,7 +3,13 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Iterable
 
-from engulf_api import DependencyPosition, InvocationAPI, PluginDependency, StateScope, WorkspaceState
+from engulf_api import (
+    DependencyPosition,
+    InvocationAPI,
+    PluginDependency,
+    StateScope,
+    WorkspaceState,
+)
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
@@ -19,6 +25,12 @@ from engulf_executable_wrapper_api import (
 from .errors import WanError
 from .logging import use_logger
 from .networks import (
+    DEFAULT_DNS,
+    DEFAULT_GATEWAY,
+    DEFAULT_LEASE_TIME,
+    DEFAULT_POOL_END,
+    DEFAULT_POOL_START,
+    DEFAULT_SUBNET,
     cleanup_dhcp_wan_bridges,
     dhcp_wan_bridges,
     setup_dhcp_wan_bridges,
@@ -50,10 +62,20 @@ class WanPlugin(ExecutableWrapperPlugin):
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering DHCP WAN help")
-        marker = wan_contract(api.application).marker_label
+        contract = wan_contract(api.application)
         return (
-            f"  {marker}   Manage labeled bridge nodes as DHCP/NAT WANs\n"
-            "                    before deploy and after successful destroy"
+            "  Bridge-node YAML labels:\n"
+            f"    {contract.marker_label}               Enable managed IPv4 DHCP/NAT WAN\n"
+            f"    {contract.label('DHCP_SUBNET')}            Subnet (default: {DEFAULT_SUBNET})\n"
+            f"    {contract.label('DHCP_GATEWAY')}           Gateway (default: {DEFAULT_GATEWAY})\n"
+            f"    {contract.label('DHCP_POOL_START')} / _END  Pool (default: "
+            f"{DEFAULT_POOL_START}-{DEFAULT_POOL_END})\n"
+            f"    {contract.label('DHCP_DNS')}               DNS (default: {DEFAULT_DNS})\n"
+            f"    {contract.label('DHCP_LEASE_TIME')}        Seconds "
+            f"(default: {DEFAULT_LEASE_TIME})\n"
+            "  Runtime environment:\n"
+            f"    {contract.uplink_environment}              Optional host uplink override\n"
+            "  Marked deploys require root; successful destroy releases managed resources."
         )
 
     def analyze_call(

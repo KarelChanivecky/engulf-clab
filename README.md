@@ -10,6 +10,39 @@ The repository contains the wrapper application and independently publishable
 plugin distributions. Install only the plugins a lab needs, or install the
 meta-package to enable the complete maintained set.
 
+## Contents
+
+- [Documentation map](#documentation-map)
+- [Quick start](#quick-start)
+- [Topology language and runtime discovery](#topology-language-and-runtime-discovery)
+- [Invocation lifecycle](#invocation-lifecycle)
+- [Publishing](#publishing)
+- [Local MCP control service](#local-mcp-control-service)
+- [Typical topology](#typical-topology)
+- [Packages](#packages)
+- [Packaged containers](#packaged-containers)
+- [Workspace and state](#workspace-and-state)
+- [Freezing a lab for sharing](#freezing-a-lab-for-sharing)
+- [Editions](#editions)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Documentation map
+
+| Guide | Use it for |
+| --- | --- |
+| This README | Installation choices, package map, common topology patterns, workspace/state, editions, and releases |
+| `engulf-clab/README.md` | Wrapper behavior, argument forwarding, plugin discovery, diagnostics, and library use |
+| `plugins/*/README.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
+| `mcp-server/README.md` | Privileged local MCP architecture, configuration, tools, security boundary, and operations |
+| `CONTRIBUTING.md` | Development setup, Engulf contracts, documentation standards, validation, commits, and releases |
+| `skills/README.md` | Skill architecture, source synchronization, installation, hooks, packaging, and release workflow |
+| `skills/develop-eclab-lab/SKILL.md` | Concise agent workflow for building and troubleshooting labs |
+
+The nearest `AGENTS.md` adds non-user-facing invariants for agents changing a
+specific package. Package source and tests remain the precise specification for
+edge cases.
+
 ## Quick start
 
 Prerequisites are Python 3.14, Docker, and the privileges required by the
@@ -67,6 +100,62 @@ eclab --help
 Use `./uninstall-dev.sh` to remove the development distributions from that
 virtual environment without deleting the environment itself. Set `VENV_DIR` to
 use a location other than `.venv`.
+
+## Topology language and runtime discovery
+
+Every topology remains a Containerlab YAML document. Use Containerlab's
+authoritative
+[`clab.schema.json`](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json)
+for standard keys such as `name`, `mgmt`, `topology`, `defaults`, `kinds`,
+`nodes`, `links`, `kind`, `image`, `env`, `labels`, `startup-config`, and
+`license`. eclab plugins consume conventions expressed through those valid
+fields; they do not define a second topology language.
+
+The installed launcher is the authority for its available features. Inspect it
+before writing edition- or plugin-specific topology controls:
+
+```bash
+eclab --help
+eclab --engulf-plugin-list
+eclab --eclab-containers-help
+```
+
+`--help` appends one block for every active plugin that publishes help.
+`--engulf-plugin-list` reports activation order, source distribution, and
+version. The packaged-container command lists only collections discovered in
+that environment. For an edition, run the edition launcher's commands instead;
+an installation of base eclab does not prove that the edition declares the same
+plugins.
+
+Direct `containerlab` remains valid for labs that do not need wrapper features.
+It cannot interpret eclab-managed WAN labels, allocate pooled licenses, prepare
+packaged container recipes, build declared images, or create frozen archives.
+
+## Invocation lifecycle
+
+The wrapper preserves ordinary Containerlab arguments while Engulf coordinates
+plugins around one call:
+
+```text
+CLI arguments
+  -> every plugin analyzes without side effects
+  -> accepted plugins prepare resources and deferred topology mutations
+  -> the writer materializes one temporary topology beside the source file
+  -> Containerlab runs with the effective arguments
+  -> plugins perform outcome-aware cleanup
+```
+
+Analysis failure prevents all preparation. The source topology is never
+rewritten by the maintained mutation pipeline. Keeping the temporary topology
+beside it preserves Containerlab's relative-path behavior, and the writer
+removes the temporary file after the wrapped call.
+
+Plugin dependencies establish correctness-sensitive ordering. In a complete
+installation, collections register recipes before the manager injects them;
+the parser publishes the immutable topology before mutators run; ensure plugins
+prepare tool sources before builders; and the writer runs after all mutators.
+Use the live plugin list rather than relying on a hard-coded sequence when
+debugging another edition or package set.
 
 ## Publishing
 
@@ -177,23 +266,24 @@ required host tools, and cleanup behavior.
 
 ## Packages
 
-| Package | Purpose |
-| --- | --- |
-| `engulf-clab` | Distribution that installs the `eclab` Containerlab wrapper command. |
-| `engulf-clab-mcp` | Local Unix-socket privileged MCP executor and standard-stdio bridge. |
-| `engulf-clab-all-plugins` | Meta-package that installs all maintained plugins. |
-| `engulf-clab-containers-api` | Typed contract for independently published container collections. |
-| `engulf-clab-containers` | Injects active collection recipes into temporary topologies. |
-| `engulf-clab-containers-core` | Core host connector, LDAP, proxy, and Firefox GUI collection. |
-| `engulf-clab-ensure-containerlab` | Finds, builds, or provisions Containerlab. |
-| `engulf-clab-dockerfile-build` | Builds node images declared with Dockerfile variables. |
-| `engulf-clab-ensure-vrnetlab` | Finds or provisions a vrnetlab checkout. |
-| `engulf-clab-vrnetlab-build` | Builds vrnetlab node images. |
-| `engulf-clab-license-pool` | Shares license files safely across labs. |
-| `engulf-clab-freeze` | Produces sanitized, portable frozen lab archives. |
-| `engulf-clab-wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
-| `engulf-clab-lab-parser` | Shared original-topology and deferred-mutation API. |
-| `engulf-clab-lab-writer` | Renders deferred mutations into a temporary topology. |
+| Package | Plugin ID / command | Purpose |
+| --- | --- | --- |
+| `engulf-clab` | `eclab` | Distribution that installs the Containerlab wrapper command. |
+| `engulf-clab-mcp` | `eclab-mcp`, `eclab-mcpd` | Local Unix-socket privileged MCP executor and standard-stdio bridge. |
+| `engulf-clab-all-plugins` | None | Meta-package that installs all maintained plugins. |
+| `engulf-clab-containers-api` | Contract only | Typed contract for independently published container collections. |
+| `engulf-clab-containers` | `engulf_clab.containers` | Injects active collection recipes into temporary topologies. |
+| `engulf-clab-containers-core` | `eclab.containers` | Core host connector, LDAP, proxy, and Firefox GUI collection. |
+| `engulf-clab-ensure-checkout` | Library only | Shared safe Git checkout provisioning and update logic. |
+| `engulf-clab-ensure-containerlab` | `engulf_clab.ensure_containerlab` | Finds, builds, or provisions Containerlab. |
+| `engulf-clab-dockerfile-build` | `engulf_clab.dockerfile_build` | Builds node images declared with Dockerfile variables. |
+| `engulf-clab-ensure-vrnetlab` | `engulf_clab.ensure_vrnetlab` | Finds or provisions a vrnetlab checkout. |
+| `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
+| `engulf-clab-license-pool` | `engulf_clab.license_pool` | Shares license files safely across labs. |
+| `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
+| `engulf-clab-wan` | `engulf_clab.wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
+| `engulf-clab-lab-parser` | `engulf_clab.lab_parser` | Shared original-topology and deferred-mutation API. |
+| `engulf-clab-lab-writer` | `engulf_clab.lab_writer` | Renders deferred mutations into a temporary topology. |
 
 ## Packaged containers
 
@@ -297,6 +387,10 @@ Use Python 3.14 and the repository `.venv` when present. Keep changes focused
 and run the narrowest relevant checks, such as unit tests, bytecode compilation,
 plugin discovery, and `ruff check`.
 
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete development setup,
+plugin lifecycle contract, package checklist, documentation requirements,
+validation matrix, commit policy, and release workflow.
+
 Each plugin under `plugins/` is a self-contained distribution. A new plugin
 needs its own `AGENTS.md`, MIT `LICENSE`, `pyproject.toml`, `src/` package, and
 `py.typed` marker when typed. Plugins import `engulf_api` and
@@ -317,6 +411,8 @@ engulf.plugins.v1.application.engulf_clab
 
 The canonical `develop-eclab-lab` Codex skill lives under
 `skills/develop-eclab-lab` and is also a separately buildable pip distribution.
+Read [`skills/README.md`](skills/README.md) before changing its definition,
+source mappings, normalizations, package data, installer, or hooks.
 Install a user-level copy and configure this checkout's hooks with:
 
 ```bash
@@ -325,8 +421,11 @@ make install-skill
 
 The pip package embeds the skill and all copied Engulf/ECLAB context. After
 installing `develop-eclab-lab`, run `develop-eclab-lab-install` to copy the
-embedded skill into `~/.agents/skills/develop-eclab-lab`. The installed skill
-does not need this checkout.
+embedded skill into `$CODEX_HOME/skills/develop-eclab-lab`, or
+`~/.codex/skills/develop-eclab-lab` when `CODEX_HOME` is unset. The installed
+skill does not need this checkout. Use `develop-eclab-lab-install --check` to
+compare an installed copy with its package and `--skills-dir` / `--backup-dir`
+for non-default locations.
 
 Run `make update-skill` after changing documentation copied into the skill, and
 run `make check-skill` in CI. The hooks compare staged documentation with its

@@ -22,3 +22,24 @@ during analysis. Acquire one multi-lease context covering every image tag before
 launching parallel workers; callback-bound API lease contexts must not overlap.
 Read `TopologySession.materialize()` during preparation so earlier topology
 injectors can contribute packaged Dockerfile recipes.
+
+- Keep analysis limited to parsing, path/type validation, conflict prediction,
+  and an immutable contribution. Never invoke or probe Docker from analysis or
+  help.
+- Build with an argv, not a shell. Preserve the reserved `--file`/`--tag` checks
+  across short, long, attached, and equals forms.
+- Resolve relative paths from the topology directory and validate file/directory
+  roles. Do not require the Dockerfile to be inside the context for ordinary
+  user declarations; Docker decides whether the selected combination is valid.
+- Coalesce identical definitions by image tag and reject conflicting ones.
+  Acquire the complete multi-image lease set in the callback thread before
+  launching workers; never use invocation-bound API objects inside workers.
+- Let all worker futures settle and combine deterministic failures. Preserve
+  Docker's output and do not configure logging or print operational messages.
+- Do not delete built images on destroy. Docker caching and tag lifecycle are
+  outside this plugin's cleanup responsibility.
+- Keep dynamic help, README fields, prefix derivation, parser validation, and
+  constructed Docker argv synchronized.
+- Run config, build, and plugin tests; include parser/manager/core tests when
+  changing materialized-topology behavior. Mock Docker in automated tests.
+- Regenerate the skill's Dockerfile and development references after changes.

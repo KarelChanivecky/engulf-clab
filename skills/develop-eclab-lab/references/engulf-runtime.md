@@ -13,6 +13,10 @@ It does not contain executable-wrapper events, argument edits, process execution
 help aggregation, or shell completion. Those live in the executable-wrapper goal
 packages.
 
+Import supported runtime objects from `engulf`. Import goal, plugin, callback, and
+state contracts from `engulf_api`. Modules whose names begin with `_` are internal
+execution seams and are not application or plugin APIs.
+
 ## Constructing An Application
 
 ```python
@@ -42,6 +46,29 @@ def main() -> int:
 instantiate the goal, discover plugins, or run setup. Every `create()` call invokes
 `goal_factory` and returns a fresh managed `Application`. Applications that do not
 need reuse may still construct `Application` directly as the lower-level API.
+
+The definition captures every reusable application-level choice:
+
+| Field | Contract |
+| --- | --- |
+| `application_id` | Persistent technical identity, normalized to lowercase distribution form. |
+| `display_name` | Lowercase command-facing name; controls reserved logging option names. |
+| `goal_factory` | Zero-argument callable returning a fresh `Goal`. |
+| `vendor`, `product`, `short_product_name`, `version` | Nonempty presentation metadata passed to every callback. |
+| `plugin_policy` | Activation selection; defaults to `PluginPolicy.declared()`. |
+| `required_plugin_ids` | IDs that are selected and must be present before setup. |
+| `logging_config` | Construction and per-invocation logging defaults. |
+| `workspace_root_resolver` | Optional application policy for canonical workspace identity. |
+| `state_home_resolver` | Optional application policy for the central state root. |
+| `plugin_declaration_application_ids` | Current and explicitly inherited declared-mode discovery lineage. |
+| `diagnostic_isolation_config` | Resource limits for isolated diagnostics. |
+
+`definition.create(plugin_dir=None, discover_installed=True)` supplies the two
+development/runtime switches that should not be baked into an importable definition.
+`plugin_dir` loads application-owned files. Setting `discover_installed=False`
+disables installed normal-plugin and diagnostic entry-point discovery while still
+allowing the directory. The direct `Application` constructor accepts the same
+application metadata and policies but takes an already-created goal instance.
 
 `application_id` is normalized to lowercase distribution form. Keep it stable: it
 participates in plugin discovery, state paths, and named lease identity.
@@ -136,6 +163,33 @@ separation lets later execution policies inspect provenance without changing goa
 or plugin metadata. A source record does not attest package integrity, publisher
 identity, secure installation, or trust.
 
+`kind` is `PluginSourceKind.INSTALLED`, `PluginSourceKind.DIRECTORY`, or
+`PluginSourceKind.DIRECT`. The remaining exact `PluginSource` fields are diagnostic
+`target`, optional `distribution_name`, `distribution_version`,
+`entry_point_group`, `entry_point_value`, and `directory`. Its
+`normalized_distribution_name` convenience property is for comparison, not identity
+or authorization.
+
+`ActivePlugin` contains `metadata` and `source` and delegates `plugin_id`,
+`goal_requirement`, `priority`, `elevation_requirement`, `plugin_dependencies`
+(also `dependencies`), `context_reads`, and `context_writes` for inspection.
+
+Useful inspection properties are immutable snapshots:
+
+| Property | Value |
+| --- | --- |
+| `goal`, `goal_contract` | The owned goal and its stable contract. |
+| `plugin_policy`, `required_plugin_ids`, `missing_policy_ids` | Effective selection and optional IDs absent from the catalog. |
+| `active_plugins`, `plugins` | Normal plugins in preprocessing order. |
+| `postprocess_plugins` | The same descriptors in postprocessing order. |
+| `diagnostic_extensions` | Import-free diagnostic descriptors, including availability. |
+| `goal_plugin_entry_point_group` | Exact compatible normal-plugin catalog. |
+| `application_plugin_entry_point_group` | Current application's declaration group. |
+| `application_plugin_entry_point_groups` | Current and inherited declaration groups in lookup order. |
+| `diagnostic_entry_point_group`, `diagnostic_trigger_entry_point_group` | Exact diagnostic catalog and trigger groups. |
+| `diagnostic_isolation_config`, `diagnostic_isolation` | Effective immutable isolation limits and its alias. |
+| `plugin_directory`, `elevated`, `closed` | Resolved directory and lifecycle/environment snapshots. |
+
 ## Execution And Trust
 
 The current endpoint implementation is in-process. Every selected plugin module,
@@ -183,6 +237,122 @@ and returns framework exit 70 for a declared diagnostic trigger rather than pass
 it through to the goal. Kernel vulnerabilities and side channels are outside this
 boundary; normal plugins remain fully trusted in-process code.
 
+### Authoring A Diagnostic Extension
+
+A diagnostic distribution depends on `engulf-api`, exports a `DiagnosticPlugin`
+instance or zero-argument factory, and declares both a goal catalog entry and one or
+more exact triggers. It does not publish a normal-plugin entry point:
+
+```python
+from engulf_api import (
+    DiagnosticAPI,
+    DiagnosticContribution,
+    DiagnosticPlugin,
+    DiagnosticRequest,
+)
+
+
+class PluginInventory(DiagnosticPlugin):
+    def diagnose(
+        self,
+        request: DiagnosticRequest,
+        api: DiagnosticAPI,
+    ) -> DiagnosticContribution:
+        rows = [
+            f"{item.preprocess_position}\t{item.postprocess_position}\t{item.plugin_id}"
+            for item in api.plugin_executions
+        ]
+        return DiagnosticContribution(stdout="\n".join(rows) + "\n")
+
+
+diagnostic = PluginInventory()
+```
+
+For executable-wrapper API major 1, package it as:
+
+```toml
+[project]
+name = "example-engulf-plugin-inventory"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = ["engulf-api>=1.0,<2"]
+
+[project.entry-points."engulf.diagnostics.v1.goal.v1.org_engulf_executable_wrapper"]
+"com.example.diagnostic.plugin-inventory" = "example_inventory:diagnostic"
+
+[project.entry-points."engulf.diagnostics.v1.goal.v1.org_engulf_executable_wrapper.triggers.before_separator"]
+"--example-plugin-inventory" = "example_inventory:diagnostic"
+```
+
+Use `diagnostic_entry_point_group(goal_id, goal_api_major)` and
+`diagnostic_trigger_entry_point_group(goal_id, goal_api_major)` when tooling needs
+to calculate these strings. The catalog name is a globally qualified, lowercase
+`diagnostic_id`. A trigger must be one exact option beginning with `--`; bare `--`,
+assignments, whitespace, and control characters are rejected. The catalog and every
+trigger must resolve to the same distribution name, distribution version, and
+target. More than one trigger may point to the same diagnostic.
+
+Only exact arguments before the first `--` separator match. A matching invocation
+runs all matching diagnostics in normalized distribution-name and diagnostic-ID
+order. It bypasses invocation-time normal hooks, goal phases, goal work, and wrapped
+process execution; one-time goal setup has already happened during construction.
+
+The isolated callback receives:
+
+- `request.arguments`, containing the original argument tuple, plus immutable
+  application metadata and goal identity;
+- `api.active_plugins`, containing implementation-free plugin metadata and observed
+  source records in preprocessing order;
+- `api.plugin_executions`, adding one-based preprocessing and postprocessing
+  positions;
+- every import-free `api.diagnostic_extensions` descriptor and its availability;
+- the application's `api.elevated` snapshot and a buffered `api.logger`.
+
+It receives no current directory, environment, host home, workspace, context,
+state, leases, lifecycle API, or live normal-plugin object. Return all intended
+output in `DiagnosticContribution`. Writing directly with `print()` or to
+`sys.stderr` is treated as a worker protocol failure; logger records are appended to
+the contribution's standard error.
+
+All matching workers are attempted even if one fails. Successful output is emitted
+in execution order, and the first nonzero successful contribution supplies the
+diagnostic result's exit code. Any worker failure takes precedence and produces a
+framework-failed result with exit 70. On complete success,
+`GoalResult.diagnostic_ids` records the contributing IDs in execution order.
+
+The published [`engulf-plugin-list`](engulf-plugin-list.md) package
+is a complete implementation of this pattern.
+
+### Diagnostic Isolation Requirements And Limits
+
+Diagnostics require Linux, `unshare`, Bubblewrap with `--ro-bind-fd` support,
+libseccomp, and usable user/network/cgroup namespace isolation. Availability is
+probed before any target import. A missing tool, unsupported Bubblewrap build,
+blocked namespace operation, failed seccomp setup, or failed read-only mount keeps
+the extension unavailable.
+
+Each worker receives read-only views of the Python/runtime files required to import
+its distribution, a private process and network namespace, a minimal `/dev` and
+`/proc`, an empty environment except for controlled Python/scratch variables, no
+capabilities, and a size-limited `/scratch` also exposed as `/tmp`. The transport is
+bounded JSON rather than pickle. Host paths may appear in immutable provenance
+records but are not thereby mounted into the worker.
+
+`DiagnosticIsolationConfig` is immutable and accepts these positive limits:
+
+| Field | Default | Enforcement |
+| --- | ---: | --- |
+| `wall_timeout_seconds` | `5.0` | Host deadline for probe and execution. |
+| `cpu_seconds` | `2` | Worker CPU rlimit. |
+| `address_space_bytes` | `256 * 1024 * 1024` | Worker address-space rlimit. |
+| `child_processes` | `1` | Worker process-count rlimit; process-creation syscalls are also denied. |
+| `file_descriptors` | `64` | Open-file-descriptor rlimit. |
+| `scratch_bytes` | `16 * 1024 * 1024` | Scratch tmpfs size and file-size rlimit. |
+| `protocol_limit_bytes` | `1024 * 1024` | Request, response, and direct-pipe bounds. |
+
+Applications can supply the config through `ApplicationDefinition` or the direct
+`Application` constructor. Limits are application policy, not plugin requests.
+
 ## Invocation Lifecycle
 
 One invocation follows this order:
@@ -201,6 +371,13 @@ exceptions identify the stable `plugin_id`, not a Python class name.
 
 Use `application.invoke(args)` when the typed `GoalResult` matters. Use
 `application.run(args)` for a console entry point.
+
+When `args` is omitted, Engulf snapshots `sys.argv[1:]`; otherwise it accepts any
+sequence of strings. It also snapshots the resolved current directory and current
+string environment into `Invocation`. Invalid arguments, current-directory
+resolution, or reserved logging controls produce a `FRAMEWORK_FAILED` result with
+`FRAMEWORK_ERROR_EXIT` (`70`) instead of entering plugin hooks. One application may
+be invoked repeatedly but never concurrently.
 
 ## Installed Plugin Catalogs
 
@@ -282,6 +459,11 @@ PluginPolicy.allow_only(
 # Activate every goal-compatible installed plugin except these IDs.
 PluginPolicy.allow_all_except({"com.example.unsafe"})
 ```
+
+`PluginPolicy` is an immutable value containing `mode`, validated/deduplicated
+`plugin_ids`, and `include_dependencies`. `PluginPolicyMode` values are `DECLARED`,
+`ALLOWLIST`, and `BLOCKLIST`; prefer the class constructors above instead of
+assembling modes directly.
 
 Explicit IDs are optional: an ID absent from the current goal catalog is skipped and
 listed by `application.missing_policy_ids`. This supports optional installations.
@@ -393,6 +575,51 @@ left untouched. Registration logging uses the initialized setup diagnostics sess
 catalog candidates that are never activated are never imported and therefore cannot
 log.
 
+Named levels are `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, and `OFF`, matched
+case-insensitively. Programmatic `LoggingConfig` and `LogLevelOverrides` also accept
+nonnegative integer logging levels; booleans are rejected. `LOG_LEVEL_NAMES` exposes
+the named set, and `logging_option_names(display_name)` returns the two reserved
+options exactly.
+
+```python
+import logging
+from engulf import LogLevelOverrides, LoggingConfig
+
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+
+logging_config = LoggingConfig(
+    default_level="WARNING",
+    plugin_levels={"com.example.audit": "DEBUG"},
+    handlers=(handler,),
+)
+
+overrides = LogLevelOverrides(
+    default_level="INFO",
+    plugin_levels={"com.example.audit": "ERROR"},
+)
+
+# Pass logging_config to ApplicationDefinition or Application.
+result = application.invoke(
+    ["report"],
+    log_overrides=overrides,
+)
+```
+
+Precedence is construction defaults, then programmatic invocation overrides, then
+CLI controls; later occurrences in one CLI layer win. Setting a later default resets
+all plugin levels to that default before that layer's per-plugin overrides apply.
+Unknown plugin IDs and invalid levels are rejected. `OFF` suppresses ordinary output,
+but mandatory framework failures are still delivered or written to a safe fallback.
+
+Without custom handlers, records go to standard error with a UTC timestamp,
+display-name/component label, level, and message. Custom handlers retain their own
+levels and formatters and are flushed but not closed by Engulf. Records include
+`engulf_application_id`, `engulf_display_name`, `engulf_plugin_id`,
+`engulf_component`, `engulf_phase`, and `engulf_call_id`; plugin-provided `extra`
+cannot override reserved `engulf_` fields. A handler failure is reported through a
+fallback and does not change the invocation result.
+
 ## State And Workspaces
 
 Plugins and the goal receive API-namespaced user and workspace stores:
@@ -409,7 +636,8 @@ workspace.write_bytes("artifact", payload)
 One filename is one path component. Reads reject symbolic links and Windows reparse
 points. Writes are atomic, private, and owner-aware. Calling `directory` or `path()`
 exposes the namespaced directory so plugins can clone repositories or manage
-directory trees inside their own namespace. `delete()` removes a named file or tree.
+directory trees inside their own namespace. `delete()` unlinks one named file; it is
+not a recursive tree-removal API.
 `WorkspaceState.destroy()` queues namespace destruction after postprocessing; an
 empty workspace record is pruned.
 
@@ -423,6 +651,31 @@ handles. POSIX uses private modes, ownership, no-follow opens, and `flock`.
 stable context records. `StateHomeContext` exposes `application_id`, a
 platform-qualified `owner_id`, `owner_home`, and whether the process is elevated;
 it does not expose platform-specific UID/GID or sudo fields.
+
+Resolvers are lazy and run at most once per invocation when their result is first
+needed:
+
+```python
+from pathlib import Path
+from engulf import StateHomeContext, WorkspaceContext
+
+
+def resolve_workspace(context: WorkspaceContext) -> Path:
+    # Relative results are resolved from the invocation's canonical cwd.
+    return context.cwd / "project-root"
+
+
+def resolve_state_home(context: StateHomeContext) -> Path:
+    # State homes must be absolute; application_id is already normalized.
+    return context.owner_home / ".example-state" / context.application_id
+```
+
+`WorkspaceContext` contains `application_id` and the immutable `Invocation`, with
+`cwd` and `arguments` convenience properties. Its result must identify an existing
+directory and is canonicalized with strict resolution. A `StateHomeResolver` result
+must be a nonempty absolute text path; it may identify a directory that has not yet
+been created. Resolver policy affects state and lease identity, so keep it stable
+across cooperating launchers.
 
 ## Transactions And Leases
 
@@ -456,3 +709,43 @@ handles.
 
 Leases coordinate only cooperating Engulf processes. External resources still need
 ownership markers and recovery journals.
+
+Timeouts are finite nonnegative seconds: `None` waits without a deadline and `0`
+performs an immediate attempt. A missed deadline raises `LockTimeoutError` with the
+store or lease identity. Transaction and lease context-manager objects are
+single-use. One callback may hold one lease set and one transaction at a time; a
+transaction may be nested inside its enclosing leases, but the transaction must exit
+first. Callback deactivation forcibly releases a leaked active context.
+
+## Construction Failures And Public Runtime Surface
+
+Plugin discovery and compatibility errors happen while constructing an application,
+before invocation:
+
+| Exception | Meaning |
+| --- | --- |
+| `PluginLoadError` | Base error for invalid discovery catalogs, targets, exports, declarations, or goal compatibility. |
+| `PluginDependencyError` | Invalid plugin metadata, a missing active dependency, duplicate/self dependency, or ordering cycle. |
+| `PluginElevationError` | A selected `REQUIRED` plugin is incompatible with the process elevation snapshot. |
+| `PluginRequirementError` | An application-required plugin ID was not activated. |
+
+Construction and goal-setup exceptions propagate to the application author after
+all created execution endpoints have been offered cleanup. By contrast, invocation
+configuration, lifecycle, phase, goal, diagnostic, and workspace-cleanup failures
+normally become `GoalResult.framework_failed(exit_code=70)`. `FRAMEWORK_ERROR_EXIT`
+exports that default value.
+
+The supported top-level `engulf` imports are:
+
+| Area | Names |
+| --- | --- |
+| Application | `Application`, `ApplicationDefinition`, `GoalFactory`, `FRAMEWORK_ERROR_EXIT` |
+| Selection and discovery | `PluginPolicy`, `PluginPolicyMode`, `PluginLoadError`, `PluginDependencyError`, `PluginElevationError`, `PluginRequirementError`, `application_plugin_entry_point_group`, `goal_plugin_entry_point_group` |
+| Inspection | `ActivePlugin`, `PluginSource`, `PluginSourceKind` |
+| Logging | `LogLevel`, `LOG_LEVEL_NAMES`, `LoggingConfig`, `LogLevelOverrides`, `logging_option_names` |
+| State policy | `WorkspaceContext`, `WorkspaceRootResolver`, `StateHomeContext`, `StateHomeResolver` |
+| Isolated diagnostics | `DiagnosticIsolationConfig`, `diagnostic_entry_point_group`, `diagnostic_trigger_entry_point_group` |
+
+Goal and plugin contracts—including `Goal`, `Plugin`, `GoalResult`, state handles,
+and callback APIs—remain owned by `engulf-api` and should be imported from
+`engulf_api` even when the runtime reuses their values internally.

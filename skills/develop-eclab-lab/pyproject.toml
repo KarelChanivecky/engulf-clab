@@ -6,7 +6,31 @@ build-backend = "hatchling.build"
 name = "develop-eclab-lab"
 version = "0.1.0"
 description = "Self-contained Codex skill for building and troubleshooting eclab labs"
-readme = { text = "Installs the self-contained develop-eclab-lab Codex skill and its bundled Engulf/ECLAB references.", content-type = "text/markdown" }
+readme = { text = """
+# develop-eclab-lab
+
+Self-contained Codex skill for building, validating, operating, freezing, and
+troubleshooting Containerlab labs through base eclab, an eclab edition, a local
+CLI, or the privileged local MCP service.
+
+The wheel embeds `SKILL.md`, Codex interface metadata, and normalized snapshots
+of the Engulf API/runtime, executable-wrapper contracts, eclab wrapper/MCP
+guides, every maintained plugin guide, and packaged-container documentation. An
+installed skill does not require either source repository.
+
+```bash
+python3.14 -m pip install develop-eclab-lab
+develop-eclab-lab-install
+develop-eclab-lab-install --check
+```
+
+The default target is `$CODEX_HOME/skills/develop-eclab-lab`, falling back to
+`~/.codex/skills/develop-eclab-lab` when `CODEX_HOME` is unset. Override its
+parent with `--skills-dir` or `DEVELOP_ECLAB_LAB_SKILLS_DIR`; override safe
+backup storage with `--backup-dir` or `DEVELOP_ECLAB_LAB_BACKUP_DIR`. The
+installer publishes atomically, backs up recognized older installations, and
+refuses to replace an unrelated path.
+""", content-type = "text/markdown" }
 requires-python = ">=3.14"
 license = "MIT"
 
