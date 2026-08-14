@@ -1,4 +1,5 @@
 PYTHON := .venv/bin/python
+SKILL_PACKAGE_DIR := skills/develop-eclab-lab
 PACKAGE_DIRS := \
 	plugins/engulf-clab-containers-api \
 	plugins/engulf-clab-lab-parser \
@@ -14,7 +15,7 @@ PACKAGE_DIRS := \
 	plugins/engulf-clab-license-pool \
 	plugins/engulf-clab-freeze \
 	plugins/engulf-clab-all-plugins \
-	skills/develop-eclab-lab \
+	$(SKILL_PACKAGE_DIR) \
 	engulf-clab \
 	mcp-server
 
@@ -48,6 +49,14 @@ build: environment clean-dist
 publish: build
 	@test -n "$${TWINE_REPOSITORY_URL:-}" || { \
 		echo "error: TWINE_REPOSITORY_URL is required" >&2; \
+		exit 1; \
+	}
+	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'develop_eclab_lab-*.whl' -print -quit)" || { \
+		echo "error: develop-eclab-lab wheel is missing from the release artifacts" >&2; \
+		exit 1; \
+	}
+	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'develop_eclab_lab-*.tar.gz' -print -quit)" || { \
+		echo "error: develop-eclab-lab sdist is missing from the release artifacts" >&2; \
 		exit 1; \
 	}
 	@$(PYTHON) -m twine upload --repository-url "$$TWINE_REPOSITORY_URL" dist/*/*

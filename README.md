@@ -171,7 +171,9 @@ The publisher removes and rebuilds the root `dist/` tree, validates every wheel
 and source distribution with Twine, and uploads only those fresh artifacts. If
 the URL matches the package repository managed by the neighboring Engulf
 checkout, it verifies that the managed container is active and loads its upload
-token and CA automatically. Set `ENGULF_DIR` when that checkout is not at
+token and CA automatically. The publish target explicitly checks that both the
+`develop-eclab-lab` wheel and source distribution are present before uploading.
+Set `ENGULF_DIR` when that checkout is not at
 `../engulf`; credentials for other repositories use Twine's normal environment
 variables or configuration.
 

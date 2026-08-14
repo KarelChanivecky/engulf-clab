@@ -227,4 +227,6 @@ Keep commits focused. Before releasing, update each changed distribution's
 version and compatible dependency range together, build all artifacts with
 `make build`, inspect the wheel contents, and publish only freshly built output.
 `TWINE_REPOSITORY_URL` selects the package index; `publish.sh` can obtain local
-managed-repository credentials from the neighboring Engulf checkout.
+managed-repository credentials from the neighboring Engulf checkout. The
+publish target also verifies that the self-contained `develop-eclab-lab` wheel
+and sdist are included before any upload occurs.
