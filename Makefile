@@ -14,10 +14,11 @@ PACKAGE_DIRS := \
 	plugins/engulf-clab-license-pool \
 	plugins/engulf-clab-freeze \
 	plugins/engulf-clab-all-plugins \
+	skills/develop-eclab-lab \
 	engulf-clab \
 	mcp-server
 
-.PHONY: environment clean-dist build publish
+.PHONY: environment clean-dist build publish install-skill update-skill check-skill
 
 environment:
 	@if [ ! -d .venv ]; then \
@@ -50,3 +51,12 @@ publish: build
 		exit 1; \
 	}
 	@$(PYTHON) -m twine upload --repository-url "$$TWINE_REPOSITORY_URL" dist/*/*
+
+install-skill:
+	@./scripts/install-develop-eclab-lab
+
+update-skill:
+	@./scripts/update-develop-eclab-lab
+
+check-skill:
+	@./scripts/update-develop-eclab-lab --check

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+exec python3 "$repo_root/scripts/develop_eclab_lab_skill.py" --repo "$repo_root" commit-message "$1"

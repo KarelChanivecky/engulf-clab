@@ -1,0 +1,4 @@
+interface:
+  display_name: "Develop CLAB with eclab"
+  short_description: "Build and troubleshoot eclab labs"
+  default_prompt: "Use $develop-eclab-lab to build or troubleshoot an eclab lab with current Engulf workflows."

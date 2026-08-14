@@ -23,9 +23,6 @@ dependencies = [
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "engulf_clab.freeze" = "engulf_clab_freeze:plugin"
 
-[project.entry-points."engulf_clab.freeze_commands"]
-freeze = "engulf_clab_freeze.command:main"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_freeze"]
 

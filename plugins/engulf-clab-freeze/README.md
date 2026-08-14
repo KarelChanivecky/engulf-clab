@@ -16,6 +16,28 @@ than one topology, and use `--output` to select another destination:
 eclab freeze -t labs/demo/lab.clab.yml --output demo.tar.gz
 ```
 
+Add `--offline` to create a strict offline bundle:
+
+```bash
+eclab freeze --offline
+```
+
+Offline archives contain a ready-to-run copy of the active eclab virtual
+environment, the resolved Containerlab executable, the actual vrnetlab checkout,
+and a Docker archive of non-vrnetlab topology images. Generated vrnetlab
+appliance images and vendor VM inputs are not frozen: the recipient selects and
+supplies the VM image they are entitled to use, and the bundled vrnetlab builds
+it locally. The launcher selects only bundled tools and loads ordinary missing
+images without a registry. Creation fails instead of producing an incomplete
+archive when eclab is not running in a virtual environment, a required tool is
+unavailable, or an ordinary topology image is absent from the local Docker
+daemon. Pull ordinary lab images before freezing.
+
+An offline bundle is platform-specific and still requires compatible host
+facilities: Docker, Linux networking privileges, and QEMU/KVM where the lab
+needs them. Licenses remain deliberately excluded and are supplied by the
+recipient.
+
 The archive contains a copied topology, a package lock and best-effort
 wheelhouse, copied external VM images, and `run-eclab.sh`. Freeze first copies
 the exact wheels used by locally installed eclab/Engulf packages, then obtains

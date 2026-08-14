@@ -1,0 +1,8 @@
+{
+  "policies": {
+    "DontCheckDefaultBrowser": true,
+    "UserMessaging": {
+      "SkipOnboarding": true
+    }
+  }
+}

@@ -12,6 +12,7 @@ from engulf_executable_wrapper_api import (
     AfterCallEvent,
     CallMode,
     CallOutcome,
+    HelpAPI,
     OutcomeKind,
     PreparedCallEvent,
 )
@@ -43,6 +44,18 @@ class DestroyAllOptionTest(unittest.TestCase):
         self.assertFalse(destroy_all_requested(("--all=false",)))
 
 
+class HelpTest(unittest.TestCase):
+    def test_help_uses_active_edition_prefix(self) -> None:
+        api = Mock(spec=HelpAPI)
+        api.application.short_product_name = "vendor clab"
+        api.application.product = "Vendor Containerlab"
+
+        rendered = WanPlugin().help(api)
+
+        self.assertIn("VENDOR_CLAB_DHCP_WAN", rendered)
+        self.assertNotIn("ECLAB_DHCP_WAN", rendered)
+
+
 class PluginStateLifecycleTest(unittest.TestCase):
     @patch("engulf_clab_wan.plugin.setup_dhcp_wan_bridges")
     def test_deploy_uses_current_workspace_state(self, setup: Mock) -> None:
@@ -50,16 +63,17 @@ class PluginStateLifecycleTest(unittest.TestCase):
             topology = Path(directory) / "lab.clab.yml"
             topology.write_text(
                 "topology:\n  nodes:\n    wan:\n      kind: bridge\n"
-                "      labels: {FCLAB_DHCP_WAN: 'true'}\n",
+                "      labels: {ECLAB_DHCP_WAN: 'true'}\n",
                 encoding="utf-8",
             )
             workspace = Mock(spec=WorkspaceState)
             user_state = Mock(spec=StateStore)
             api = Mock(spec=InvocationAPI)
+            api.application.short_product_name = "eclab"
+            api.application.product = "Engulf Containerlab"
             api.leases.return_value = nullcontext()
-            api.require_context.return_value = TopologySession(
-                topology, load_topology(topology)
-            )
+            session = TopologySession(topology, load_topology(topology))
+            api.require_context.return_value = session
             api.state.side_effect = lambda scope: (
                 workspace if scope is StateScope.WORKSPACE else user_state
             )
@@ -77,6 +91,10 @@ class PluginStateLifecycleTest(unittest.TestCase):
         self.assertEqual(api.state.call_count, 2)
         self.assertIs(setup.call_args.args[1], workspace)
         self.assertIs(setup.call_args.args[2], user_state)
+        self.assertEqual(setup.call_args.args[3].prefix, "ECLAB")
+        self.assertEqual(
+            session.materialize()["topology"]["nodes"]["wan"]["labels"], {}
+        )
 
     @patch("engulf_clab_wan.plugin.workspace_bridge_names", return_value=["wan"])
     @patch("engulf_clab_wan.plugin.cleanup_dhcp_wan_bridges")

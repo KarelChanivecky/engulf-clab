@@ -6,42 +6,17 @@ import importlib.metadata
 import re
 import sys
 from pathlib import Path
-from typing import cast
 
 from .app import CONTAINERLAB_APPLICATION
-from .freeze_control import FreezeCommand, run_freeze_command
 
 
 def main() -> int:
     """Run the standard Containerlab application."""
     arguments = tuple(sys.argv[1:])
-    if arguments and arguments[0] == "freeze":
-        return _freeze(arguments[1:])
     if len(arguments) == 2 and arguments[0] == "--eclab-freeze-compatible":
         return _compatible(Path(arguments[1]))
     with CONTAINERLAB_APPLICATION.create() as application:
         return application.run()
-
-
-def _freeze(arguments: tuple[str, ...]) -> int:
-    """Load the optional freeze command without making it an app dependency."""
-    points = importlib.metadata.entry_points(group="engulf_clab.freeze_commands")
-    point = next((item for item in points if item.name == "freeze"), None)
-    if point is None:
-        print(
-            "eclab freeze requires engulf-clab-freeze; install it or engulf-clab-all-plugins",
-            file=sys.stderr,
-        )
-        return 2
-    command = point.load()
-    if not callable(command):
-        print("eclab freeze command entry point is not callable", file=sys.stderr)
-        return 2
-    return run_freeze_command(
-        CONTAINERLAB_APPLICATION,
-        cast(FreezeCommand, command),
-        arguments,
-    )
 
 
 def _compatible(requirements: Path) -> int:

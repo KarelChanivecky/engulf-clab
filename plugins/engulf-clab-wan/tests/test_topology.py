@@ -3,9 +3,16 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock
 
 from engulf_clab_wan.errors import WanError
-from engulf_clab_wan.networks import dhcp_wan_bridges
+from engulf_clab_wan.networks import (
+    WanContract,
+    application_prefix_name,
+    detect_uplink_interface,
+    dhcp_wan_bridges,
+    environment_prefix,
+)
 from engulf_clab_wan.topology import load_topology, topology_path_from_args
 
 
@@ -36,7 +43,7 @@ class TopologyArgsTest(unittest.TestCase):
 
 
 class WanBridgeParsingTest(unittest.TestCase):
-    def test_fclab_dhcp_wan_bridge_defaults(self) -> None:
+    def test_eclab_dhcp_wan_bridge_defaults(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "lab.clab.yml"
             path.write_text(
@@ -46,16 +53,101 @@ topology:
     wan:
       kind: bridge
       labels:
-        FCLAB_DHCP_WAN: "true"
+        ECLAB_DHCP_WAN: "true"
 """,
                 encoding="utf-8",
             )
 
-            bridges = dhcp_wan_bridges(load_topology(path))
+            bridges = dhcp_wan_bridges(load_topology(path), WanContract("ECLAB"))
 
         self.assertEqual(len(bridges), 1)
         self.assertEqual(bridges[0].name, "wan")
         self.assertEqual(str(bridges[0].subnet), "198.19.0.0/24")
+
+    def test_edition_prefix_selects_all_settings(self) -> None:
+        data = {
+            "topology": {
+                "nodes": {
+                    "wan": {
+                        "kind": "bridge",
+                        "labels": {
+                            "VENDOR_CLAB_DHCP_WAN": "true",
+                            "VENDOR_CLAB_DHCP_SUBNET": "192.0.2.0/24",
+                            "VENDOR_CLAB_DHCP_GATEWAY": "192.0.2.1",
+                            "VENDOR_CLAB_DHCP_POOL_START": "192.0.2.20",
+                            "VENDOR_CLAB_DHCP_POOL_END": "192.0.2.30",
+                            "VENDOR_CLAB_DHCP_DNS": "192.0.2.53",
+                            "VENDOR_CLAB_DHCP_LEASE_TIME": "600",
+                        },
+                    }
+                }
+            }
+        }
+
+        bridges = dhcp_wan_bridges(data, WanContract("VENDOR_CLAB"))
+
+        self.assertEqual(str(bridges[0].subnet), "192.0.2.0/24")
+        self.assertEqual(str(bridges[0].gateway), "192.0.2.1")
+        self.assertEqual(bridges[0].lease_time, 600)
+
+    def test_cross_edition_label_is_rejected(self) -> None:
+        data = {
+            "topology": {
+                "nodes": {
+                    "wan": {
+                        "kind": "bridge",
+                        "labels": {"FCLAB_DHCP_WAN": "true"},
+                    }
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(WanError, "use ECLAB_DHCP_WAN"):
+            dhcp_wan_bridges(data, WanContract("ECLAB"))
+
+    def test_fclab_is_valid_for_fclab_edition(self) -> None:
+        data = {
+            "topology": {
+                "nodes": {
+                    "wan": {
+                        "kind": "bridge",
+                        "labels": {"FCLAB_DHCP_WAN": "true"},
+                    }
+                }
+            }
+        }
+
+        self.assertEqual(len(dhcp_wan_bridges(data, WanContract("FCLAB"))), 1)
+
+
+class PrefixTest(unittest.TestCase):
+    def test_normalizes_short_product_name(self) -> None:
+        application = Mock()
+        application.short_product_name = "vendor clab"
+        application.product = "Ignored"
+
+        self.assertEqual(
+            environment_prefix(application_prefix_name(application)), "VENDOR_CLAB"
+        )
+
+    def test_falls_back_to_product(self) -> None:
+        application = Mock()
+        application.short_product_name = ""
+        application.product = "Vendor Containerlab"
+
+        self.assertEqual(
+            environment_prefix(application_prefix_name(application)),
+            "VENDOR_CONTAINERLAB",
+        )
+
+    def test_uplink_override_uses_active_prefix(self) -> None:
+        self.assertEqual(
+            detect_uplink_interface(
+                WanContract("VENDOR_CLAB"),
+                {"VENDOR_CLAB_UPLINK_IF": "ens3", "ECLAB_UPLINK_IF": "ignored"},
+            ),
+            "ens3",
+        )
 
 
 if __name__ == "__main__":

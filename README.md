@@ -184,7 +184,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-all-plugins` | Meta-package that installs all maintained plugins. |
 | `engulf-clab-containers-api` | Typed contract for independently published container collections. |
 | `engulf-clab-containers` | Injects active collection recipes into temporary topologies. |
-| `engulf-clab-containers-core` | Core collection including the host connector. |
+| `engulf-clab-containers-core` | Core host connector, LDAP, proxy, and Firefox GUI collection. |
 | `engulf-clab-ensure-containerlab` | Finds, builds, or provisions Containerlab. |
 | `engulf-clab-dockerfile-build` | Builds node images declared with Dockerfile variables. |
 | `engulf-clab-ensure-vrnetlab` | Finds or provisions a vrnetlab checkout. |
@@ -200,7 +200,8 @@ required host tools, and cleanup behavior.
 Active collection plugins provide reusable node images without copying their
 Dockerfiles into each lab. List them with `eclab --eclab-containers-help`. A
 collection owns the image namespace derived from its plugin ID; the core
-`eclab.containers` collection provides:
+`eclab.containers` collection provides `host-connector`, `ldap-389ds`,
+`proxy-node`, and `ubuntu-firefox-gui`:
 
 ```yaml
 topology:
@@ -219,6 +220,12 @@ VIP to its external target and source-NATs through `eth0`; it does not provide
 DHCP, a general WAN, or an SSH service of its own. Use the unnumbered variable
 or `_0` (not both), followed by sparse numbered variables.
 
+The LDAP image serves 389 DS with Cockpit, the proxy image combines Squid,
+Dante, and a control UI, and the Firefox image exposes an XFCE desktop through
+noVNC. Their packaged recipes remain generic; labs provide addressing,
+credentials, seeds, certificates, and proxy policy through topology fields.
+See the core collection README for ports and environment variables.
+
 ## Workspace and state
 
 The canonical workspace is the directory containing the selected topology. A
@@ -236,6 +243,14 @@ unchanged and creates one sanitized archive. It contains the copied frozen
 topology, exact Python package lock, best-effort wheelhouse, copied external VM
 inputs, and `run-eclab.sh`. The launcher reuses a compatible installed `eclab`,
 offers to use an incompatible one, or creates a lab-local virtual environment.
+With `--offline`, freeze instead includes the active installed eclab virtual
+environment, the resolved Containerlab executable, the actual vrnetlab checkout,
+and non-vrnetlab topology images currently in Docker. It does not bundle
+generated appliance images or vendor VM inputs;
+the recipient supplies their selected VM image. The offline launcher uses only
+the bundled runtime and tools and loads ordinary absent images from the archive.
+Freeze fails if a required component is unavailable. Offline archives remain
+platform-specific and require compatible Docker and host networking/QEMU facilities.
 
 When no topology option is supplied, freeze selects the one recognized topology
 in the current directory and writes `<lab-directory-name>.tar.gz` there. Pass
@@ -297,6 +312,34 @@ name:
 engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
 engulf.plugins.v1.application.engulf_clab
 ```
+
+### Repository skill
+
+The canonical `develop-eclab-lab` Codex skill lives under
+`skills/develop-eclab-lab` and is also a separately buildable pip distribution.
+Install a user-level copy and configure this checkout's hooks with:
+
+```bash
+make install-skill
+```
+
+The pip package embeds the skill and all copied Engulf/ECLAB context. After
+installing `develop-eclab-lab`, run `develop-eclab-lab-install` to copy the
+embedded skill into `~/.agents/skills/develop-eclab-lab`. The installed skill
+does not need this checkout.
+
+Run `make update-skill` after changing documentation copied into the skill, and
+run `make check-skill` in CI. The hooks compare staged documentation with its
+staged skill reference and reject vendor-specific material in the new skill.
+Commits that change wrapper, plugin, or MCP behavior or documentation must
+include exactly one review trailer:
+
+```text
+Skill-Impact: updated
+```
+
+or `Skill-Impact: none`. The `updated` value requires a staged change beneath
+`skills/develop-eclab-lab/`.
 
 ## License
 

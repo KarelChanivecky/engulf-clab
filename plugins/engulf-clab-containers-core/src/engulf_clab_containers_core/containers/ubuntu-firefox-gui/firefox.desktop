@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Firefox
+Comment=Browse the web
+Icon=firefox
+Exec=/usr/bin/firefox --profile /home/ubuntu/.mozilla/firefox/default %U
+Terminal=false
+Categories=Network;WebBrowser;

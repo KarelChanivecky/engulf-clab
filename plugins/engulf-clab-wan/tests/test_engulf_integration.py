@@ -23,7 +23,7 @@ class EngulfStateIntegrationTest(unittest.TestCase):
                 topology = workspace / "lab.clab.yml"
                 topology.write_text(
                     "topology:\n  nodes:\n    wan:\n      kind: bridge\n"
-                    "      labels: {FCLAB_DHCP_WAN: 'true'}\n",
+                    "      labels: {ECLAB_DHCP_WAN: 'true'}\n",
                     encoding="utf-8",
                 )
                 topology_paths.append(topology)
@@ -53,6 +53,7 @@ class EngulfStateIntegrationTest(unittest.TestCase):
                 _topology: object,
                 workspace_state: WorkspaceState,
                 _user_state: StateStore,
+                _contract: object,
             ) -> None:
                 workspace_state.write_text(METADATA_FILENAME, "[]\n")
 

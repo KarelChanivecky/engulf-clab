@@ -3,16 +3,17 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_api import StateStore, WorkspaceState
+from engulf_api import ApplicationMetadata, StateStore, WorkspaceState
 
 from .errors import WanError
 from .logging import info
@@ -31,7 +32,6 @@ from .registry import (
     workspace_bridge_names,
 )
 
-MARKER_LABEL = "FCLAB_DHCP_WAN"
 DEFAULT_SUBNET = "198.19.0.0/24"
 DEFAULT_GATEWAY = "198.19.0.1"
 DEFAULT_POOL_START = "198.19.0.100"
@@ -39,6 +39,57 @@ DEFAULT_POOL_END = "198.19.0.200"
 DEFAULT_DNS = "1.1.1.1"
 DEFAULT_LEASE_TIME = 12 * 60 * 60
 METADATA_FILENAME = "dhcp-wan.json"
+_NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
+_WAN_LABEL_SUFFIXES = (
+    "DHCP_WAN",
+    "DHCP_SUBNET",
+    "DHCP_GATEWAY",
+    "DHCP_POOL_START",
+    "DHCP_POOL_END",
+    "DHCP_DNS",
+    "DHCP_LEASE_TIME",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WanContract:
+    prefix: str
+
+    @property
+    def marker_label(self) -> str:
+        return self.label("DHCP_WAN")
+
+    @property
+    def uplink_environment(self) -> str:
+        return self.label("UPLINK_IF")
+
+    @property
+    def control_labels(self) -> tuple[str, ...]:
+        return tuple(self.label(suffix) for suffix in _WAN_LABEL_SUFFIXES)
+
+    def label(self, suffix: str) -> str:
+        return f"{self.prefix}_{suffix}"
+
+
+def environment_prefix(application_name: str) -> str:
+    prefix = _NON_ALPHANUMERIC.sub("_", application_name.upper()).strip("_")
+    if not prefix:
+        raise WanError(f"cannot derive environment prefix from {application_name!r}")
+    return prefix
+
+
+def application_prefix_name(application: ApplicationMetadata) -> str:
+    short_name = getattr(application, "short_product_name", None)
+    if isinstance(short_name, str) and short_name.strip():
+        return short_name
+    product = application.product
+    if isinstance(product, str) and product.strip():
+        return product
+    raise WanError("application product metadata must be a nonempty string")
+
+
+def wan_contract(application: ApplicationMetadata) -> WanContract:
+    return WanContract(environment_prefix(application_prefix_name(application)))
 
 
 @dataclass(frozen=True)
@@ -56,17 +107,38 @@ class DhcpWanBridge:
         return f"{self.gateway}/{self.subnet.prefixlen}"
 
 
-def labels_include_marker(labels: Any) -> bool:
+def _label_tokens(labels: Any) -> tuple[str, ...]:
+    if isinstance(labels, dict):
+        return tuple(str(item) for pair in labels.items() for item in pair)
+    if isinstance(labels, list):
+        return tuple(str(item) for item in labels)
+    if isinstance(labels, str):
+        return (labels,)
+    return ()
+
+
+def validate_label_prefixes(name: str, labels: Any, contract: WanContract) -> None:
+    expected = set(contract.control_labels)
+    for token in _label_tokens(labels):
+        for suffix in _WAN_LABEL_SUFFIXES:
+            if token.endswith(f"_{suffix}") and token not in expected:
+                raise WanError(
+                    f"{name}: {token} does not match the active {contract.prefix} edition; "
+                    f"use {contract.label(suffix)}"
+                )
+
+
+def labels_include_marker(labels: Any, contract: WanContract) -> bool:
     if isinstance(labels, dict):
         for key, value in labels.items():
-            if str(key) == MARKER_LABEL:
+            if str(key) == contract.marker_label:
                 return str(value).lower() not in ("0", "false", "no", "off")
-            if str(value) == MARKER_LABEL:
+            if str(value) == contract.marker_label:
                 return True
     if isinstance(labels, list):
-        return any(str(item) == MARKER_LABEL for item in labels)
+        return any(str(item) == contract.marker_label for item in labels)
     if isinstance(labels, str):
-        return labels == MARKER_LABEL
+        return labels == contract.marker_label
     return False
 
 
@@ -76,36 +148,48 @@ def label_value(labels: Any, key: str, default: str) -> str:
     return default
 
 
-def parse_bridge(name: str, node_data: dict[str, Any]) -> DhcpWanBridge:
+def parse_bridge(
+    name: str, node_data: dict[str, Any], contract: WanContract
+) -> DhcpWanBridge:
     labels = node_data.get("labels", {})
     subnet = ipaddress.IPv4Network(
-        label_value(labels, "FCLAB_DHCP_SUBNET", DEFAULT_SUBNET),
+        label_value(labels, contract.label("DHCP_SUBNET"), DEFAULT_SUBNET),
         strict=False,
     )
     gateway = ipaddress.IPv4Address(
-        label_value(labels, "FCLAB_DHCP_GATEWAY", DEFAULT_GATEWAY)
+        label_value(labels, contract.label("DHCP_GATEWAY"), DEFAULT_GATEWAY)
     )
     pool_start = ipaddress.IPv4Address(
-        label_value(labels, "FCLAB_DHCP_POOL_START", DEFAULT_POOL_START)
+        label_value(labels, contract.label("DHCP_POOL_START"), DEFAULT_POOL_START)
     )
     pool_end = ipaddress.IPv4Address(
-        label_value(labels, "FCLAB_DHCP_POOL_END", DEFAULT_POOL_END)
+        label_value(labels, contract.label("DHCP_POOL_END"), DEFAULT_POOL_END)
     )
-    dns = ipaddress.IPv4Address(label_value(labels, "FCLAB_DHCP_DNS", DEFAULT_DNS))
+    dns = ipaddress.IPv4Address(
+        label_value(labels, contract.label("DHCP_DNS"), DEFAULT_DNS)
+    )
     lease_time = int(
-        label_value(labels, "FCLAB_DHCP_LEASE_TIME", str(DEFAULT_LEASE_TIME))
+        label_value(
+            labels, contract.label("DHCP_LEASE_TIME"), str(DEFAULT_LEASE_TIME)
+        )
     )
 
     if gateway not in subnet:
-        raise WanError(f"{name}: FCLAB_DHCP_GATEWAY must be inside FCLAB_DHCP_SUBNET")
+        raise WanError(
+            f"{name}: {contract.label('DHCP_GATEWAY')} must be inside "
+            f"{contract.label('DHCP_SUBNET')}"
+        )
     if pool_start not in subnet or pool_end not in subnet:
-        raise WanError(f"{name}: DHCP pool must be inside FCLAB_DHCP_SUBNET")
+        raise WanError(
+            f"{name}: DHCP pool must be inside {contract.label('DHCP_SUBNET')}"
+        )
     if pool_start > pool_end:
         raise WanError(
-            f"{name}: FCLAB_DHCP_POOL_START must not exceed FCLAB_DHCP_POOL_END"
+            f"{name}: {contract.label('DHCP_POOL_START')} must not exceed "
+            f"{contract.label('DHCP_POOL_END')}"
         )
     if lease_time <= 0:
-        raise WanError(f"{name}: FCLAB_DHCP_LEASE_TIME must be positive")
+        raise WanError(f"{name}: {contract.label('DHCP_LEASE_TIME')} must be positive")
 
     return DhcpWanBridge(
         name=name,
@@ -118,7 +202,9 @@ def parse_bridge(name: str, node_data: dict[str, Any]) -> DhcpWanBridge:
     )
 
 
-def dhcp_wan_bridges(topology_data: dict[str, Any]) -> list[DhcpWanBridge]:
+def dhcp_wan_bridges(
+    topology_data: dict[str, Any], contract: WanContract
+) -> list[DhcpWanBridge]:
     topology = topology_data.get("topology")
     if not isinstance(topology, dict):
         return []
@@ -132,14 +218,16 @@ def dhcp_wan_bridges(topology_data: dict[str, Any]) -> list[DhcpWanBridge]:
             continue
         if node_data.get("kind") != "bridge":
             continue
-        if labels_include_marker(node_data.get("labels")):
-            bridges.append(parse_bridge(str(name), node_data))
+        labels = node_data.get("labels")
+        validate_label_prefixes(str(name), labels, contract)
+        if labels_include_marker(labels, contract):
+            bridges.append(parse_bridge(str(name), node_data, contract))
     return bridges
 
 
-def require_root(bridges: Sequence[object]) -> None:
+def require_root(bridges: Sequence[object], marker_label: str = "DHCP WAN") -> None:
     if bridges and hasattr(os, "geteuid") and os.geteuid() != 0:
-        raise WanError(f"{MARKER_LABEL} bridge setup requires root")
+        raise WanError(f"{marker_label} bridge setup requires root")
 
 
 def interface_exists(name: str) -> bool:
@@ -220,8 +308,11 @@ def iptables_nat_delete_all(args: list[str]) -> None:
         info(f"removed {removed} iptables nat rule(s): {' '.join(args)}")
 
 
-def detect_uplink_interface() -> str:
-    configured = os.environ.get("FCLAB_UPLINK_IF")
+def detect_uplink_interface(
+    contract: WanContract, environ: Mapping[str, str] | None = None
+) -> str:
+    current_env = os.environ if environ is None else environ
+    configured = current_env.get(contract.uplink_environment)
     if configured:
         info(f"using configured host uplink {configured}")
         return configured
@@ -238,7 +329,9 @@ def detect_uplink_interface() -> str:
             uplink = words[index + 1]
             info(f"detected host uplink {uplink}")
             return uplink
-    raise WanError("could not detect host uplink interface; set FCLAB_UPLINK_IF")
+    raise WanError(
+        f"could not detect host uplink interface; set {contract.uplink_environment}"
+    )
 
 
 def _ip_forward_value() -> str:
@@ -567,18 +660,19 @@ def setup_dhcp_wan_bridges(
     topology_data: dict[str, Any],
     workspace: WorkspaceState,
     user_state: StateStore,
+    contract: WanContract,
 ) -> None:
-    bridges = dhcp_wan_bridges(topology_data)
-    require_root(bridges)
+    bridges = dhcp_wan_bridges(topology_data, contract)
+    require_root(bridges, contract.marker_label)
     if not bridges:
-        info("no FCLAB_DHCP_WAN bridges found")
+        info(f"no {contract.marker_label} bridges found")
         return
 
-    info(f"found {len(bridges)} FCLAB_DHCP_WAN bridge(s)")
+    info(f"found {len(bridges)} {contract.marker_label} bridge(s)")
     require_commands(["ip", "iptables", "sysctl", "sh"])
 
     info(f"using Engulf user registry {user_state.directory}")
-    uplink = detect_uplink_interface()
+    uplink = detect_uplink_interface(contract)
     ensure_ip_forwarding(user_state)
     workspace_name = os.fspath(workspace.root)
     claims: list[str] = []
@@ -715,7 +809,7 @@ def cleanup_dhcp_wan_bridges(workspace: WorkspaceState, user_state: StateStore) 
 
     require_root(names)
     require_commands(["ip", "iptables", "sh"])
-    info(f"cleaning up {len(names)} FCLAB_DHCP_WAN bridge(s) for {workspace.root}")
+    info(f"cleaning up {len(names)} DHCP WAN bridge(s) for {workspace.root}")
     failures: list[str] = []
     workspace_name = os.fspath(workspace.root)
     for name in names:

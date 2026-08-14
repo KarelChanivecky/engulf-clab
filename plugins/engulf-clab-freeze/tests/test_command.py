@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -11,15 +13,25 @@ from unittest.mock import patch
 import yaml
 from engulf_clab_freeze.command import (
     FreezeError,
+    _bundle_offline_images,
+    _bundle_offline_vrnetlab,
     _confirm_overwrite,
     _download_wheels,
     _launcher,
+    _offline_image_references,
+    _remove_offline_vrnetlab_inputs,
     freeze,
     main,
 )
 
 
 class FreezeCommandTestCase(unittest.TestCase):
+    def test_main_returns_argparse_exit_codes_instead_of_exiting_the_plugin(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(main(["--help"], program="fclab freeze"), 0)
+        self.assertIn("usage: fclab freeze", output.getvalue())
+
     def test_main_detects_the_single_current_directory_topology_and_default_archive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -37,6 +49,8 @@ class FreezeCommandTestCase(unittest.TestCase):
                 root / f"{root.name}.tar.gz",
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
+                offline=False,
+                user_state=None,
             )
 
     def test_main_accepts_an_explicit_topology(self) -> None:
@@ -54,6 +68,40 @@ class FreezeCommandTestCase(unittest.TestCase):
                 archive.resolve(),
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
+                offline=False,
+                user_state=None,
+            )
+
+    def test_main_forwards_offline_mode_and_user_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+            archive = root / "share.tar.gz"
+            user_state = SimpleNamespace()
+
+            with patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
+                self.assertEqual(
+                    main(
+                        [
+                            "--offline",
+                            "--topology",
+                            str(topology),
+                            "--output",
+                            str(archive),
+                        ],
+                        user_state=user_state,  # type: ignore[arg-type]
+                    ),
+                    0,
+                )
+
+            mocked_freeze.assert_called_once_with(
+                topology.resolve(),
+                archive.resolve(),
+                workspace=None,
+                confirm_overwrite=_confirm_overwrite,
+                offline=True,
+                user_state=user_state,
             )
 
     def test_freeze_sanitizes_a_copy_without_changing_source(self) -> None:
@@ -170,6 +218,140 @@ class FreezeCommandTestCase(unittest.TestCase):
             self.assertFalse(archived("clab-demo"))
             self.assertFalse(archived("empty"))
             self.assertFalse(archived("licenses-only"))
+
+    def test_offline_freeze_bundles_components_and_uses_offline_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "lab"
+            root.mkdir()
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+            archive = Path(directory) / "share.tar.gz"
+            user_state = SimpleNamespace()
+
+            with (
+                patch("engulf_clab_freeze.command._download_wheels"),
+                patch("engulf_clab_freeze.command._bundle_offline_runtime") as runtime,
+                patch("engulf_clab_freeze.command._bundle_offline_containerlab") as clab,
+                patch(
+                    "engulf_clab_freeze.command._bundle_offline_vrnetlab",
+                    return_value=False,
+                ) as vrnetlab,
+                patch("engulf_clab_freeze.command._bundle_offline_images") as images,
+            ):
+                freeze(
+                    topology,
+                    archive,
+                    offline=True,
+                    user_state=user_state,  # type: ignore[arg-type]
+                )
+
+            runtime.assert_called_once()
+            clab.assert_called_once()
+            vrnetlab.assert_called_once()
+            images.assert_called_once()
+            with tarfile.open(archive, "r:gz") as tar:
+                launcher = tar.extractfile("share/run-eclab.sh").read().decode()
+                frozen = yaml.safe_load(tar.extractfile("share/lab.clab.yml").read())
+            self.assertIn('exec "$runtime/bin/python" "$runtime/bin/eclab"', launcher)
+            self.assertNotIn("pip install", launcher)
+            self.assertTrue(frozen["x-engulf-clab-freeze"]["offline"])
+
+
+class OfflineBundleTestCase(unittest.TestCase):
+    def test_bundles_actual_vrnetlab_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout = root / "checkout"
+            (checkout / "common").mkdir(parents=True)
+            (checkout / "common" / "vrnetlab.py").write_text(
+                "# vrnetlab runtime\n", encoding="utf-8"
+            )
+            builder = checkout / "vendor" / "router"
+            builder.mkdir(parents=True)
+            (builder / "Makefile").write_text("all:\n\t@true\n", encoding="utf-8")
+            staging = root / "staging"
+            staging.mkdir()
+
+            with patch.dict(
+                "engulf_clab_freeze.command.os.environ",
+                {"VRNETLAB_DIR": str(checkout)},
+            ):
+                _bundle_offline_vrnetlab(staging)
+
+            bundled = staging / "tools" / "vrnetlab"
+            self.assertTrue((bundled / "common" / "vrnetlab.py").is_file())
+            self.assertTrue((bundled / "vendor" / "router" / "Makefile").is_file())
+
+    def test_image_references_are_resolved_and_deduplicated(self) -> None:
+        topology = {
+            "topology": {
+                "nodes": {
+                    "one": {"image": "${ROUTER_IMAGE}"},
+                    "two": {"image": "router:1"},
+                    "vm": {
+                        "image": "generated-vrnetlab:latest",
+                        "env": {"ECLAB_VRNETLAB_TYPE": "vendor/router"},
+                    },
+                }
+            }
+        }
+        with patch.dict("engulf_clab_freeze.command.os.environ", {"ROUTER_IMAGE": "router:1"}):
+            self.assertEqual(_offline_image_references(topology), ("router:1",))
+        self.assertEqual(topology["topology"]["nodes"]["one"]["image"], "router:1")
+
+    def test_missing_local_image_makes_offline_freeze_fail(self) -> None:
+        topology = {"topology": {"nodes": {"router": {"image": "router:1"}}}}
+        with (
+            patch("engulf_clab_freeze.command.shutil.which", return_value="/usr/bin/docker"),
+            patch(
+                "engulf_clab_freeze.command.subprocess.run",
+                return_value=SimpleNamespace(returncode=1),
+            ),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaisesRegex(FreezeError, "deploy or pull first"):
+                _bundle_offline_images(topology, Path(directory))
+
+    def test_offline_freeze_excludes_vendor_image_but_keeps_vrnetlab_type(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            staging = Path(directory)
+            source = staging / "router.qcow2"
+            source.write_bytes(b"vendor image")
+            topology = {
+                "name": "demo",
+                "topology": {
+                    "nodes": {
+                        "router": {
+                            "image": "generated-vrnetlab:latest",
+                            "env": {
+                                "ECLAB_VRNETLAB_TYPE": "vendor/router",
+                                "ECLAB_VRNETLAB_IMG_PATH": "router.qcow2",
+                                "KEEP": "yes",
+                            },
+                        }
+                    }
+                },
+            }
+            warnings: list[str] = []
+
+            _remove_offline_vrnetlab_inputs(
+                topology, staging / "lab.clab.yml", staging, warnings
+            )
+
+            environment = topology["topology"]["nodes"]["router"]["env"]
+            self.assertEqual(
+                environment,
+                {"ECLAB_VRNETLAB_TYPE": "vendor/router", "KEEP": "yes"},
+            )
+            self.assertFalse(source.exists())
+            self.assertIn("excluded recipient-selected vrnetlab image input", warnings[0])
+
+    def test_offline_launcher_forces_bundled_tools_and_loads_images(self) -> None:
+        launcher = _launcher("lab.clab.yml", offline=True)
+        self.assertIn('export CONTAINERLAB_BIN="$containerlab"', launcher)
+        self.assertIn('export VRNETLAB_DIR="$vrnetlab"', launcher)
+        self.assertIn("docker image load --input", launcher)
+        self.assertNotIn("pip install", launcher)
 
 
 class WheelhouseTestCase(unittest.TestCase):

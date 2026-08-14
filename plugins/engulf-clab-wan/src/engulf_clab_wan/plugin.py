@@ -18,7 +18,12 @@ from engulf_executable_wrapper_api import (
 
 from .errors import WanError
 from .logging import use_logger
-from .networks import cleanup_dhcp_wan_bridges, dhcp_wan_bridges, setup_dhcp_wan_bridges
+from .networks import (
+    cleanup_dhcp_wan_bridges,
+    dhcp_wan_bridges,
+    setup_dhcp_wan_bridges,
+    wan_contract,
+)
 from .registry import workspace_bridge_names
 from .topology import load_topology, topology_path_from_args
 
@@ -45,8 +50,9 @@ class WanPlugin(ExecutableWrapperPlugin):
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering DHCP WAN help")
+        marker = wan_contract(api.application).marker_label
         return (
-            "  FCLAB_DHCP_WAN   Manage labeled bridge nodes as DHCP/NAT WANs\n"
+            f"  {marker}   Manage labeled bridge nodes as DHCP/NAT WANs\n"
             "                    before deploy and after successful destroy"
         )
 
@@ -63,7 +69,7 @@ class WanPlugin(ExecutableWrapperPlugin):
             try:
                 topology_path = topology_path_from_args(tuple(rest))
                 topology_data = load_topology(topology_path)
-                dhcp_wan_bridges(topology_data)
+                dhcp_wan_bridges(topology_data, wan_contract(api.application))
             except (WanError, OSError, subprocess.CalledProcessError) as error:
                 api.logger.error("%s", error)
                 return CallContribution(preempt_exit_code=1)
@@ -100,7 +106,8 @@ class WanPlugin(ExecutableWrapperPlugin):
             if not isinstance(session, TopologySession):
                 raise WanError("invalid shared topology session")
             topology_data = session.original_document()
-            bridges = dhcp_wan_bridges(topology_data)
+            contract = wan_contract(api.application)
+            bridges = dhcp_wan_bridges(topology_data, contract)
             if not bridges:
                 return
             with (
@@ -112,6 +119,7 @@ class WanPlugin(ExecutableWrapperPlugin):
                     topology_data,
                     api.state(StateScope.WORKSPACE),
                     api.state(StateScope.USER),
+                    contract,
                 )
                 mutation = editor(api, self.plugin_id)
                 topology = topology_data.get("topology", {})
@@ -120,7 +128,7 @@ class WanPlugin(ExecutableWrapperPlugin):
                     labels = nodes.get(bridge.name, {}).get("labels", {}) if isinstance(nodes, dict) else {}
                     if isinstance(labels, dict):
                         for key in labels:
-                            if str(key).startswith("FCLAB_DHCP_"):
+                            if str(key) in contract.control_labels:
                                 mutation.delete(("topology", "nodes", bridge.name, "labels", str(key)))
         except (WanError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)

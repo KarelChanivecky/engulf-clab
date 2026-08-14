@@ -31,4 +31,37 @@ HOST_CONNECTOR = ContainerDefinition(
     ),
 )
 
-plugin = ContainerCollectionPlugin("eclab.containers", (HOST_CONNECTOR,))
+LDAP_389DS = ContainerDefinition(
+    name="ldap-389ds",
+    summary="389 Directory Server with a Cockpit management UI for lab authentication",
+    build=ContainerBuildRecipe(
+        dockerfile=_CONTEXT / "containers" / "ldap-389ds" / "Dockerfile",
+        context=_CONTEXT,
+    ),
+    node=ContainerNodeRequirements(kind="linux"),
+)
+
+PROXY_NODE = ContainerDefinition(
+    name="proxy-node",
+    summary="Browser-access Squid and Dante proxies with a small control UI",
+    build=ContainerBuildRecipe(
+        dockerfile=_CONTEXT / "containers" / "proxy-node" / "Dockerfile",
+        context=_CONTEXT,
+    ),
+    node=ContainerNodeRequirements(kind="linux"),
+)
+
+UBUNTU_FIREFOX_GUI = ContainerDefinition(
+    name="ubuntu-firefox-gui",
+    summary="Interactive Firefox desktop client served over noVNC",
+    build=ContainerBuildRecipe(
+        dockerfile=_CONTEXT / "containers" / "ubuntu-firefox-gui" / "Dockerfile",
+        context=_CONTEXT,
+    ),
+    node=ContainerNodeRequirements(kind="linux"),
+)
+
+plugin = ContainerCollectionPlugin(
+    "eclab.containers",
+    (HOST_CONNECTOR, LDAP_389DS, PROXY_NODE, UBUNTU_FIREFOX_GUI),
+)
