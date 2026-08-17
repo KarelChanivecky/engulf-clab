@@ -23,7 +23,7 @@ user-facing README, contributor guidance, and bundled skill snapshot agree.
 | `engulf-clab/` | Defines the `eclab` application and wraps Containerlab. | `engulf-clab` |
 | `plugins/<distribution>/` | Implements one feature or shared typed contract. | One Python distribution per directory |
 | `mcp-server/` | Provides the stdio bridge, privileged daemon, installer, and systemd unit. | `engulf-clab-mcp` |
-| `skills/develop-eclab-lab/` | Holds the canonical skill, embedded references, and pip installer. | `develop-eclab-lab` |
+| `skills/develop-eclab-lab/` | Holds the canonical skill, embedded references, and pip installer. | `engulf-clab-develop-eclab-lab` |
 | `scripts/` and `.githooks/` | Synchronize and validate the skill and commit metadata. | Repository tooling only |
 
 The wrapper imports the `engulf` runtime. Runtime plugins import the stable
@@ -101,11 +101,22 @@ filesystem topology use the current directory. Persist workspace-owned state
 against that identity so the same lab behaves consistently from another shell
 directory.
 
-Application-facing configuration prefixes come from the nonempty
-`short_product_name`, falling back to `product`; normalize to uppercase,
-underscore-separated text. Base eclab therefore uses `ECLAB_*`, while an
-edition can use another prefix. Dynamic `help()` must render the active prefix
-from callback metadata rather than hard-code an edition assumption.
+Topology label and environment-variable prefixes are a fixed `ECLAB_*`
+literal, the same across every edition — never derive them from callback
+application metadata. This keeps labels portable: one written for any
+edition works unchanged under any other, and users are not confused by
+near-identical prefixes that mean the same thing. `help()` must render this
+fixed prefix, not an edition-derived one.
+
+Topology-local state directories (used by plugins like `engulf-clab-freeze`
+and `engulf-clab-license-pool` to stage generated files beside a lab) are the
+one thing that still derives from the nonempty `short_product_name`,
+falling back to `product`, normalized to uppercase underscore-separated
+text. Editions are expected to keep `short_product_name` at `"eclab"` so
+this state converges on one shared directory; use `product`/`display_name`
+for edition branding instead. Keep this split — fixed labels, but
+metadata-derived state — intentional rather than reusing one prefix for
+both.
 
 ## Adding or changing a plugin
 
@@ -148,7 +159,7 @@ state at least:
 - what installs and activates the feature;
 - whether it applies to deploy, destroy, help, or every wrapped command;
 - every topology field, label, command option, and invocation variable;
-- how relative paths and edition prefixes are resolved;
+- how relative paths and the fixed label / state-directory prefixes are resolved;
 - required host tools and privileges;
 - temporary files, user/workspace state, leases, and cleanup behavior;
 - concurrency, idempotency, and failure semantics; and
@@ -228,5 +239,5 @@ version and compatible dependency range together, build all artifacts with
 `make build`, inspect the wheel contents, and publish only freshly built output.
 `TWINE_REPOSITORY_URL` selects the package index; `publish.sh` can obtain local
 managed-repository credentials from the neighboring Engulf checkout. The
-publish target also verifies that the self-contained `develop-eclab-lab` wheel
+publish target also verifies that the self-contained `engulf-clab-develop-eclab-lab` wheel
 and sdist are included before any upload occurs.

@@ -172,7 +172,7 @@ and source distribution with Twine, and uploads only those fresh artifacts. If
 the URL matches the package repository managed by the neighboring Engulf
 checkout, it verifies that the managed container is active and loads its upload
 token and CA automatically. The publish target explicitly checks that both the
-`develop-eclab-lab` wheel and source distribution are present before uploading.
+`engulf-clab-develop-eclab-lab` wheel and source distribution are present before uploading.
 Set `ENGULF_DIR` when that checkout is not at
 `../engulf`; credentials for other repositories use Twine's normal environment
 variables or configuration.
@@ -354,20 +354,36 @@ preventing nested archives and unbounded source growth. Records for paths that
 have been removed or are no longer regular files are pruned automatically.
 
 Frozen licenses become `__ECLAB_LICENSE_PROMPT__`; pool paths, allocations,
-clamps, and license files are never included. The recipient supplies a file,
-pool directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
+clamps, and license files are never included. `ECLAB` is a fixed label
+prefix, the same across every edition. The recipient supplies a file, pool
+directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
 `ECLAB_LICENSE_<NODE>`. Destroy an active lab before freezing it. Use
-`.eclab-freezeignore` for extra Git-ignore-style exclusions; external symlinks
-are rejected. Containerlab's `clab-<lab-name>` runtime directory, managed
-legacy state, and empty directories left after exclusions are omitted.
+`.<state-prefix-lowercase>-freezeignore` for extra Git-ignore-style
+exclusions; external symlinks are rejected. The active application's
+`.<state-prefix-lowercase>` lab state (namespaced by short product name, kept
+separate from the fixed label prefix so every edition's state converges),
+Containerlab's `clab-<lab-name>` runtime directory, and empty directories left
+after exclusions are omitted.
 
 ## Editions
 
 An edition is a separately released launcher that reuses this application while
-choosing a different command-facing name and plugin set. Environment-variable
-prefixes derive from short product metadata, falling back to the full product
-name: `eclab` uses `ECLAB_*`; an edition with short product name
-`acme clab` uses `ACME_CLAB_*`.
+choosing a different command-facing name and plugin set.
+
+Topology label and environment-variable prefixes are fixed to `ECLAB_*` for
+every edition — plugins never derive them from product metadata. A label
+written for one edition works unchanged under any other, so users are not
+confused by near-identical prefixes (`ECLAB_*` versus something
+edition-specific) that mean the same thing.
+
+`short_product_name` is expected to stay `"eclab"` across every edition
+instead. It is not used for labels; it namespaces the topology-local state
+directory that plugins like `engulf-clab-freeze` and
+`engulf-clab-license-pool` write beside a lab (`.eclab/...`). Keeping it
+identical across editions means their state converges on that one shared
+directory rather than fragmenting per edition. `display_name`, `vendor`, and
+`product` are what an edition customizes for its own command-facing
+branding:
 
 ```python
 from engulf_clab import CONTAINERLAB_APPLICATION
@@ -375,7 +391,7 @@ from engulf_clab import CONTAINERLAB_APPLICATION
 ACME_CLAB = CONTAINERLAB_APPLICATION.edition(
     display_name="acme-clab",
     vendor="Acme Networks",
-    short_product_name="acme clab",
+    product="Acme Containerlab",
     include_plugins={"com.example.acme.containerlab"},
 )
 ```
@@ -409,7 +425,8 @@ engulf.plugins.v1.application.engulf_clab
 ### Repository skill
 
 The canonical `develop-eclab-lab` Codex skill lives under
-`skills/develop-eclab-lab` and is also a separately buildable pip distribution.
+`skills/develop-eclab-lab` and is distributed as the separately buildable
+`engulf-clab-develop-eclab-lab` pip package.
 Read `skills/README.md` in a source checkout before changing its definition,
 source mappings, normalizations, package data, installer, or hooks.
 Install a user-level copy and configure this checkout's hooks with:
@@ -419,7 +436,7 @@ make install-skill
 ```
 
 The pip package embeds the skill and all copied Engulf/ECLAB context. After
-installing `develop-eclab-lab`, run `develop-eclab-lab-install` to copy the
+installing `engulf-clab-develop-eclab-lab`, run `develop-eclab-lab-install` to copy the
 embedded skill into `$CODEX_HOME/skills/develop-eclab-lab`, or
 `~/.codex/skills/develop-eclab-lab` when `CODEX_HOME` is unset. The installed
 skill does not need this checkout. Use `develop-eclab-lab-install --check` to

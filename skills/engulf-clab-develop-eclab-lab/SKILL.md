@@ -1,6 +1,6 @@
 ---
 name: engulf-clab-develop-eclab-lab
-description: Build, refine, validate, operate, and troubleshoot Containerlab labs with eclab. Use for eclab topologies, minimal repro extraction, vrnetlab image inputs, license pools, edition-aware managed WAN bridges, packaged helper containers, freeze workflows, MCP lifecycle operations, or Engulf-backed lab failures. Do not use as a general Engulf plugin-development tutorial.
+description: Build, refine, validate, operate, and troubleshoot Containerlab labs with eclab. Use for eclab topologies, minimal repro extraction, vrnetlab image inputs, license pools, managed WAN bridges, packaged helper containers, freeze workflows, MCP lifecycle operations, or Engulf-backed lab failures. Do not use as a general Engulf plugin-development tutorial.
 ---
 
 # Develop CLAB with eclab
@@ -104,8 +104,8 @@ Use this decision process:
 
 - Runtime: eclab edition
 - Launcher: acme-clab
-- Short product name: acme clab
-- Configuration prefix: ACME_CLAB
+- Short product name: eclab
+- Label prefix: ECLAB (fixed)
 - Lifecycle: MCP profile `default`
 ```
 
@@ -113,14 +113,19 @@ Omit inapplicable fields for direct Containerlab. Never record credentials,
 license paths, or profile-owned secrets. On later work, treat this block as the
 workspace preference unless the user explicitly changes it.
 
-For eclab, obtain the active configuration prefix from application metadata or
-dynamic help, never from the executable filename. Metadata derives it from
-nonempty `short_product_name`, falling back to `product`, then uppercasing,
-replacing non-alphanumeric runs with `_`, and trimming surrounding underscores.
+For eclab, topology labels and environment-variable keys use a fixed `ECLAB_*`
+prefix, the same across every edition — never derive it from application
+metadata, dynamic help, or the executable filename. For managed WANs use
+`ECLAB_DHCP_*` labels and `ECLAB_UPLINK_IF`; do not mix in a similarly named
+prefix that belongs to a separate, unrelated tool.
 
-The base product yields `ECLAB`; `vendor clab` yields `VENDOR_CLAB`. Follow each
-plugin's current contract; for managed WANs use `<PREFIX>_DHCP_*` labels and
-`<PREFIX>_UPLINK_IF`. Do not mix keys from different editions.
+A different, unrelated prefix governs only the topology-local state directory
+that plugins like `engulf-clab-freeze` and `engulf-clab-license-pool` write
+beside a lab (`.eclab/...`). That one still derives from the active
+application's nonempty `short_product_name` (falling back to `product`),
+normalized the same way. Editions are expected to keep `short_product_name`
+at `eclab` so this state converges on one shared directory; do not confuse it
+with the fixed label prefix above.
 
 ## Build the smallest useful lab
 
@@ -139,6 +144,14 @@ plugin's current contract; for managed WANs use `<PREFIX>_DHCP_*` labels and
 6. Keep lab-specific addressing, routes, credentials, and security policy in
    the consuming lab. Add servers or security features only when the repro
    requires them.
+7. Never target a node's `eth0` as a topology `links:` endpoint; it is
+   Containerlab's reserved management interface, not a data-plane port to
+   wire other nodes into. This has previously caused a built lab to
+   accidentally connect a node's data traffic through its own management
+   interface. The one exception is a node routing its own traffic out
+   through its own `eth0` (see the WAN-access-node pattern above) — that
+   configures the node's default route, it does not wire another node's
+   interface to `eth0`.
 
 ## Validate and operate safely
 

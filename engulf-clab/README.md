@@ -177,10 +177,17 @@ and excluded from later freezes until removed.
 
 Edition launchers reuse the side-effect-free application definition while
 providing a different command name and selected plugin set. The command name
-does not determine topology environment keys. Those derive from short product
-metadata (or full product metadata when no short name is available):
-`eclab` uses `ECLAB_*`, while a short product name of `vendor clab` uses
-`VENDOR_CLAB_*`.
+does not determine topology label/environment keys: those are a fixed
+`ECLAB_*` prefix, the same across every edition, never derived from product
+metadata.
+
+`short_product_name` is expected to stay `"eclab"` across every edition
+instead. It is not used for labels; it namespaces the topology-local state
+directory that plugins like `engulf-clab-freeze` and
+`engulf-clab-license-pool` write beside a lab. Keeping it identical across
+editions means their state converges on one shared directory rather than
+fragmenting per edition. `display_name`, `vendor`, and `product` are what an
+edition customizes for its own command-facing branding:
 
 ```python
 from engulf_clab import CONTAINERLAB_APPLICATION
@@ -188,7 +195,7 @@ from engulf_clab import CONTAINERLAB_APPLICATION
 VENDOR_CLAB = CONTAINERLAB_APPLICATION.edition(
     display_name="vendor-clab",
     vendor="Vendor Networks",
-    short_product_name="vendor clab",
+    product="Vendor Containerlab",
     include_plugins={"com.example.vendor.containerlab"},
 )
 ```
@@ -197,11 +204,9 @@ The edition launcher belongs in its own distribution and console-script entry
 point. It should include its own plugin explicitly rather than publishing a
 second shared `engulf_clab` application declaration.
 
-For every application-facing key, normalize the nonempty short product name
-(falling back to product metadata) by uppercasing, replacing non-alphanumeric
-runs with `_`, and trimming surrounding underscores. Do not infer the prefix
-from the executable filename. Edition dynamic help must be used because both
-the prefix and declared plugin catalog may differ from base eclab.
+Plugin `help()` must render the fixed `ECLAB_*` prefix, not derive one from
+callback metadata — only the declared plugin catalog differs from base
+eclab, not the label prefix.
 
 ## Library use
 
