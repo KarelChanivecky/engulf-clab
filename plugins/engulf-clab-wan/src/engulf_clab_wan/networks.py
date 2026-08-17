@@ -3,7 +3,6 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -13,7 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_api import ApplicationMetadata, StateStore, WorkspaceState
+from engulf_api import StateStore, WorkspaceState
 
 from .errors import WanError
 from .logging import info
@@ -39,7 +38,7 @@ DEFAULT_POOL_END = "198.19.0.200"
 DEFAULT_DNS = "1.1.1.1"
 DEFAULT_LEASE_TIME = 12 * 60 * 60
 METADATA_FILENAME = "dhcp-wan.json"
-_NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
+LABEL_PREFIX = "ECLAB"
 _WAN_LABEL_SUFFIXES = (
     "DHCP_WAN",
     "DHCP_SUBNET",
@@ -71,25 +70,14 @@ class WanContract:
         return f"{self.prefix}_{suffix}"
 
 
-def environment_prefix(application_name: str) -> str:
-    prefix = _NON_ALPHANUMERIC.sub("_", application_name.upper()).strip("_")
-    if not prefix:
-        raise WanError(f"cannot derive environment prefix from {application_name!r}")
-    return prefix
+def wan_contract() -> WanContract:
+    """Return the fixed-prefix WAN contract, shared by every edition.
 
-
-def application_prefix_name(application: ApplicationMetadata) -> str:
-    short_name = getattr(application, "short_product_name", None)
-    if isinstance(short_name, str) and short_name.strip():
-        return short_name
-    product = application.product
-    if isinstance(product, str) and product.strip():
-        return product
-    raise WanError("application product metadata must be a nonempty string")
-
-
-def wan_contract(application: ApplicationMetadata) -> WanContract:
-    return WanContract(environment_prefix(application_prefix_name(application)))
+    The label prefix is a fixed ``ECLAB`` literal rather than derived from
+    the active application's product metadata, so labels written for one
+    edition remain portable across all of them.
+    """
+    return WanContract(LABEL_PREFIX)
 
 
 @dataclass(frozen=True)

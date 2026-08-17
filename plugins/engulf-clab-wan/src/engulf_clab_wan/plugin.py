@@ -62,7 +62,7 @@ class WanPlugin(ExecutableWrapperPlugin):
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering DHCP WAN help")
-        contract = wan_contract(api.application)
+        contract = wan_contract()
         return (
             "  Bridge-node YAML labels:\n"
             f"    {contract.marker_label}               Enable managed IPv4 DHCP/NAT WAN\n"
@@ -91,7 +91,7 @@ class WanPlugin(ExecutableWrapperPlugin):
             try:
                 topology_path = topology_path_from_args(tuple(rest))
                 topology_data = load_topology(topology_path)
-                dhcp_wan_bridges(topology_data, wan_contract(api.application))
+                dhcp_wan_bridges(topology_data, wan_contract())
             except (WanError, OSError, subprocess.CalledProcessError) as error:
                 api.logger.error("%s", error)
                 return CallContribution(preempt_exit_code=1)
@@ -128,7 +128,7 @@ class WanPlugin(ExecutableWrapperPlugin):
             if not isinstance(session, TopologySession):
                 raise WanError("invalid shared topology session")
             topology_data = session.original_document()
-            contract = wan_contract(api.application)
+            contract = wan_contract()
             bridges = dhcp_wan_bridges(topology_data, contract)
             if not bridges:
                 return

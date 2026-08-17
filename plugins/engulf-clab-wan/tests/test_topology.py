@@ -3,15 +3,14 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock
 
 from engulf_clab_wan.errors import WanError
 from engulf_clab_wan.networks import (
+    LABEL_PREFIX,
     WanContract,
-    application_prefix_name,
     detect_uplink_interface,
     dhcp_wan_bridges,
-    environment_prefix,
+    wan_contract,
 )
 from engulf_clab_wan.topology import load_topology, topology_path_from_args
 
@@ -64,7 +63,8 @@ topology:
         self.assertEqual(bridges[0].name, "wan")
         self.assertEqual(str(bridges[0].subnet), "198.19.0.0/24")
 
-    def test_edition_prefix_selects_all_settings(self) -> None:
+    def test_arbitrary_contract_prefix_selects_all_settings(self) -> None:
+        # WanContract itself stays prefix-agnostic; only wan_contract() is fixed.
         data = {
             "topology": {
                 "nodes": {
@@ -90,7 +90,7 @@ topology:
         self.assertEqual(str(bridges[0].gateway), "192.0.2.1")
         self.assertEqual(bridges[0].lease_time, 600)
 
-    def test_cross_edition_label_is_rejected(self) -> None:
+    def test_mismatched_prefix_label_is_rejected(self) -> None:
         data = {
             "topology": {
                 "nodes": {
@@ -105,46 +105,17 @@ topology:
         with self.assertRaisesRegex(WanError, "use ECLAB_DHCP_WAN"):
             dhcp_wan_bridges(data, WanContract("ECLAB"))
 
-    def test_fclab_is_valid_for_fclab_edition(self) -> None:
-        data = {
-            "topology": {
-                "nodes": {
-                    "wan": {
-                        "kind": "bridge",
-                        "labels": {"FCLAB_DHCP_WAN": "true"},
-                    }
-                }
-            }
-        }
-
-        self.assertEqual(len(dhcp_wan_bridges(data, WanContract("FCLAB"))), 1)
-
 
 class PrefixTest(unittest.TestCase):
-    def test_normalizes_short_product_name(self) -> None:
-        application = Mock()
-        application.short_product_name = "vendor clab"
-        application.product = "Ignored"
+    def test_wan_contract_prefix_is_always_eclab(self) -> None:
+        self.assertEqual(wan_contract().prefix, "ECLAB")
+        self.assertEqual(LABEL_PREFIX, "ECLAB")
 
-        self.assertEqual(
-            environment_prefix(application_prefix_name(application)), "VENDOR_CLAB"
-        )
-
-    def test_falls_back_to_product(self) -> None:
-        application = Mock()
-        application.short_product_name = ""
-        application.product = "Vendor Containerlab"
-
-        self.assertEqual(
-            environment_prefix(application_prefix_name(application)),
-            "VENDOR_CONTAINERLAB",
-        )
-
-    def test_uplink_override_uses_active_prefix(self) -> None:
+    def test_uplink_environment_uses_fixed_prefix(self) -> None:
         self.assertEqual(
             detect_uplink_interface(
-                WanContract("VENDOR_CLAB"),
-                {"VENDOR_CLAB_UPLINK_IF": "ens3", "ECLAB_UPLINK_IF": "ignored"},
+                wan_contract(),
+                {"ECLAB_UPLINK_IF": "ens3"},
             ),
             "ens3",
         )

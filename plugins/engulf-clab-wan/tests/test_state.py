@@ -104,7 +104,6 @@ class WorkspaceStateTest(unittest.TestCase):
 
             self.assertEqual(load_metadata(state), entries)
             self.assertTrue(state.exists(METADATA_FILENAME))
-            self.assertFalse((root / ".forticlab").exists())
 
     def test_empty_cleanup_destroys_workspace_namespace(self) -> None:
         with TemporaryDirectory() as directory:

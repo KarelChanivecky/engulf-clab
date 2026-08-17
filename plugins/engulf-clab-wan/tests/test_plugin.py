@@ -45,15 +45,15 @@ class DestroyAllOptionTest(unittest.TestCase):
 
 
 class HelpTest(unittest.TestCase):
-    def test_help_uses_active_edition_prefix(self) -> None:
+    def test_help_uses_fixed_prefix_regardless_of_edition(self) -> None:
         api = Mock(spec=HelpAPI)
         api.application.short_product_name = "vendor clab"
         api.application.product = "Vendor Containerlab"
 
         rendered = WanPlugin().help(api)
 
-        self.assertIn("VENDOR_CLAB_DHCP_WAN", rendered)
-        self.assertNotIn("ECLAB_DHCP_WAN", rendered)
+        self.assertIn("ECLAB_DHCP_WAN", rendered)
+        self.assertNotIn("VENDOR_CLAB_DHCP_WAN", rendered)
 
 
 class PluginStateLifecycleTest(unittest.TestCase):

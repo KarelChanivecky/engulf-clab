@@ -4,12 +4,13 @@ This directory contains the `engulf-clab-wan` plugin distribution.
 
 ## Purpose
 
-The plugin adds edition-aware managed DHCP WAN bridge support to the
-`engulf-clab` Containerlab wrapper.
+The plugin adds managed DHCP WAN bridge support to the `engulf-clab`
+Containerlab wrapper, using a fixed `ECLAB` label prefix shared by every
+edition.
 
 It watches Containerlab calls for:
 
-- `deploy`: before Containerlab runs, create/configure `<PREFIX>_DHCP_WAN` bridge
+- `deploy`: before Containerlab runs, create/configure `ECLAB_DHCP_WAN` bridge
   nodes, start the packaged DHCP server, enable forwarding, and install NAT.
 - `destroy`: after Containerlab exits successfully, stop DHCP, remove managed
   NAT rules, and delete bridges that the plugin created.
@@ -27,11 +28,12 @@ It derives from `ExecutableWrapperPlugin` supplied by
 
 ## Development Notes
 
-- Derive `<PREFIX>` from callback-bound `api.application.short_product_name`,
-  falling back to `api.application.product`, and normalize it to uppercase
-  underscore form. The base application uses `ECLAB`; editions may override it.
-- Apply the derived prefix to every DHCP WAN label and to `<PREFIX>_UPLINK_IF`.
-  Reject topology WAN labels from another edition instead of silently ignoring them.
+- Use the fixed `ECLAB` label prefix (`networks.LABEL_PREFIX`) for every DHCP
+  WAN label and for `ECLAB_UPLINK_IF`. Do not derive it from
+  `api.application.short_product_name`/`product` — labels must stay portable
+  across editions, unlike topology-local state (see below). Reject any
+  `_DHCP_*`-suffixed label using another prefix instead of silently ignoring
+  it.
 - Use `StateScope.WORKSPACE` only for a workspace's bridge claims. The
   user-scoped state store owns the host-resource registry, DHCP process files,
   provisioning journal, and forwarding ownership record.
@@ -48,8 +50,6 @@ It derives from `ExecutableWrapperPlugin` supplied by
 - Keep iptables ownership comments, exact-address ownership, DHCP PID identity
   checks, and the provisioning journal. These are required for safe recovery
   after a failed host operation.
-- Do not create, read, migrate, or delete a topology-local `.forticlab/`
-  directory. Existing Forticlab state belongs to Forticlab.
 - DHCP is implemented by the packaged Python module. Do not add an external
   DHCP dependency such as `dnsmasq`.
 - Do not run real bridge, iptables, or deploy/destroy operations unless the user
@@ -57,10 +57,11 @@ It derives from `ExecutableWrapperPlugin` supplied by
   checks.
 - Keep `analyze_call()` side-effect free. Host setup belongs in `prepare_call()`;
   post-destroy cleanup remains in `after_call()`.
-- Keep runtime help, README label/default tables, edition prefix rejection,
+- Keep runtime help, README label/default tables, mismatched-prefix rejection,
   uplink selection, resource ownership, and cleanup semantics synchronized.
 - Run topology, registry, state, plugin, and Engulf integration tests. Mock
   effective UID and every `ip`/`iptables`/`sysctl`/process operation; never
   mutate real host networking in automated tests.
-- Build/install the wheel with parser/writer and inspect edition-aware help.
-  Regenerate WAN skill references after behavior or documentation changes.
+- Build/install the wheel with parser/writer and inspect the fixed-prefix
+  help. Regenerate WAN skill references after behavior or documentation
+  changes.

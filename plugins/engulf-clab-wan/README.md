@@ -1,6 +1,6 @@
 # engulf-clab-wan
 
-Creates edition-aware DHCP/NAT WAN bridges for marked Containerlab bridge
+Creates DHCP/NAT WAN bridges for marked Containerlab bridge
 nodes. Install it with `python -m pip install engulf-clab-wan`, or through
 `engulf-clab-all-plugins`. It changes host networking and therefore requires the
 necessary Linux/Docker privileges.
@@ -59,10 +59,11 @@ node's data-plane interface, default route, or security policy.
 | --- | --- |
 | `ECLAB_UPLINK_IF` | Optional host uplink interface, bypassing automatic detection. |
 
-`ECLAB` is derived from the active application's short product name. An edition
-with `short_product_name="vendor clab"` uses `VENDOR_CLAB_DHCP_WAN`, the other
-`VENDOR_CLAB_DHCP_*` labels, and `VENDOR_CLAB_UPLINK_IF`. Keys from another
-edition are rejected with the expected active key rather than treated as aliases.
+`ECLAB` is a fixed label prefix, the same across every edition. It does not
+vary with the active application's product name, so labels written for one
+edition work unchanged under any other. A label ending in a known `_DHCP_*`
+suffix but using any other prefix (for example `FCLAB_DHCP_WAN`) is rejected
+with the expected `ECLAB_*` key rather than treated as an alias.
 
 ## Lifecycle and cleanup
 
@@ -89,11 +90,10 @@ address, and lease time must be a positive integer. Validate separate managed
 bridges for non-overlapping addressing; the plugin does not invent per-bridge
 defaults.
 
-Every control suffix is edition-aware. If a label token ends in a known
-`_DHCP_*` suffix but uses another prefix, analysis fails and names the expected
-active key. This prevents an edition from silently ignoring controls written
-for base eclab. Obtain the prefix from the selected launcher's dynamic help,
-which derives it from short product metadata rather than the executable name.
+Every control suffix uses the fixed `ECLAB` prefix. If a label token ends in a
+known `_DHCP_*` suffix but uses another prefix, analysis fails and names the
+expected `ECLAB_*` key. This prevents a stray label copied from older or
+unrelated documentation from being silently ignored.
 
 Before Containerlab runs, the plugin removes only its active control labels from
 the temporary topology. The source retains them and Containerlab still receives
@@ -111,7 +111,7 @@ For each bridge the plugin:
    and log files; and
 6. records the workspace claim and completed configuration.
 
-The uplink comes from `<PREFIX>_UPLINK_IF` or the `dev` returned by
+The uplink comes from `ECLAB_UPLINK_IF` or the `dev` returned by
 `ip route get 1.1.1.1`. Set it explicitly on multihomed hosts where that probe
 does not select the intended egress.
 
@@ -135,7 +135,7 @@ managed bridges remain. A pre-existing bridge is preserved.
   privileged local launcher; do not grant a general shell to an untrusted agent.
 - For prefix errors, remove stale keys from another edition and use only the
   active prefix shown by that launcher.
-- For uplink failures, set `<PREFIX>_UPLINK_IF` to an existing egress interface
+- For uplink failures, set `ECLAB_UPLINK_IF` to an existing egress interface
   and verify its route/NAT policy.
 - For DHCP failures, inspect the managed DHCP log through eclab diagnostics and
   verify the bridge is up, the client link uses the expected interface, and the
