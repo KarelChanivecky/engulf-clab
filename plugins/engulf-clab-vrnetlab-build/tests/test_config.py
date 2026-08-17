@@ -23,13 +23,14 @@ def topology(node: dict[str, object]) -> dict[str, object]:
 
 class SourceConfigurationTest(unittest.TestCase):
     def test_runtime_build_job_limit(self) -> None:
-        self.assertEqual(vrnetlab_build_jobs("eclab", {}), 2)
+        self.assertEqual(vrnetlab_build_jobs({}), 2)
         self.assertEqual(
-            vrnetlab_build_jobs("fclab", {"FCLAB_VRNETLAB_BUILD_JOBS": "3"}),
+            vrnetlab_build_jobs({"ECLAB_VRNETLAB_BUILD_JOBS": "3"}),
             3,
         )
+        self.assertEqual(vrnetlab_build_jobs({"FCLAB_VRNETLAB_BUILD_JOBS": "3"}), 2)
         with self.assertRaisesRegex(VrnetlabError, "positive integer"):
-            vrnetlab_build_jobs("eclab", {"ECLAB_VRNETLAB_BUILD_JOBS": "many"})
+            vrnetlab_build_jobs({"ECLAB_VRNETLAB_BUILD_JOBS": "many"})
 
     def test_scoped_variable_precedence(self) -> None:
         with TemporaryDirectory() as directory:
@@ -101,7 +102,7 @@ class SourceConfigurationTest(unittest.TestCase):
 
         self.assertEqual(requests[0].source, Path("/images/long.qcow2"))
 
-    def test_edition_vendor_prefix_selects_its_environment_settings(self) -> None:
+    def test_fixed_prefix_ignores_other_prefixes(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             data = topology(
@@ -110,20 +111,16 @@ class SourceConfigurationTest(unittest.TestCase):
                     "env": {
                         "ACME_CLAB_VRNETLAB_TYPE": "vendor/router",
                         "ACME_CLAB_VRNETLAB_IMG_PATH": "/images/acme.qcow2",
-                        "ECLAB_VRNETLAB_TYPE": "ignored/router",
+                        "ECLAB_VRNETLAB_TYPE": "official/router",
+                        "ECLAB_VRNETLAB_IMG_PATH": "/images/official.qcow2",
                     },
                 }
             )
 
-            requests = build_requests_from_topology(
-                root / "lab.clab.yml",
-                data,
-                {},
-                application_name="acme-clab",
-            )
+            requests = build_requests_from_topology(root / "lab.clab.yml", data, {})
 
-        self.assertEqual(requests[0].builder_type, "vendor/router")
-        self.assertEqual(requests[0].source, Path("/images/acme.qcow2"))
+        self.assertEqual(requests[0].builder_type, "official/router")
+        self.assertEqual(requests[0].source, Path("/images/official.qcow2"))
 
     def test_missing_referenced_variable_fails_with_candidates(self) -> None:
         with TemporaryDirectory() as directory:

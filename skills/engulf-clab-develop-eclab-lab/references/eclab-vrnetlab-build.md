@@ -40,14 +40,13 @@ ECLAB_VRNETLAB_IMG_PATH=/images/router.qcow2 eclab deploy -t lab.clab.yml
 ```
 
 `ECLAB_VRNETLAB_BUILD_JOBS` controls concurrent image builds and defaults to
-`2`. Editions use their application-specific prefix. Set it to `1` for serial
-builds or when builds compete for host memory or disk bandwidth.
+`2`. This is a fixed prefix, the same across every edition. Set it to `1` for
+serial builds or when builds compete for host memory or disk bandwidth.
 
 The node `image` may differ from the native tag emitted by the builder. After a
 successful build, the plugin retains the native tag and adds the requested node
-image tag. `E_V_IMG_PATH` remains accepted as a compatibility alias. Editions
-derive their prefix from short product metadata, falling back to full product
-metadata (`acme clab` becomes `ACME_CLAB`).
+image tag. `E_V_IMG_PATH` remains accepted as a compatibility alias, unrelated
+to the fixed `ECLAB` prefix above.
 
 ## Source selection
 
@@ -84,10 +83,10 @@ directory is modified temporarily.
 
 ## Activation and validation
 
-The plugin applies only to deploy and only to nodes with a nonempty active
-`<PREFIX>_VRNETLAB_TYPE`. Analysis is side-effect free and validates topology
-shape, application prefix, node fields, requested image/source syntax, positive
-job count, and builder-relative type safety before preparation begins.
+The plugin applies only to deploy and only to nodes with a nonempty
+`ECLAB_VRNETLAB_TYPE`. Analysis is side-effect free and validates topology
+shape, node fields, requested image/source syntax, positive job count, and
+builder-relative type safety before preparation begins.
 
 The hard ensure-vrnetlab dependency must publish context
 `engulf_clab.vrnetlab.path`. The selected type is a relative `vendor/type` path
@@ -136,12 +135,12 @@ override.
 ## Troubleshooting
 
 - Confirm ensure-vrnetlab and vrnetlab-build appear in the same launcher's help
-  and plugin list, with the expected edition prefix.
+  and plugin list.
 - Confirm `<checkout>/<vendor>/<type>/Makefile` exists and the source format
   contains exactly one qcow2.
 - Trace variable selection in node -> lab -> global order and remember that
   relative literal paths use the topology directory.
-- Set `<PREFIX>_VRNETLAB_BUILD_JOBS=1` to isolate resource pressure or simplify
+- Set `ECLAB_VRNETLAB_BUILD_JOBS=1` to isolate resource pressure or simplify
   output; builders sharing one directory are serialized regardless.
 - If an existing Docker tag is unexpectedly rebuilt, compare source checksum,
   checkout revision, builder type, requested tag, and fingerprint state.

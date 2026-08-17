@@ -8,12 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from engulf_clab_ensure_vrnetlab import (
-    DEFAULT_APPLICATION_NAME,
+    LABEL_PREFIX,
     LEGACY_VRNETLAB_IMAGE_PATH_ENV,
-    LEGACY_VRNETLAB_TYPE_ENV,
     VRNETLAB_IMAGE_PATH_ENV,
     VRNETLAB_TYPE_ENV,
-    environment_prefix,
     vrnetlab_image_path_env,
     vrnetlab_type_env,
 )
@@ -39,11 +37,8 @@ class BuildRequest:
     source: Path | None
 
 
-def vrnetlab_build_jobs(
-    application_name: str,
-    environ: Mapping[str, str] | None = None,
-) -> int:
-    variable = f"{environment_prefix(application_name)}_VRNETLAB_BUILD_JOBS"
+def vrnetlab_build_jobs(environ: Mapping[str, str] | None = None) -> int:
+    variable = f"{LABEL_PREFIX}_VRNETLAB_BUILD_JOBS"
     value = (os.environ if environ is None else environ).get(variable)
     if value is None:
         return DEFAULT_VRNETLAB_BUILD_JOBS
@@ -145,15 +140,12 @@ def _source_setting(
     environ: Mapping[str, str],
     *,
     image_path_environment: str,
-    allow_legacy_short_alias: bool,
 ) -> str | None:
     node_value = _optional_string(node_env, image_path_environment, owner="node environment")
     if node_value is not None:
         return node_value
     if value := environ.get(image_path_environment):
         return value
-    if not allow_legacy_short_alias:
-        return None
     return environ.get(LEGACY_VRNETLAB_IMAGE_PATH_ENV) or environ.get(VRNETLAB_IMAGE_PATH_SHORT)
 
 
@@ -161,24 +153,16 @@ def build_requests_from_topology(
     topology_path: Path,
     topology_data: dict[str, Any],
     environ: Mapping[str, str] | None = None,
-    *,
-    application_name: str = DEFAULT_APPLICATION_NAME,
 ) -> list[BuildRequest]:
     current_env = environ if environ is not None else os.environ
-    type_environment = vrnetlab_type_env(application_name)
-    image_path_environment = vrnetlab_image_path_env(application_name)
+    type_environment = vrnetlab_type_env()
+    image_path_environment = vrnetlab_image_path_env()
     requests: list[BuildRequest] = []
     lab_name: str | None = None
 
     for node in topology_nodes(topology_data):
         node_env = _node_environment(node.name, node.data)
         builder_type = _optional_string(node_env, type_environment, owner=f"node {node.name}")
-        if builder_type is None and application_name == DEFAULT_APPLICATION_NAME:
-            builder_type = _optional_string(
-                node_env,
-                LEGACY_VRNETLAB_TYPE_ENV,
-                owner=f"node {node.name}",
-            )
         if builder_type is None:
             continue
         if lab_name is None:
@@ -195,7 +179,6 @@ def build_requests_from_topology(
             node_env,
             current_env,
             image_path_environment=image_path_environment,
-            allow_legacy_short_alias=application_name == DEFAULT_APPLICATION_NAME,
         )
         source = None
         if source_value is not None:

@@ -4,7 +4,7 @@ This directory contains the `engulf-clab-vrnetlab-build` plugin distribution.
 
 ## Purpose
 
-The plugin finds nodes with `<PREFIX>_VRNETLAB_TYPE` in their Containerlab
+The plugin finds nodes with `ECLAB_VRNETLAB_TYPE` in their Containerlab
 node environment and ensures their Docker images are built before deploy.
 The builder is selected by the vendor/type path beneath a prepared vrnetlab
 checkout.
@@ -26,10 +26,9 @@ It derives from `ExecutableWrapperPlugin` supplied by
 
 - Keep the plugin vendor-neutral. Builder-specific behavior belongs in the
   selected vrnetlab `vendor/type` directory, not in Python conditionals.
-- Derive `<PREFIX>` from callback-bound `api.application.short_product_name`,
-  falling back to `api.application.product`. The official application uses
-  `ECLAB`; a normalized edition short product name selects another prefix
-  without changing the shared application identity.
+- Use the fixed `ECLAB` prefix (`engulf_clab_ensure_vrnetlab.LABEL_PREFIX`).
+  Do not derive it from `api.application.short_product_name`/`product` —
+  labels must stay portable across editions.
 - Preserve the source qcow2 basename because vrnetlab Makefiles commonly
   derive the native Docker tag from it.
 - Never extract an archive wholesale. Stream its one qcow2 member into a

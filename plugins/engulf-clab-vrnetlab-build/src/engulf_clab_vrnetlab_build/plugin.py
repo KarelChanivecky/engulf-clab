@@ -6,9 +6,8 @@ import subprocess
 from engulf_api import DependencyPosition, InvocationAPI, PluginDependency, StateScope
 from engulf_clab_ensure_vrnetlab import (
     ENSURE_VRNETLAB_PLUGIN_ID,
+    LABEL_PREFIX,
     VRNETLAB_PATH_CONTEXT,
-    application_prefix_name,
-    environment_prefix,
     vrnetlab_image_path_env,
     vrnetlab_type_env,
 )
@@ -51,8 +50,8 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
     context_reads = frozenset({VRNETLAB_PATH_CONTEXT, TOPOLOGY_CONTEXT})
 
     def help(self, api: HelpAPI) -> str:
-        api.logger.debug("rendering vrnetlab build help")
-        prefix = environment_prefix(application_prefix_name(api.application))
+        del api
+        prefix = LABEL_PREFIX
         return (
             "  Node YAML env fields:\n"
             f"    {prefix}_VRNETLAB_TYPE      Opt in and select the vrnetlab builder\n"
@@ -77,17 +76,12 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
         try:
             topology_path = topology_path_from_args(tuple(rest))
             topology_data = load_topology(topology_path)
-            requests = build_requests_from_topology(
-                topology_path,
-                topology_data,
-                os.environ,
-                application_name=application_prefix_name(api.application),
-            )
-            vrnetlab_build_jobs(application_prefix_name(api.application))
+            requests = build_requests_from_topology(topology_path, topology_data, os.environ)
+            vrnetlab_build_jobs()
             if not requests:
                 api.logger.debug(
                     "no nodes declare %s; no vrnetlab images to build",
-                    vrnetlab_type_env(application_prefix_name(api.application)),
+                    vrnetlab_type_env(),
                 )
                 return None
         except (VrnetlabError, OSError, subprocess.CalledProcessError) as error:
@@ -106,12 +100,7 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession): raise VrnetlabError("invalid shared topology session")
             topology_data = session.original_document()
-            requests = build_requests_from_topology(
-                topology_path,
-                topology_data,
-                os.environ,
-                application_name=application_prefix_name(api.application),
-            )
+            requests = build_requests_from_topology(topology_path, topology_data, os.environ)
             if not requests:
                 api.logger.debug("no vrnetlab image-build requests in original topology")
                 return
@@ -125,12 +114,8 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
                     api=api,
                     checkout_context=checkout_context,
                     state_store=state_store,
-                    source_environment=vrnetlab_image_path_env(
-                        application_prefix_name(api.application)
-                    ),
-                    max_workers=vrnetlab_build_jobs(
-                        application_prefix_name(api.application)
-                    ),
+                    source_environment=vrnetlab_image_path_env(),
+                    max_workers=vrnetlab_build_jobs(),
                 )
         except (VrnetlabError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)
