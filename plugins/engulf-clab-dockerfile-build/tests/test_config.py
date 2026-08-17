@@ -10,10 +10,11 @@ from engulf_clab_dockerfile_build.errors import DockerfileError
 
 class ConfigurationTest(unittest.TestCase):
     def test_runtime_build_job_limit(self) -> None:
-        self.assertEqual(docker_build_jobs("eclab", {}), 2)
-        self.assertEqual(docker_build_jobs("fclab", {"FCLAB_DOCKER_BUILD_JOBS": "4"}), 4)
+        self.assertEqual(docker_build_jobs({}), 2)
+        self.assertEqual(docker_build_jobs({"ECLAB_DOCKER_BUILD_JOBS": "4"}), 4)
+        self.assertEqual(docker_build_jobs({"FCLAB_DOCKER_BUILD_JOBS": "4"}), 2)
         with self.assertRaisesRegex(DockerfileError, "positive integer"):
-            docker_build_jobs("eclab", {"ECLAB_DOCKER_BUILD_JOBS": "0"})
+            docker_build_jobs({"ECLAB_DOCKER_BUILD_JOBS": "0"})
 
     def test_build_request_uses_node_image_and_relative_paths(self) -> None:
         with TemporaryDirectory() as directory:
@@ -27,18 +28,16 @@ class ConfigurationTest(unittest.TestCase):
                         "api": {
                             "image": "example/api:dev",
                             "env": {
-                                "ENGULF_CLAB_DOCKERFILE": "api/Dockerfile",
-                                "ENGULF_CLAB_DOCKER_CTX": "api",
-                                "ENGULF_CLAB_DOCKER_VAR_VERSION": "1.2.3",
-                                "ENGULF_CLAB_DOCKER_ARGS": "--pull --label 'team=netops'",
+                                "ECLAB_DOCKERFILE": "api/Dockerfile",
+                                "ECLAB_DOCKER_CTX": "api",
+                                "ECLAB_DOCKER_VAR_VERSION": "1.2.3",
+                                "ECLAB_DOCKER_ARGS": "--pull --label 'team=netops'",
                             },
                         }
                     }
                 }
             }
-            requests = build_requests_from_topology(
-                root / "lab.clab.yml", data, application_name="engulf-clab"
-            )
+            requests = build_requests_from_topology(root / "lab.clab.yml", data)
 
         self.assertEqual(requests[0].image, "example/api:dev")
         self.assertEqual(requests[0].dockerfile, node_dir / "Dockerfile")
@@ -54,14 +53,14 @@ class ConfigurationTest(unittest.TestCase):
             data = {
                 "topology": {
                     "nodes": {
-                        "api": {"image": "example/api", "env": {"ENGULF_CLAB_DOCKERFILE": "Dockerfile"}}
+                        "api": {"image": "example/api", "env": {"ECLAB_DOCKERFILE": "Dockerfile"}}
                     }
                 }
             }
             with self.assertRaisesRegex(DockerfileError, "DOCKER_CTX"):
-                build_requests_from_topology(root / "lab.clab.yml", data, application_name="engulf-clab")
+                build_requests_from_topology(root / "lab.clab.yml", data)
 
-    def test_edition_name_changes_prefix(self) -> None:
+    def test_fixed_prefix_ignores_other_prefixes(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "Dockerfile").touch()
@@ -78,6 +77,6 @@ class ConfigurationTest(unittest.TestCase):
                     }
                 }
             }
-            requests = build_requests_from_topology(root / "lab.clab.yml", data, application_name="acme-clab")
+            requests = build_requests_from_topology(root / "lab.clab.yml", data)
 
-        self.assertEqual(len(requests), 1)
+        self.assertEqual(len(requests), 0)

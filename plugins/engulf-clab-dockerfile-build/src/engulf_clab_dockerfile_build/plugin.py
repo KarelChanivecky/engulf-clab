@@ -16,10 +16,9 @@ from engulf_executable_wrapper_api import (
 from .build import build_images
 from .config import (
     DEFAULT_DOCKER_BUILD_JOBS,
-    application_prefix_name,
+    LABEL_PREFIX,
     build_requests_from_topology,
     docker_build_jobs,
-    environment_prefix,
 )
 from .errors import DockerfileError
 from .topology import load_topology, topology_path_from_args
@@ -38,7 +37,8 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
     context_reads = frozenset({TOPOLOGY_CONTEXT})
 
     def help(self, api: HelpAPI) -> str:
-        prefix = environment_prefix(application_prefix_name(api.application))
+        del api
+        prefix = LABEL_PREFIX
         return (
             "  Node YAML env fields (paths are relative to the topology file):\n"
             f"    {prefix}_DOCKERFILE       Dockerfile; requires {prefix}_DOCKER_CTX\n"
@@ -63,12 +63,8 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
             return None
         try:
             topology_path = topology_path_from_args(tuple(rest))
-            build_requests_from_topology(
-                topology_path,
-                load_topology(topology_path),
-                application_name=application_prefix_name(api.application),
-            )
-            docker_build_jobs(application_prefix_name(api.application))
+            build_requests_from_topology(topology_path, load_topology(topology_path))
+            docker_build_jobs()
         except (DockerfileError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
@@ -83,15 +79,11 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession):
                 raise DockerfileError("invalid shared topology session")
-            requests = build_requests_from_topology(
-                topology_path,
-                session.materialize(),
-                application_name=application_prefix_name(api.application),
-            )
+            requests = build_requests_from_topology(topology_path, session.materialize())
             build_images(
                 requests,
                 api=api,
-                max_workers=docker_build_jobs(application_prefix_name(api.application)),
+                max_workers=docker_build_jobs(),
             )
         except (DockerfileError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("%s", error)

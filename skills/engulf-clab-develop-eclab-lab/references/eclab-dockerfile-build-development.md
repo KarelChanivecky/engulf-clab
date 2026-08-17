@@ -14,9 +14,9 @@ image tag built for another node.
 - Application declaration: `engulf.plugins.v1.application.engulf_clab`
 - Plugin ID: `engulf_clab.dockerfile_build`
 
-Derive `<PREFIX>` from callback-bound `api.application.short_product_name`,
-falling back to `api.application.product`; the official application uses
-`ECLAB` and a short product name of `acme clab` uses `ACME_CLAB`.
+Use the fixed `ECLAB` prefix (`config.LABEL_PREFIX`). Do not derive it from
+`api.application.short_product_name`/`product` — labels must stay portable
+across editions.
 The plugin runs `docker build` during `prepare_call()` only and must never build
 during analysis. Acquire one multi-lease context covering every image tag before
 launching parallel workers; callback-bound API lease contexts must not overlap.

@@ -12,18 +12,19 @@ from engulf_clab_dockerfile_build.plugin import DockerfilePlugin
 
 
 class PluginHelpTest(unittest.TestCase):
-    def test_help_distinguishes_node_fields_from_runtime_job_limit(self) -> None:
+    def test_help_uses_fixed_prefix_regardless_of_edition(self) -> None:
         api = Mock()
-        api.application.short_product_name = "fclab"
-        api.application.product = "Forti Containerlab"
+        api.application.short_product_name = "vendor clab"
+        api.application.product = "Vendor Containerlab"
 
         help_text = DockerfilePlugin().help(api)
 
         self.assertIn("Node YAML env fields", help_text)
-        self.assertIn("FCLAB_DOCKERFILE", help_text)
+        self.assertIn("ECLAB_DOCKERFILE", help_text)
+        self.assertNotIn("FCLAB_DOCKERFILE", help_text)
         self.assertIn(
             "Runtime environment:\n"
-            "    FCLAB_DOCKER_BUILD_JOBS  Concurrent image builds (default: 2)",
+            "    ECLAB_DOCKER_BUILD_JOBS  Concurrent image builds (default: 2)",
             help_text,
         )
 

@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import os
-import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_api import ApplicationMetadata
-
 from .errors import DockerfileError
 from .topology import topology_nodes
 
-_NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
+# Fixed across every edition, matching engulf-clab-wan's LABEL_PREFIX
+# convention: labels/env vars must stay portable regardless of the active
+# application's product metadata.
+LABEL_PREFIX = "ECLAB"
 _RESERVED_ARGUMENTS = frozenset(("-f", "--file", "-t", "--tag"))
 DEFAULT_DOCKER_BUILD_JOBS = 2
 
@@ -28,29 +28,8 @@ class BuildRequest:
     extra_args: tuple[str, ...]
 
 
-def environment_prefix(application_name: str) -> str:
-    prefix = _NON_ALPHANUMERIC.sub("_", application_name.upper()).strip("_")
-    if not prefix:
-        raise DockerfileError(f"cannot derive environment prefix from {application_name!r}")
-    return prefix
-
-
-def application_prefix_name(application: ApplicationMetadata) -> str:
-    """Select short product metadata, falling back to the full product name."""
-    short_name = getattr(application, "short_product_name", None)
-    if isinstance(short_name, str) and short_name.strip():
-        return short_name
-    product = application.product
-    if isinstance(product, str) and product.strip():
-        return product
-    raise DockerfileError("application product metadata must be a nonempty string")
-
-
-def docker_build_jobs(
-    application_name: str,
-    environ: Mapping[str, str] | None = None,
-) -> int:
-    variable = f"{environment_prefix(application_name)}_DOCKER_BUILD_JOBS"
+def docker_build_jobs(environ: Mapping[str, str] | None = None) -> int:
+    variable = f"{LABEL_PREFIX}_DOCKER_BUILD_JOBS"
     value = (os.environ if environ is None else environ).get(variable)
     if value is None:
         return DEFAULT_DOCKER_BUILD_JOBS
@@ -104,14 +83,11 @@ def _extra_args(value: str, *, node_name: str) -> tuple[str, ...]:
 def build_requests_from_topology(
     topology_path: Path,
     topology_data: dict[str, Any],
-    *,
-    application_name: str,
 ) -> list[BuildRequest]:
-    prefix = environment_prefix(application_name)
-    dockerfile_key = f"{prefix}_DOCKERFILE"
-    context_key = f"{prefix}_DOCKER_CTX"
-    args_key = f"{prefix}_DOCKER_ARGS"
-    variable_prefix = f"{prefix}_DOCKER_VAR_"
+    dockerfile_key = f"{LABEL_PREFIX}_DOCKERFILE"
+    context_key = f"{LABEL_PREFIX}_DOCKER_CTX"
+    args_key = f"{LABEL_PREFIX}_DOCKER_ARGS"
+    variable_prefix = f"{LABEL_PREFIX}_DOCKER_VAR_"
     topology_dir = topology_path.resolve().parent
     requests: list[BuildRequest] = []
 

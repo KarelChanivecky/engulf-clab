@@ -42,9 +42,8 @@ and context there. Paths are relative to the topology file unless absolute.
 
 ## Node environment fields
 
-For the official `engulf-clab` application, use these `env` keys. Editions use
-their short product name, or full product name if no short name is available:
-`acme clab` becomes `ACME_CLAB_*`.
+Use these `env` keys. The `ECLAB` prefix is fixed and the same across every
+edition.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -105,7 +104,7 @@ labs must not overwrite one another's local image.
   `engulf_clab.dockerfile_build` block.
 - Confirm paths from the topology directory and inspect `.dockerignore` when
   expected files are absent from the context.
-- Set the active `<PREFIX>_DOCKER_BUILD_JOBS=1` to make resource-heavy or
+- Set `ECLAB_DOCKER_BUILD_JOBS=1` to make resource-heavy or
   ordering-sensitive build output easier to read.
 - Enable targeted plugin diagnostics and reproduce the equivalent `docker build`
   argument vector without adding plugin-owned `--file`/`--tag` overrides.
