@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,7 +11,9 @@ from engulf_clab_containers_api import (
 
 from .errors import ContainersError
 
-_NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
+# Fixed across every edition so injected node env vars stay portable; see
+# engulf-clab-wan's LABEL_PREFIX for the same convention.
+LABEL_PREFIX = "ECLAB"
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,23 +25,6 @@ class ManagedContainer:
     @property
     def image(self) -> str:
         return f"{self.namespace}/{self.definition.name}:latest"
-
-
-def environment_prefix(application_name: str) -> str:
-    prefix = _NON_ALPHANUMERIC.sub("_", application_name.upper()).strip("_")
-    if not prefix:
-        raise ContainersError(f"cannot derive environment prefix from {application_name!r}")
-    return prefix
-
-
-def application_prefix_name(application: object) -> str:
-    short_name = getattr(application, "short_product_name", None)
-    if isinstance(short_name, str) and short_name.strip():
-        return short_name
-    product = getattr(application, "product", None)
-    if isinstance(product, str) and product.strip():
-        return product
-    raise ContainersError("application product metadata must be a nonempty string")
 
 
 def catalog(

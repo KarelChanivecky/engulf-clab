@@ -22,13 +22,7 @@ from engulf_executable_wrapper_api import (
 )
 
 from .errors import ContainersError
-from .manager import (
-    application_prefix_name,
-    catalog,
-    environment_prefix,
-    format_catalog,
-    topology_edits,
-)
+from .manager import LABEL_PREFIX, catalog, format_catalog, topology_edits
 
 _HELP_OPTION = "--eclab-containers-help"
 
@@ -76,8 +70,7 @@ class ContainersPlugin(ExecutableWrapperPlugin):
             ):
                 return None
             path = topology_path_from_args(tuple(event.wrapper_args[1:]))
-            prefix = environment_prefix(application_prefix_name(api.application))
-            topology_edits(load_topology(path), containers, prefix=prefix)
+            topology_edits(load_topology(path), containers, prefix=LABEL_PREFIX)
         except (ContainersError, OSError, RuntimeError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
@@ -91,11 +84,10 @@ class ContainersPlugin(ExecutableWrapperPlugin):
             if not isinstance(session, TopologySession):
                 raise ContainersError("invalid shared topology session")
             containers = catalog(self._collections(api))
-            prefix = environment_prefix(application_prefix_name(api.application))
             mutation = editor(api, self.plugin_id)
             document = session.original_document()
             nodes = document["topology"]["nodes"]
-            for node_name, fields in topology_edits(document, containers, prefix=prefix):
+            for node_name, fields in topology_edits(document, containers, prefix=LABEL_PREFIX):
                 original = nodes[node_name]
                 for field, value in fields.items():
                     path = ("topology", "nodes", node_name, field)

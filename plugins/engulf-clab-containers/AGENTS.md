@@ -10,8 +10,9 @@ the Dockerfile builder and lab writer.
   `engulf_clab.containers.collections`, and topology context declarations stable.
 - Validate the complete catalog and proposed merge during `analyze_call()`;
   perform only deferred editor operations during `prepare_call()`.
-- Derive Docker variable prefixes from callback application metadata. Never
-  derive them from the executable filename or assume base `ECLAB` for editions.
+- Use the fixed `ECLAB` Docker variable prefix (`manager.LABEL_PREFIX`). Never
+  derive it from callback application metadata or the executable filename —
+  injected node env vars must stay portable across editions.
 - Preserve canonical `:latest` naming, namespace collision detection, package
   asset validation, required management networking, and conflict-safe merge
   rules. Do not silently override user fields or fall through malformed managed

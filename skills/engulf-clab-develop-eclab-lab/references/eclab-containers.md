@@ -61,7 +61,7 @@ editor:
 | `image-pull-policy` | Required to be `Never`, because the Dockerfile builder creates the local image. |
 | `cap-add` | Existing string entries are preserved and missing required capabilities are appended. |
 | `sysctls` | Existing mapping is preserved; a different value for a required key fails. |
-| `env` | Lab configuration is preserved; recipe defaults and edition-prefixed Dockerfile/context paths are added, and conflicts fail. |
+| `env` | Lab configuration is preserved; recipe defaults and `ECLAB`-prefixed Dockerfile/context paths are added, and conflicts fail. |
 
 A recipe with `requires_management=True` needs Containerlab's management
 `eth0`. An absent/default or explicit `network-mode: bridge` is accepted; an
@@ -69,10 +69,9 @@ incompatible network mode fails before preparation. Recipes may reserve `eth0`
 for management and treat later interfaces as lab-facing, so follow the selected
 container's own README.
 
-The Docker controls use the active application's normalized short product name,
-falling back to product metadata. Base eclab injects `ECLAB_DOCKERFILE` and
-`ECLAB_DOCKER_CTX`; an edition injects its own prefix. Collection packages do
-not hard-code that prefix.
+The Docker controls use a fixed `ECLAB` prefix, the same across every edition:
+`ECLAB_DOCKERFILE` and `ECLAB_DOCKER_CTX`. Collection packages never need to
+know this prefix; only the manager injects it.
 
 ## Lifecycle and ordering
 
