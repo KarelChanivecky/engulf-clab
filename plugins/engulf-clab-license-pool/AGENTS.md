@@ -6,6 +6,12 @@ through the shared topology editor.
 
 - Keep plugin ID `engulf_clab.license_pool`, parser/writer dependencies, and
   workspace-plus-UUID claim identity stable.
+- Use the fixed `ECLAB` prefix (`plugin.LABEL_PREFIX`) for clamp keys, frozen
+  prompt markers, and noninteractive license keys — never derive these from
+  application metadata. The lab-local state directory (`LicenseContract.
+  state_directory`) is the one thing that stays derived from callback-bound
+  short product metadata, using the same uppercase/underscore normalization;
+  keep this split intentional rather than reusing one prefix for both.
 - Parse pool and frozen-prompt requests in preparation, never help or analysis
   side effects. Validate topology mappings, environment values, pool/file roles,
   UUIDs, and clamp strings before copying.

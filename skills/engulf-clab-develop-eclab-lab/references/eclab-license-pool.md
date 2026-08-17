@@ -42,11 +42,12 @@ eclab deploy -t lab.clab.yml
 | `env.ECLAB_LIC_CLAMP` | Optional required filename or path within the pool. Deploy fails if it is allocated. |
 | `POOL_NAME=/path/to/licenses` | Invocation environment variable; value must be a directory. |
 
-Frozen shared labs use `license: __ECLAB_LICENSE_PROMPT__` instead. At deploy,
-the plugin asks for a license file, pool directory, or `$VARIABLE`. For
-non-interactive use set `ECLAB_LICENSE`, or `ECLAB_LICENSE_<NODE_NAME>` for one
-node. A directory is allocated using the same shared pool mechanism; a file is
-copied only into the running lab's generated topology.
+`ECLAB` is a fixed label prefix, the same across every edition. It controls
+frozen shared labs too: freeze writes `license: __ECLAB_LICENSE_PROMPT__`, and
+deploy accepts `ECLAB_LICENSE` or `ECLAB_LICENSE_<NODE_NAME>` for
+non-interactive use. Otherwise the plugin asks for a license file, pool
+directory, or `$VARIABLE`. A directory is allocated using the same shared pool
+mechanism; a file is copied only into the running lab's generated topology.
 
 ## Allocation and cleanup
 
@@ -54,8 +55,13 @@ Allocations are globally coordinated in user state and guarded by leases, so
 multiple labs can share a pool. Never-used licenses are assigned first;
 previously assigned licenses are preferred for the same node identity; clamped
 licenses are considered last for ordinary allocation. The selected file is
-copied under `.engulf-clab/licenses/` beside the topology and the generated
-topology references that copy.
+copied under `.<state-prefix-lowercase>/licenses/` beside the topology and the
+generated topology references that copy. This state-directory prefix is
+derived from the active application's short product name — unlike the fixed
+`ECLAB` label prefix above, it is expected to stay the same across every
+edition (so their state converges on one shared `.eclab/licenses/`
+directory), but technically follows whatever `short_product_name` the active
+launcher reports.
 
 A successful `destroy` releases that workspace's claims and removes its copied
 licenses. `destroy -a` / `destroy --all` releases every recorded allocation.
@@ -90,7 +96,7 @@ it.
 Each selected license is copied beneath:
 
 ```text
-<topology-directory>/.engulf-clab/licenses/<claim-hash>/<source-filename>
+<topology-directory>/.<state-prefix-lowercase>/licenses/<claim-hash>/<source-filename>
 ```
 
 The shared topology editor changes only the temporary derived topology's

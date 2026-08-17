@@ -3,12 +3,20 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_api import DependencyPosition, InvocationAPI, PluginDependency, StateScope
+from engulf_api import (
+    ApplicationMetadata,
+    DependencyPosition,
+    InvocationAPI,
+    PluginDependency,
+    StateScope,
+)
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
@@ -22,21 +30,73 @@ from engulf_executable_wrapper_api import (
 )
 
 _FILE = "license-pools.json"
-_PROMPT = "__ECLAB_LICENSE_PROMPT__"
+_NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
+_LEGACY_STATE_DIRECTORY = ".engulf-clab"
+
+# Fixed across every edition, matching engulf-clab-wan's LABEL_PREFIX
+# convention: topology labels/env vars must stay portable regardless of the
+# active application's product metadata. Unlike labels, the topology-local
+# state directory below is deliberately still derived from application
+# metadata, so every edition's state converges on the same directory as long
+# as they share the same short_product_name.
+LABEL_PREFIX = "ECLAB"
 class LicensePoolError(RuntimeError): pass
+
+
+@dataclass(frozen=True, slots=True)
+class LicenseContract:
+    state_prefix: str
+
+    @property
+    def clamp_environment(self) -> str:
+        return f"{LABEL_PREFIX}_LIC_CLAMP"
+
+    @property
+    def prompt_marker(self) -> str:
+        return f"__{LABEL_PREFIX}_LICENSE_PROMPT__"
+
+    @property
+    def license_environment(self) -> str:
+        return f"{LABEL_PREFIX}_LICENSE"
+
+    @property
+    def state_directory(self) -> str:
+        return f".{self.state_prefix.lower()}"
+
+    def node_license_environment(self, node_name: str) -> str:
+        node = "".join(
+            character if character.isalnum() else "_"
+            for character in node_name.upper()
+        )
+        return f"{self.license_environment}_{node}"
+
+
+def license_contract(application: ApplicationMetadata) -> LicenseContract:
+    short_name = getattr(application, "short_product_name", None)
+    product = getattr(application, "product", None)
+    name = short_name if isinstance(short_name, str) and short_name.strip() else product
+    if not isinstance(name, str) or not name.strip():
+        raise LicensePoolError("application product metadata must be a nonempty string")
+    prefix = _NON_ALPHANUMERIC.sub("_", name.upper()).strip("_")
+    if not prefix:
+        raise LicensePoolError(f"cannot derive environment prefix from {name!r}")
+    return LicenseContract(prefix)
+
+
 class LicensePoolPlugin(ExecutableWrapperPlugin):
     plugin_id = "engulf_clab.license_pool"; priority = 60
     plugin_dependencies = (PluginDependency("engulf_clab.lab_parser", preprocess=DependencyPosition.BEFORE, postprocess=None), PluginDependency("engulf_clab.lab_writer", preprocess=DependencyPosition.AFTER, postprocess=None))
     context_reads = frozenset({TOPOLOGY_CONTEXT})
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering license-pool help")
+        contract = license_contract(api.application)
         return (
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
             "    uuid: <stable-uuid>         Recommended stable allocation identity\n"
-            "    env.ECLAB_LIC_CLAMP: file   Require this available pool filename/path\n"
-            f"    license: {_PROMPT}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
-            "    ECLAB_LICENSE[_NODE]        Non-interactive value for a frozen license prompt\n"
+            f"    env.{contract.clamp_environment}: file   Require this available pool filename/path\n"
+            f"    license: {contract.prompt_marker}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
+            f"    {contract.license_environment}[_NODE]        Non-interactive value for a frozen license prompt\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
             "  Successful destroy releases claims and removes copied lab licenses."
         )
@@ -47,8 +107,11 @@ class LicensePoolPlugin(ExecutableWrapperPlugin):
         if not isinstance(session, TopologySession): raise LicensePoolError("invalid shared topology session")
         topology = session.original_document()
         workspace = api.state(StateScope.WORKSPACE).root
-        requests = _requests(topology, os.environ, workspace)
-        prompt_requests, direct = _prompt_requests(topology, os.environ, workspace)
+        contract = license_contract(api.application)
+        requests = _requests(topology, os.environ, workspace, contract)
+        prompt_requests, direct = _prompt_requests(
+            topology, os.environ, workspace, contract
+        )
         requests.extend(prompt_requests)
         if not requests and not direct: return
         with api.leases(tuple(sorted({_lease(pool) for _node, pool, _clamp, _claim in requests}))):
@@ -57,10 +120,14 @@ class LicensePoolPlugin(ExecutableWrapperPlugin):
         assigned.update({claim: source for claim, source in direct.values()})
         mutation = editor(api, self.plugin_id)
         for node, _pool, _clamp, claim in requests:
-            copied = _copy_to_lab(Path(assigned[claim]), session.path.parent, claim)
+            copied = _copy_to_lab(
+                Path(assigned[claim]), session.path.parent, claim, contract
+            )
             mutation.modify(("topology", "nodes", node, "license"), str(copied))
         for node, (claim, _source) in direct.items():
-            copied = _copy_to_lab(Path(assigned[claim]), session.path.parent, claim)
+            copied = _copy_to_lab(
+                Path(assigned[claim]), session.path.parent, claim, contract
+            )
             mutation.modify(("topology", "nodes", node, "license"), str(copied))
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         if not event.wrapper_args or event.wrapper_args[0] != "destroy" or event.mode is CallMode.HELP: return
@@ -70,8 +137,10 @@ class LicensePoolPlugin(ExecutableWrapperPlugin):
             if any(value in {"-a", "--all"} for value in event.wrapper_args[1:]): _release_all(state); return
             workspace = api.state(StateScope.WORKSPACE)
             _release_workspace(state, str(workspace.root))
-            shutil.rmtree(workspace.root / ".engulf-clab" / "licenses", ignore_errors=True)
-def _requests(data: dict[str, Any], environ: dict[str, str], workspace: Path) -> list[tuple[str, str, str | None, str]]:
+            contract = license_contract(api.application)
+            shutil.rmtree(workspace.root / contract.state_directory / "licenses", ignore_errors=True)
+            shutil.rmtree(workspace.root / _LEGACY_STATE_DIRECTORY / "licenses", ignore_errors=True)
+def _requests(data: dict[str, Any], environ: dict[str, str], workspace: Path, contract: LicenseContract) -> list[tuple[str, str, str | None, str]]:
     nodes = data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict): raise LicensePoolError("topology.nodes is required")
     result=[]
@@ -81,25 +150,25 @@ def _requests(data: dict[str, Any], environ: dict[str, str], workspace: Path) ->
         if not pool_name or pool_name not in environ: raise LicensePoolError(f"license pool ${pool_name} is not set")
         pool=Path(environ[pool_name]).expanduser().resolve()
         if not pool.is_dir(): raise LicensePoolError(f"license pool ${pool_name} is not a directory: {pool}")
-        env=node.get("env", {}); clamp=env.get("ECLAB_LIC_CLAMP") if isinstance(env, dict) else None
-        if clamp is not None and not isinstance(clamp, str): raise LicensePoolError(f"node {name} ECLAB_LIC_CLAMP must be a string")
+        env=node.get("env", {}); clamp=env.get(contract.clamp_environment) if isinstance(env, dict) else None
+        if clamp is not None and not isinstance(clamp, str): raise LicensePoolError(f"node {name} {contract.clamp_environment} must be a string")
         identity=node.get("uuid", name)
         if not isinstance(identity, str) or not identity: raise LicensePoolError(f"node {name} uuid must be a nonempty string")
         result.append((str(name), str(pool), clamp, f"{workspace}:{identity}"))
     return result
-def _prompt_requests(data: dict[str, Any], environ: dict[str, str], workspace: Path) -> tuple[list[tuple[str, str, str | None, str]], dict[str, tuple[str, str]]]:
+def _prompt_requests(data: dict[str, Any], environ: dict[str, str], workspace: Path, contract: LicenseContract) -> tuple[list[tuple[str, str, str | None, str]], dict[str, tuple[str, str]]]:
     nodes=data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict): raise LicensePoolError("topology.nodes is required")
     pools: list[tuple[str,str,str|None,str]]=[]; direct: dict[str,tuple[str,str]]={}
     for name,node in nodes.items():
-        if not isinstance(node,dict) or node.get("license") != _PROMPT: continue
+        if not isinstance(node,dict) or node.get("license") != contract.prompt_marker: continue
         node_name=str(name); identity=node.get("uuid", node_name)
         if not isinstance(identity,str) or not identity: raise LicensePoolError(f"node {node_name} uuid must be a nonempty string")
-        claim=f"{workspace}:{identity}"; key="ECLAB_LICENSE_"+"".join(character if character.isalnum() else "_" for character in node_name.upper())
-        value=environ.get(key) or environ.get("ECLAB_LICENSE")
+        claim=f"{workspace}:{identity}"; key=contract.node_license_environment(node_name)
+        value=environ.get(key) or environ.get(contract.license_environment)
         if not value and sys.stdin.isatty():
             value=input(f"License for {node_name} (file, pool directory, or $VARIABLE): ").strip()
-        if not value: raise LicensePoolError(f"frozen license for {node_name} requires {key}, ECLAB_LICENSE, or an interactive terminal")
+        if not value: raise LicensePoolError(f"frozen license for {node_name} requires {key}, {contract.license_environment}, or an interactive terminal")
         if value.startswith("$"):
             variable=value[1:].strip("{}")
             value=environ.get(variable, "")
@@ -148,8 +217,8 @@ def _release_all(state: Any) -> None:
         for entry in registry["pools"].values(): entry["allocations"]={}
         locked.write_text(_FILE,json.dumps(registry,sort_keys=True)+"\n")
 def _lease(pool: str) -> str: return "license-pool:"+hashlib.sha256(pool.encode()).hexdigest()
-def _copy_to_lab(source: Path, lab_dir: Path, claim: str) -> Path:
-    target_dir = lab_dir / ".engulf-clab" / "licenses" / hashlib.sha256(claim.encode()).hexdigest()
+def _copy_to_lab(source: Path, lab_dir: Path, claim: str, contract: LicenseContract) -> Path:
+    target_dir = lab_dir / contract.state_directory / "licenses" / hashlib.sha256(claim.encode()).hexdigest()
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / source.name
     shutil.copy2(source, target)
