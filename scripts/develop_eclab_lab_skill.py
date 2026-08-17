@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-SKILL_RELATIVE = Path("skills/develop-eclab-lab")
+SKILL_RELATIVE = Path("skills/engulf-clab-develop-eclab-lab")
 FORBIDDEN = re.compile(r"forti", re.IGNORECASE)
 
 LOCAL_SOURCES = {
@@ -249,7 +249,7 @@ def validate_skill(skill: Path) -> None:
     if not definition.is_file():
         raise SkillError(f"missing {definition}")
     text = definition.read_text(encoding="utf-8")
-    if not text.startswith("---\n") or "\nname: develop-eclab-lab\n" not in text:
+    if not text.startswith("---\n") or "\nname: engulf-clab-develop-eclab-lab\n" not in text:
         raise SkillError(f"{definition}: invalid skill frontmatter")
     for relative in (Path("SKILL.md"), Path("agents"), Path("references")):
         path = skill / relative

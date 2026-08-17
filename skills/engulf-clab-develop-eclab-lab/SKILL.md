@@ -1,5 +1,5 @@
 ---
-name: develop-eclab-lab
+name: engulf-clab-develop-eclab-lab
 description: Build, refine, validate, operate, and troubleshoot Containerlab labs with eclab. Use for eclab topologies, minimal repro extraction, vrnetlab image inputs, license pools, edition-aware managed WAN bridges, packaged helper containers, freeze workflows, MCP lifecycle operations, or Engulf-backed lab failures. Do not use as a general Engulf plugin-development tutorial.
 ---
 

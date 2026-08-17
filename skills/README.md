@@ -1,7 +1,7 @@
 # Repository-owned skills
 
 The canonical `develop-eclab-lab` Codex skill is maintained in this directory
-and released as the independent `develop-eclab-lab` Python package. The wheel
+and released as the independent `engulf-clab-develop-eclab-lab` Python package. The wheel
 embeds the complete skill, so installation does not require an eclab or Engulf
 source checkout.
 
@@ -130,7 +130,7 @@ The checkout installer uses the following defaults:
 Build or install the independent package, then run its console command:
 
 ```bash
-python3.14 -m pip install develop-eclab-lab
+python3.14 -m pip install engulf-clab-develop-eclab-lab
 develop-eclab-lab-install
 ```
 
@@ -152,12 +152,12 @@ To test a wheel without touching a real user installation, use temporary
 directories:
 
 ```bash
-python3.14 -m venv /tmp/develop-eclab-lab-test
-/tmp/develop-eclab-lab-test/bin/python -m pip install dist/develop-eclab-lab/*.whl
+python3.14 -m venv /tmp/engulf-clab-develop-eclab-lab-test
+/tmp/engulf-clab-develop-eclab-lab-test/bin/python -m pip install dist/engulf-clab-develop-eclab-lab/*.whl
 DEVELOP_ECLAB_LAB_SKILLS_DIR=/tmp/eclab-skills \
-  /tmp/develop-eclab-lab-test/bin/develop-eclab-lab-install
+  /tmp/engulf-clab-develop-eclab-lab-test/bin/develop-eclab-lab-install
 DEVELOP_ECLAB_LAB_SKILLS_DIR=/tmp/eclab-skills \
-  /tmp/develop-eclab-lab-test/bin/develop-eclab-lab-install --check
+  /tmp/engulf-clab-develop-eclab-lab-test/bin/develop-eclab-lab-install --check
 ```
 
 ## Repository hooks
@@ -208,9 +208,9 @@ Run these checks after a skill change:
 ENGULF_DIR=../cliwrap make check-skill
 SKILL_CREATOR_DIR=/path/to/skill-creator
 .venv/bin/python "$SKILL_CREATOR_DIR/scripts/quick_validate.py" \
-  skills/develop-eclab-lab
-.venv/bin/python -m build --no-isolation skills/develop-eclab-lab
-.venv/bin/python -m twine check skills/develop-eclab-lab/dist/*
+  skills/engulf-clab-develop-eclab-lab
+.venv/bin/python -m build --no-isolation skills/engulf-clab-develop-eclab-lab
+.venv/bin/python -m twine check skills/engulf-clab-develop-eclab-lab/dist/*
 git diff --check
 ```
 

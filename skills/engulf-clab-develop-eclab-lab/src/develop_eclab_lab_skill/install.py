@@ -13,7 +13,7 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import NoReturn
 
-SKILL_NAME = "develop-eclab-lab"
+SKILL_NAME = "engulf-clab-develop-eclab-lab"
 
 
 def fail(message: str) -> NoReturn:
@@ -56,7 +56,7 @@ def same_tree(left: Path, right: Path) -> bool:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="develop-eclab-lab-install",
+        prog="engulf-clab-develop-eclab-lab-install",
         description=__doc__,
         epilog=(
             "Defaults may also be set with DEVELOP_ECLAB_LAB_SKILLS_DIR and "
@@ -133,7 +133,7 @@ def main() -> int:
             if (
                 definition is None
                 or not definition.is_file()
-                or "name: develop-eclab-lab" not in definition.read_text(encoding="utf-8")
+                or "name: engulf-clab-develop-eclab-lab" not in definition.read_text(encoding="utf-8")
             ):
                 fail(f"refusing to replace unrecognized path: {target}")
             arguments.backup_dir.mkdir(parents=True, exist_ok=True)

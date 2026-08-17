@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "develop-eclab-lab"
+name = "engulf-clab-develop-eclab-lab"
 version = "0.1.0"
 description = "Self-contained Codex skill for building and troubleshooting eclab labs"
 readme = { text = """
@@ -19,7 +19,7 @@ guides, every maintained plugin guide, and packaged-container documentation. An
 installed skill does not require either source repository.
 
 ```bash
-python3.14 -m pip install develop-eclab-lab
+python3.14 -m pip install engulf-clab-develop-eclab-lab
 develop-eclab-lab-install
 develop-eclab-lab-install --check
 ```
