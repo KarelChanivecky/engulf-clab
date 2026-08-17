@@ -66,50 +66,16 @@ ENGULF_SOURCES = {
 }
 
 NORMALIZATIONS = {
-    "eclab-license-pool.md": (
-        ("    fgt:\n", "    router:\n"),
-        ("vrnetlab/vr-fortios:latest", "vrnetlab/vr-router:latest"),
-        ("FORTIGATE_LICENSES", "ROUTER_LICENSES"),
-        ("licenses/fortigate", "licenses/router"),
-    ),
-    "eclab-vrnetlab-build.md": (
-        ("    fgt:\n", "    router:\n"),
-        ("kind: fortinet_fortigate", "kind: vendor_router"),
-        ("vrnetlab/vr-fortios:8.0.0", "vrnetlab/vr-router:1.0.0"),
-        ("fortinet/fortigate", "vendor/router"),
-        ("fortios.qcow2", "router.qcow2"),
-        ("`fgt-1`", "`router-1`"),
-        ("MY_LAB_FGT_1_IMAGE_SOURCE", "MY_LAB_ROUTER_1_IMAGE_SOURCE"),
-    ),
     "eclab-mcp.md": (
-        ("FORTIGATE_LICENSES", "ROUTER_LICENSES"),
-        ("licenses/fortigate", "licenses/router"),
         ("](etc/eclab-mcp/config.toml.example)",
          "](eclab-mcp-config.md)"),
     ),
     "eclab.md": (
-        ("legacy\n`.forticlab` state", "managed\nlegacy state"),
         ("](mcp-server/README.md)", "](eclab-mcp.md)"),
         ("](CONTRIBUTING.md)", "](eclab-contributing.md)"),
         (
             "[`skills/README.md`](skills/README.md)",
             "`skills/README.md` in a source checkout",
-        ),
-    ),
-    "eclab-freeze.md": (
-        ("legacy `.forticlab` state", "legacy wrapper state"),
-    ),
-    "eclab-wan-development.md": (
-        (
-            (
-                "- Do not create, read, migrate, or delete a topology-local "
-                "`.forticlab/`\n  directory. Existing Forticlab state belongs to "
-                "Forticlab.\n"
-            ),
-            (
-                "- Do not create, read, migrate, or delete topology-local state owned "
-                "by a\n  different wrapper.\n"
-            ),
         ),
     ),
     "executable-wrapper.md": (
