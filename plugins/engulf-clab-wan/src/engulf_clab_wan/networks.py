@@ -95,27 +95,6 @@ class DhcpWanBridge:
         return f"{self.gateway}/{self.subnet.prefixlen}"
 
 
-def _label_tokens(labels: Any) -> tuple[str, ...]:
-    if isinstance(labels, dict):
-        return tuple(str(item) for pair in labels.items() for item in pair)
-    if isinstance(labels, list):
-        return tuple(str(item) for item in labels)
-    if isinstance(labels, str):
-        return (labels,)
-    return ()
-
-
-def validate_label_prefixes(name: str, labels: Any, contract: WanContract) -> None:
-    expected = set(contract.control_labels)
-    for token in _label_tokens(labels):
-        for suffix in _WAN_LABEL_SUFFIXES:
-            if token.endswith(f"_{suffix}") and token not in expected:
-                raise WanError(
-                    f"{name}: {token} does not match the active {contract.prefix} edition; "
-                    f"use {contract.label(suffix)}"
-                )
-
-
 def labels_include_marker(labels: Any, contract: WanContract) -> bool:
     if isinstance(labels, dict):
         for key, value in labels.items():
@@ -207,7 +186,6 @@ def dhcp_wan_bridges(
         if node_data.get("kind") != "bridge":
             continue
         labels = node_data.get("labels")
-        validate_label_prefixes(str(name), labels, contract)
         if labels_include_marker(labels, contract):
             bridges.append(parse_bridge(str(name), node_data, contract))
     return bridges

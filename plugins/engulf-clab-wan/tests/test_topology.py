@@ -90,20 +90,46 @@ topology:
         self.assertEqual(str(bridges[0].gateway), "192.0.2.1")
         self.assertEqual(bridges[0].lease_time, 600)
 
-    def test_mismatched_prefix_label_is_rejected(self) -> None:
+    def test_foreign_prefix_labels_are_ignored(self) -> None:
+        # Foreign edition labels (FCLAB_*, ...) coexist with the fixed ECLAB
+        # contract: they must not be read as WAN controls, and must not error.
         data = {
             "topology": {
                 "nodes": {
                     "wan": {
                         "kind": "bridge",
-                        "labels": {"FCLAB_DHCP_WAN": "true"},
+                        "labels": {
+                            "FCLAB_DHCP_WAN": "true",
+                            "FCLAB_DHCP_SUBNET": "192.0.2.0/24",
+                        },
                     }
                 }
             }
         }
 
-        with self.assertRaisesRegex(WanError, "use ECLAB_DHCP_WAN"):
-            dhcp_wan_bridges(data, WanContract("ECLAB"))
+        bridges = dhcp_wan_bridges(data, WanContract("ECLAB"))
+
+        self.assertEqual(bridges, [])
+
+    def test_foreign_and_eclab_labels_coexist(self) -> None:
+        data = {
+            "topology": {
+                "nodes": {
+                    "wan": {
+                        "kind": "bridge",
+                        "labels": {
+                            "FCLAB_DHCP_WAN": "true",
+                            "ECLAB_DHCP_WAN": "true",
+                        },
+                    }
+                }
+            }
+        }
+
+        bridges = dhcp_wan_bridges(data, WanContract("ECLAB"))
+
+        self.assertEqual(len(bridges), 1)
+        self.assertEqual(bridges[0].name, "wan")
 
 
 class PrefixTest(unittest.TestCase):
