@@ -136,8 +136,13 @@ with the fixed label prefix above.
    do not assume vendor-specific startup, licensing, or management behavior.
 3. Use eclab license pools and stable node UUIDs. Never bake a personal license
    path or license content into a lab or skill asset.
-4. For a managed DHCP WAN, configure the connected node to obtain its address
-   and route through DHCP when that is the intended topology behavior.
+4. For a managed WAN of any addressing mode: when the test needs a specific
+   route toward the WAN, spin up a router node of any kind to act as the WAN,
+   configure that node's default route toward its own mgmt interface (Docker
+   networking takes care of NAT to the host), and point the routes for every 
+   node that needs WAN towards the router node. Do not add bare static routes 
+   from the FortiGate straight onto a WAN bridge unless specified. Do not use
+   the engulf-clab-wan plugin.
 5. Prefer packaged `eclab.containers/*` nodes over copied Dockerfiles. Read
    [eclab-containers-core.md](references/eclab-containers-core.md) for the
    active catalog and host-connector contract.
