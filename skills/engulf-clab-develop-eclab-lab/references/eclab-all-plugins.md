@@ -23,7 +23,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-containers` | Active collection catalog and temporary topology injection. |
 | `engulf-clab-containers-core` | Maintained host-connector recipe. |
 | `engulf-clab-license-pool` | Leased shared license selection and lab-local copies. |
-| `engulf-clab-wan` | Privileged edition-aware DHCP/NAT bridge management. |
+| `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Sanitized portable and strict offline lab archives. |
 
 Included feature packages are Dockerfile builds, the packaged-container manager
