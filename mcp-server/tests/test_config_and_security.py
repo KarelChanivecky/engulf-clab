@@ -58,9 +58,9 @@ class ConfigAndSecurityTests(unittest.TestCase):
                 sanitize_caller_overrides({"PATH": "/tmp"}, secret_names=frozenset())
 
     def test_license_pool_variable_cannot_be_caller_owned(self) -> None:
-        document = {"topology": {"nodes": {"router": {"license": "$FORTIGATE_POOL"}}}}
+        document = {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}}
         with self.assertRaisesRegex(RequestError, "selected profile"):
-            reject_license_source_overrides(document, {"FORTIGATE_POOL": "/tmp/licenses"})
+            reject_license_source_overrides(document, {"ROUTER_POOL": "/tmp/licenses"})
 
     def test_environment_values_reject_control_characters(self) -> None:
         with self.assertRaisesRegex(RequestError, "control character"):

@@ -278,7 +278,7 @@ class NativeBuildTest(unittest.TestCase):
 
     @patch(
         "engulf_clab_vrnetlab_build.images._native_image_tag_from_make",
-        return_value="vrnetlab/vr-fortios:fortios",
+        return_value="vrnetlab/vr-router:router",
     )
     @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value=None)
     @patch(
@@ -295,11 +295,11 @@ class NativeBuildTest(unittest.TestCase):
     ) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            builder = root / "fortinet" / "fortigate"
+            builder = root / "vendor" / "router"
             builder.mkdir(parents=True)
-            source = root / "fortios.qcow2"
+            source = root / "router.qcow2"
             source.write_bytes(b"source")
-            requested = "vrnetlab/fortinet_fortigate:8.0.0"
+            requested = "vrnetlab/vendor_router:1.0.0"
 
             build_native_image(source, builder, requested)
 
@@ -311,7 +311,7 @@ class NativeBuildTest(unittest.TestCase):
                     [
                         "docker",
                         "tag",
-                        "vrnetlab/vr-fortios:fortios",
+                        "vrnetlab/vr-router:router",
                         requested,
                     ]
                 ),
@@ -319,7 +319,7 @@ class NativeBuildTest(unittest.TestCase):
         )
         self.assertEqual(
             image_exists.call_args_list,
-            [call(requested), call("vrnetlab/vr-fortios:fortios")],
+            [call(requested), call("vrnetlab/vr-router:router")],
         )
         protect.assert_called_once_with(requested)
         native_tag.assert_called_once_with(builder)
