@@ -5,9 +5,8 @@ Prepares the vrnetlab checkout used by `engulf-clab-vrnetlab-build`. Install it 
 builder or `engulf-clab-all-plugins` installs it automatically.
 
 The plugin activates for `deploy` only when at least one node has a nonempty
-`ECLAB_VRNETLAB_TYPE` environment value. Editions derive this prefix from their
-short product name, falling back to full product metadata; for example, a short
-product name of `acme clab` uses `ACME_CLAB_VRNETLAB_TYPE`.
+`ECLAB_VRNETLAB_TYPE` environment value. This is a fixed prefix, the same
+across every edition.
 
 For an opted-in deployment, the plugin checks that `docker`, `qemu-img`, and
 `qemu-system-x86_64` are on `PATH` before provisioning the checkout.
@@ -75,8 +74,7 @@ Docker/Make work.
 ## Troubleshooting
 
 - Confirm the active launcher's help shows both ensure-vrnetlab and
-  vrnetlab-build, and confirm the node uses the prefix displayed by that
-  launcher.
+  vrnetlab-build, and confirm the node uses `ECLAB_VRNETLAB_TYPE`.
 - Validate `VRNETLAB_DIR/common/vrnetlab.py` when supplying a checkout.
 - Install Docker and QEMU commands in the same `PATH` visible to the local CLI
   or MCP service; local shell availability does not prove service availability.

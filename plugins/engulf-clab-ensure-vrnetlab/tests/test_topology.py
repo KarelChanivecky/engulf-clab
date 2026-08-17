@@ -36,7 +36,7 @@ class TopologyTest(unittest.TestCase):
             )
         )
 
-    def test_vendor_prefix_selects_only_its_own_nodes(self) -> None:
+    def test_fixed_prefix_ignores_other_prefixes(self) -> None:
         topology = {
             "topology": {
                 "nodes": {
@@ -46,9 +46,18 @@ class TopologyTest(unittest.TestCase):
             }
         }
 
-        self.assertTrue(topology_needs_vrnetlab(topology, application_name="acme-clab"))
-        self.assertTrue(topology_needs_vrnetlab(topology, application_name="eclab"))
-        self.assertFalse(topology_needs_vrnetlab(topology, application_name="other-clab"))
+        self.assertTrue(topology_needs_vrnetlab(topology))
+        self.assertFalse(
+            topology_needs_vrnetlab(
+                {
+                    "topology": {
+                        "nodes": {
+                            "vendor": {"env": {"ACME_CLAB_VRNETLAB_TYPE": "vendor/router"}},
+                        }
+                    }
+                }
+            )
+        )
         self.assertFalse(
             topology_needs_vrnetlab(
                 {

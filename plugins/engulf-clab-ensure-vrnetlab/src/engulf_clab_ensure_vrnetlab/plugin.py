@@ -18,7 +18,6 @@ from .contract import (
     ENSURE_VRNETLAB_PLUGIN_ID,
     VRNETLAB_PATH_CONTEXT,
     VRNETLAB_REPOSITORY_LEASE,
-    application_prefix_name,
     vrnetlab_type_env,
 )
 from .errors import EnsureVrnetlabError
@@ -66,13 +65,10 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
         try:
             topology_path = topology_path_from_args(tuple(rest))
             topology_data = load_topology(topology_path)
-            if not topology_needs_vrnetlab(
-                topology_data,
-                application_name=application_prefix_name(api.application),
-            ):
+            if not topology_needs_vrnetlab(topology_data):
                 api.logger.debug(
                     "no nodes declare %s; vrnetlab checkout is not needed",
-                    vrnetlab_type_env(application_prefix_name(api.application)),
+                    vrnetlab_type_env(),
                 )
                 return None
         except (EnsureVrnetlabError, OSError) as error:
@@ -90,10 +86,7 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession): raise EnsureVrnetlabError("invalid shared topology session")
             topology_data = session.original_document()
-            if not topology_needs_vrnetlab(
-                topology_data,
-                application_name=application_prefix_name(api.application),
-            ):
+            if not topology_needs_vrnetlab(topology_data):
                 api.logger.debug("no vrnetlab-configured nodes in original topology")
                 return
 

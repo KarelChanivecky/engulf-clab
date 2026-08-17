@@ -5,11 +5,7 @@ from typing import Any
 
 import yaml
 
-from .contract import (
-    DEFAULT_APPLICATION_NAME,
-    LEGACY_VRNETLAB_TYPE_ENV,
-    vrnetlab_type_env,
-)
+from .contract import LEGACY_VRNETLAB_TYPE_ENV, vrnetlab_type_env
 from .errors import EnsureVrnetlabError
 
 TOPOLOGY_PATTERNS = (
@@ -77,11 +73,7 @@ def load_topology(path: Path) -> dict[str, Any]:
     return data
 
 
-def topology_needs_vrnetlab(
-    topology_data: dict[str, Any],
-    *,
-    application_name: str = DEFAULT_APPLICATION_NAME,
-) -> bool:
+def topology_needs_vrnetlab(topology_data: dict[str, Any]) -> bool:
     topology = topology_data.get("topology")
     if not isinstance(topology, dict):
         return False
@@ -89,9 +81,7 @@ def topology_needs_vrnetlab(
     if not isinstance(nodes, dict):
         return False
 
-    type_environments = [vrnetlab_type_env(application_name)]
-    if application_name == DEFAULT_APPLICATION_NAME:
-        type_environments.append(LEGACY_VRNETLAB_TYPE_ENV)
+    type_environments = {vrnetlab_type_env(), LEGACY_VRNETLAB_TYPE_ENV}
     for node_data in nodes.values():
         if not isinstance(node_data, dict):
             continue

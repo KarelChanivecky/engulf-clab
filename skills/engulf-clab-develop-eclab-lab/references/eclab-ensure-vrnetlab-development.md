@@ -22,13 +22,12 @@ It derives from `ExecutableWrapperPlugin` supplied by
 
 ## Development Notes
 
-- Derive the environment prefix from callback-bound
-  `api.application.short_product_name`, falling back to `api.application.product`:
-  the official application uses `ECLAB`, while a short product name of `acme clab`
-  uses `ACME_CLAB`. Analyze `deploy` calls without side effects, then provision only during
-  `prepare_call()` once every analyzer has accepted the invocation. The plugin
-  still activates only when the topology contains a node
-  with a nonempty `<PREFIX>_VRNETLAB_TYPE` environment value.
+- Use the fixed `ECLAB` environment prefix (`contract.LABEL_PREFIX`). Do not
+  derive it from `api.application.short_product_name`/`product` — labels must
+  stay portable across editions. Analyze `deploy` calls without side effects,
+  then provision only during `prepare_call()` once every analyzer has accepted
+  the invocation. The plugin still activates only when the topology contains a
+  node with a nonempty `ECLAB_VRNETLAB_TYPE` environment value.
 - A valid `VRNETLAB_DIR` takes precedence. Invalid configured paths are warned
   about and ignored before the managed fallback is considered.
 - The managed fallback belongs under `api.state(StateScope.USER)` because one
