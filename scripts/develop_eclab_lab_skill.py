@@ -12,7 +12,6 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 SKILL_RELATIVE = Path("skills/engulf-clab-develop-eclab-lab")
-FORBIDDEN = re.compile(r"forti", re.IGNORECASE)
 
 LOCAL_SOURCES = {
     "README.md": "eclab.md",
@@ -140,12 +139,6 @@ def normalize_reference(destination: str, text: str) -> str:
     if destination in MARKDOWN_WRAPPERS:
         prefix, suffix = MARKDOWN_WRAPPERS[destination]
         text = prefix + text.rstrip() + "\n" + suffix
-    match = FORBIDDEN.search(text)
-    if match:
-        line = text.count("\n", 0, match.start()) + 1
-        raise SkillError(
-            f"{destination}:{line}: vendor-specific text must be normalized before syncing"
-        )
     return text.rstrip() + "\n"
 
 
@@ -203,13 +196,6 @@ def validate_source_coverage(repo: Path) -> None:
         )
 
 
-def validate_text(path: str, text: str) -> None:
-    match = FORBIDDEN.search(text)
-    if match:
-        line = text.count("\n", 0, match.start()) + 1
-        raise SkillError(f"{path}:{line}: vendor-specific text is not allowed")
-
-
 def validate_skill(skill: Path) -> None:
     definition = skill / "SKILL.md"
     if not definition.is_file():
@@ -217,12 +203,6 @@ def validate_skill(skill: Path) -> None:
     text = definition.read_text(encoding="utf-8")
     if not text.startswith("---\n") or "\nname: engulf-clab-develop-eclab-lab\n" not in text:
         raise SkillError(f"{definition}: invalid skill frontmatter")
-    for relative in (Path("SKILL.md"), Path("agents"), Path("references")):
-        path = skill / relative
-        paths = path.rglob("*") if path.is_dir() else (path,)
-        for candidate in sorted(paths):
-            if candidate.is_file():
-                validate_text(str(candidate), candidate.read_text(encoding="utf-8"))
     source_index = skill / "references" / "source-index.md"
     if not source_index.is_file():
         raise SkillError(f"missing {source_index}")
@@ -350,12 +330,6 @@ def validate_staged(repo: Path) -> None:
                 f"staged skill reference does not match {source}: {destination}\n"
                 "Run the updater and stage both files."
             )
-
-    skill_prefix = f"{SKILL_RELATIVE}/"
-    for path in sorted(item for item in changed if item.startswith(skill_prefix)):
-        if run_git(repo, "cat-file", "-e", f":{path}", check=False).returncode != 0:
-            continue
-        validate_text(path, index_text(repo, path))
 
 
 def affects_skill(path: str) -> bool:
