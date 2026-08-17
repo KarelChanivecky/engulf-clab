@@ -29,13 +29,18 @@ from engulf_clab_lab_parser.session import (
 from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
     resolve_image_expression,
+    vrnetlab_image_path_env,
 )
 
 from .state import FreezeStateError, track_archive, tracked_archives
 
+# Fixed across every edition; must match license-pool's LicenseContract
+# label prefix and ensure-vrnetlab's LABEL_PREFIX exactly, since freeze
+# writes labels those plugins later read back.
+_LABEL_PREFIX = "ECLAB"
+_NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
 _BUILTIN_IGNORES = frozenset(
     {
-        ".forticlab",
         ".git",
         ".engulf-clab",
         ".venv",
@@ -59,6 +64,7 @@ def main(
     user_state: StateStore | None = None,
     *,
     program: str = "eclab freeze",
+    application_name: str = "eclab",
     logger: PluginLogger | None = None,
 ) -> int:
     """Run the optional freeze command with an injected workspace state."""
@@ -100,6 +106,7 @@ def main(
             confirm_overwrite=_confirm_overwrite,
             offline=arguments.offline,
             user_state=user_state,
+            application_name=application_name,
         )
     except (FreezeError, FreezeStateError, TopologyError, OSError, yaml.YAMLError) as error:
         if logger is None:
@@ -118,6 +125,7 @@ def freeze(
     confirm_overwrite: Callable[[Path], bool] | None = None,
     offline: bool = False,
     user_state: StateStore | None = None,
+    application_name: str = "eclab",
 ) -> bool:
     """Create an atomic, sanitized ``.tar.gz`` archive from one topology."""
     topology_path = topology_path.expanduser().resolve()
@@ -136,13 +144,18 @@ def freeze(
             return False
     if not archive.parent.is_dir():
         raise FreezeError(f"output parent does not exist: {archive.parent}")
-    generated_licenses = source_root / ".engulf-clab" / "licenses"
-    if generated_licenses.exists():
+    state_directory = _state_directory(application_name)
+    generated_license_directories = (
+        source_root / state_directory / "licenses",
+        source_root / ".engulf-clab" / "licenses",
+    )
+    if any(path.exists() for path in generated_license_directories):
         raise FreezeError("destroy the lab before freezing; generated license copies exist")
 
     source = load_topology(topology_path)
-    patterns = _ignore_patterns(source_root)
+    patterns = _ignore_patterns(source_root, application_name)
     excluded_paths = set(ignored_archives)
+    excluded_paths.add(Path(state_directory))
     if archive_relative is not None:
         excluded_paths.add(archive_relative)
     excluded_paths.add(_containerlab_runtime_directory(source, topology_path))
@@ -258,8 +271,26 @@ def _containerlab_runtime_directory(topology: dict[str, Any], topology_path: Pat
     return Path(f"clab-{lab_name}")
 
 
-def _ignore_patterns(root: Path) -> tuple[str, ...]:
-    ignore = root / ".eclab-freezeignore"
+def _state_prefix(application_name: str) -> str:
+    """Normalize the active application's name for state-directory naming only.
+
+    Unlike topology labels (fixed to `_LABEL_PREFIX`), the local state
+    directory intentionally keeps deriving from application metadata, so
+    every edition's state converges on the same directory as long as they
+    share the same short_product_name.
+    """
+    prefix = _NON_ALPHANUMERIC.sub("_", application_name.upper()).strip("_")
+    if not prefix:
+        raise FreezeError(f"cannot derive a state directory from {application_name!r}")
+    return prefix
+
+
+def _state_directory(application_name: str) -> str:
+    return f".{_state_prefix(application_name).lower()}"
+
+
+def _ignore_patterns(root: Path, application_name: str = "eclab") -> tuple[str, ...]:
+    ignore = root / f".{_state_prefix(application_name).lower()}-freezeignore"
     if not ignore.is_file():
         return ()
     return tuple(
@@ -356,7 +387,7 @@ def _freeze_topology(
         if not isinstance(node, dict):
             continue
         if "license" in node:
-            node["license"] = "__ECLAB_LICENSE_PROMPT__"
+            node["license"] = f"__{_LABEL_PREFIX}_LICENSE_PROMPT__"
         environment = node.get("env")
         if isinstance(environment, dict):
             for key in tuple(environment):
@@ -366,7 +397,11 @@ def _freeze_topology(
         _remove_offline_vrnetlab_inputs(copied, copied_path, staging_root, warnings)
     else:
         _copy_external_vrnetlab_inputs(
-            copied, copied_path, source_root, staging_root, warnings
+            copied,
+            copied_path,
+            source_root,
+            staging_root,
+            warnings,
         )
     copied[_FREEZE_KEY] = {
         "format": 1,
@@ -575,7 +610,11 @@ def _bundle_offline_images(topology: dict[str, Any], staging: Path) -> None:
 
 
 def _copy_external_vrnetlab_inputs(
-    topology: dict[str, Any], path: Path, source_root: Path, staging: Path, warnings: list[str]
+    topology: dict[str, Any],
+    path: Path,
+    source_root: Path,
+    staging: Path,
+    warnings: list[str],
 ) -> None:
     try:
         requests = build_requests_from_topology(path, topology, os.environ)
@@ -601,7 +640,7 @@ def _copy_external_vrnetlab_inputs(
         if isinstance(node, dict):
             environment = node.setdefault("env", {})
             if isinstance(environment, dict):
-                environment["ECLAB_VRNETLAB_IMG_PATH"] = str(target.relative_to(staging))
+                environment[vrnetlab_image_path_env()] = str(target.relative_to(staging))
         warnings.append(f"copied external vrnetlab input for {request.node_name}: sha256={_sha256(target)}")
 
 

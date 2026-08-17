@@ -61,15 +61,23 @@ wheelhouse, copied external VM images, and `run-eclab.sh`. Freeze first copies
 the exact wheels used by locally installed eclab/Engulf packages, then obtains
 remaining packages from the configured package index. It never includes license
 files, pool paths, allocations, or clamp values. Pool-backed node licenses
-become `__ECLAB_LICENSE_PROMPT__`, which asks the recipient for a license file,
-pool directory, or `$VARIABLE` when the frozen lab is deployed.
+become `__ECLAB_LICENSE_PROMPT__`; this label prefix is fixed and the same
+across every edition, matching license-pool's fixed prompt marker. The marker
+asks the recipient for a license file, pool directory, or `$VARIABLE` when the
+frozen lab is deployed.
 
-Freeze copies the source lab while excluding managed state, virtual
-environments, caches, known license files, legacy `.forticlab` state, and the
-current lab's `clab-<lab-name>` Containerlab runtime directory. Empty directories
-left after exclusions are omitted. Add extra Git-ignore-style patterns to
-`.eclab-freezeignore`; editions use `.<short-product>-freezeignore`. Symlinks
-that point outside the source lab are rejected.
+Freeze copies the source lab while excluding the active application's
+`.<state-prefix-lowercase>` managed lab state, virtual environments, caches,
+known license files, and the current lab's `clab-<lab-name>` Containerlab
+runtime directory. This state-directory prefix
+is derived from the active application's short product name — unlike the
+fixed `ECLAB` label prefix above, it is expected to stay the same across every
+edition (so their state converges on one shared `.eclab/` directory), but
+technically follows whatever `short_product_name` the active launcher
+reports. Empty directories left after exclusions are omitted. Add extra
+Git-ignore-style patterns to `.<state-prefix-lowercase>-freezeignore`; base
+eclab uses `.eclab-freezeignore`. Symlinks that point outside the source lab
+are rejected.
 
 Archives made inside the lab directory are remembered in the lab's Engulf
 workspace state. Later freezes exclude every still-present remembered archive,
@@ -136,8 +144,9 @@ freeze does not leave a partial requested output.
 The output must end in `.tar.gz` or `.tgz`, its parent must exist, and an
 existing non-regular path or symlink is rejected. External symlinks in the lab
 are rejected before copying; internal symlinks are preserved. Destroy a deployed
-license-pool lab first—generated `.engulf-clab/licenses` copies make freeze fail
-instead of risking inclusion.
+license-pool lab first—generated `.<state-prefix-lowercase>/licenses` copies
+make freeze fail instead of risking inclusion. The legacy
+`.engulf-clab/licenses` location is also rejected for safety.
 
 ## Troubleshooting
 

@@ -39,12 +39,15 @@ class FreezePluginTest(unittest.TestCase):
         self.assertIs(result.status, GoalResultStatus.COMPLETED)
         self.assertEqual(result.exit_code, 13)
         api.state.assert_called_once_with(StateScope.WORKSPACE)
+        # Lease name is fixed regardless of edition, so two differently-branded
+        # editions freezing the same workspace concurrently block each other.
         api.leases.assert_called_once_with(("eclab-freeze:/labs/demo",))
         command.assert_called_once_with(
             ["--output", "share.tar.gz"],
             workspace,
             user_state=None,
             program="fclab freeze",
+            application_name="fclab",
             logger=api.logger,
         )
 
@@ -74,6 +77,7 @@ class FreezePluginTest(unittest.TestCase):
             workspace,
             user_state=user_state,
             program="fclab freeze",
+            application_name="fclab",
             logger=api.logger,
         )
         self.assertEqual(

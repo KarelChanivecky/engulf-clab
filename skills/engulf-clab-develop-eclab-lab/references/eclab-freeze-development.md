@@ -14,6 +14,14 @@ a partial output at its requested destination.
   exclusion.
 - Redact every node license, remove every `*_LIC_CLAMP`, exclude likely license
   files, and fail when generated lab-local license copies exist.
+- Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
+  license marker, rewritten vrnetlab input key, and freeze lease name — never
+  derive these from application metadata; the freeze lease in particular must
+  stay fixed so two differently-branded editions freezing the same workspace
+  concurrently actually block each other. The workspace state directory and
+  ignore-file name are the one thing that stays derived from callback-bound
+  short product metadata (`command._state_prefix`); keep this split
+  intentional rather than reusing one prefix for both.
 - Keep package locking transitive and prefer verified locally installed wheels
   before package-index download. Missing normal-mode wheels may warn; incomplete
   offline runtime/tool/image inputs must fail.

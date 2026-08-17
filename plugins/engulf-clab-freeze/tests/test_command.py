@@ -16,6 +16,7 @@ from engulf_clab_freeze.command import (
     _bundle_offline_images,
     _bundle_offline_vrnetlab,
     _confirm_overwrite,
+    _copy_external_vrnetlab_inputs,
     _download_wheels,
     _launcher,
     _offline_image_references,
@@ -51,6 +52,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 confirm_overwrite=_confirm_overwrite,
                 offline=False,
                 user_state=None,
+                application_name="eclab",
             )
 
     def test_main_accepts_an_explicit_topology(self) -> None:
@@ -70,6 +72,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 confirm_overwrite=_confirm_overwrite,
                 offline=False,
                 user_state=None,
+                application_name="eclab",
             )
 
     def test_main_forwards_offline_mode_and_user_state(self) -> None:
@@ -102,6 +105,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 confirm_overwrite=_confirm_overwrite,
                 offline=True,
                 user_state=user_state,
+                application_name="eclab",
             )
 
     def test_freeze_sanitizes_a_copy_without_changing_source(self) -> None:
@@ -144,6 +148,82 @@ class FreezeCommandTestCase(unittest.TestCase):
             with self.assertRaisesRegex(FreezeError, "destroy the lab"):
                 freeze(topology, Path(directory) / "share.tar.gz")
 
+    def test_edition_freeze_uses_edition_state_dir_but_fixed_license_marker(self) -> None:
+        # The state directory/freezeignore filename stay namespaced by the
+        # active application (so every edition's state converges once they
+        # share a short_product_name), but the license prompt marker is
+        # always the fixed ECLAB label, regardless of application_name.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "lab"
+            root.mkdir()
+            topology = root / "lab.clab.yml"
+            topology.write_text(
+                "topology: {nodes: {router: {license: '$POOL'}}}\n",
+                encoding="utf-8",
+            )
+            (root / ".vendor_clab" / "cache").mkdir(parents=True)
+            (root / ".vendor_clab" / "cache" / "state.json").write_text(
+                "private state", encoding="utf-8"
+            )
+            (root / ".vendor_clab-freezeignore").write_text(
+                "omit.txt\n", encoding="utf-8"
+            )
+            (root / "omit.txt").write_text("omit", encoding="utf-8")
+            archive = Path(directory) / "share.tar.gz"
+            with patch("engulf_clab_freeze.command._download_wheels"):
+                freeze(topology, archive, application_name="vendor clab")
+            with tarfile.open(archive, "r:gz") as tar:
+                names = tar.getnames()
+                frozen = yaml.safe_load(tar.extractfile("share/lab.clab.yml").read())
+            self.assertFalse(any(".vendor_clab/cache" in name for name in names))
+            self.assertFalse(any(name.endswith("/omit.txt") for name in names))
+            self.assertEqual(
+                frozen["topology"]["nodes"]["router"]["license"],
+                "__ECLAB_LICENSE_PROMPT__",
+            )
+
+            (root / ".vendor_clab" / "licenses").mkdir(parents=True)
+            with self.assertRaisesRegex(FreezeError, "destroy the lab"):
+                freeze(topology, Path(directory) / "other.tar.gz", application_name="vendor clab")
+
+    def test_freeze_rewrites_external_vrnetlab_input_with_fixed_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "lab"
+            staging = root / "staging"
+            source_root.mkdir()
+            staging.mkdir()
+            source = root / "router.qcow2"
+            source.write_bytes(b"image")
+            topology_path = source_root / "lab.clab.yml"
+            topology = {
+                "name": "demo",
+                "topology": {
+                    "nodes": {
+                        "router": {
+                            "image": "generated:latest",
+                            "env": {
+                                "ECLAB_VRNETLAB_TYPE": "vendor/router",
+                                "ECLAB_VRNETLAB_IMG_PATH": str(source),
+                            },
+                        }
+                    }
+                },
+            }
+            warnings: list[str] = []
+            _copy_external_vrnetlab_inputs(
+                topology,
+                topology_path,
+                source_root,
+                staging,
+                warnings,
+            )
+            environment = topology["topology"]["nodes"]["router"]["env"]
+            self.assertEqual(
+                environment["ECLAB_VRNETLAB_IMG_PATH"],
+                "assets/images/router/router.qcow2",
+            )
+
     def test_existing_archive_is_left_unchanged_when_overwrite_is_declined(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
@@ -184,7 +264,7 @@ class FreezeCommandTestCase(unittest.TestCase):
             "A file already exists at the output path: /tmp/share.tar.gz. Overwrite it (y/n)? "
         )
 
-    def test_freeze_excludes_runtime_and_legacy_state_and_prunes_empty_directories(self) -> None:
+    def test_freeze_excludes_runtime_directory_and_prunes_empty_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
             root.mkdir()
@@ -195,10 +275,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             )
             outside = Path(directory) / "outside"
             outside.write_text("must not be accessed", encoding="utf-8")
-            for name in (".forticlab", "clab-demo"):
-                state = root / name
-                state.mkdir()
-                (state / "outside").symlink_to(outside)
+            state = root / "clab-demo"
+            state.mkdir()
+            (state / "outside").symlink_to(outside)
             (root / "empty").mkdir()
             licenses = root / "licenses-only"
             licenses.mkdir()
@@ -214,7 +293,6 @@ class FreezeCommandTestCase(unittest.TestCase):
             def archived(path: str) -> bool:
                 return any(name == f"share/{path}" or name.startswith(f"share/{path}/") for name in names)
 
-            self.assertFalse(archived(".forticlab"))
             self.assertFalse(archived("clab-demo"))
             self.assertFalse(archived("empty"))
             self.assertFalse(archived("licenses-only"))

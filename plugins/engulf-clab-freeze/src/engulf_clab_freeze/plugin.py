@@ -27,11 +27,16 @@ class FreezePlugin(ExecutableWrapperPlugin):
             return None
         workspace = api.state(StateScope.WORKSPACE)
         offline = "--offline" in invocation.arguments[1:]
+        application_name = (
+            api.application.short_product_name or api.application.product
+        )
         user_state = (
             api.state(StateScope.USER)
             if offline
             else None
         )
+        # Fixed regardless of edition, so two differently-branded editions
+        # freezing the same workspace concurrently actually block each other.
         leases = [f"eclab-freeze:{workspace.root}"]
         if offline:
             leases.extend(("repository-cache:containerlab", "repository-cache:vrnetlab"))
@@ -40,7 +45,8 @@ class FreezePlugin(ExecutableWrapperPlugin):
                 list(invocation.arguments[1:]),
                 workspace,
                 user_state=user_state,
-                program=f"{api.application.short_product_name} freeze",
+                program=f"{application_name} freeze",
+                application_name=application_name,
                 logger=api.logger,
             )
         return GoalResult.completed(exit_code=exit_code)
