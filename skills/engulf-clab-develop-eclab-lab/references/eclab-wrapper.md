@@ -135,6 +135,7 @@ host-connector example:
 topology:
   nodes:
     host-plug:
+      kind: linux
       image: eclab.containers/host-connector
       env:
         ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"

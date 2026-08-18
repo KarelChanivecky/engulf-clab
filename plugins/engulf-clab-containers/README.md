@@ -39,6 +39,7 @@ name: packaged-demo
 topology:
   nodes:
     client:
+      kind: linux
       image: eclab.containers/host-connector
       env:
         ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"
@@ -49,6 +50,11 @@ Both `<namespace>/<name>` and `<namespace>/<name>:latest` select a managed
 recipe. No other tag is supported. If a namespace belongs to an active
 collection, an unknown name or non-`latest` tag is rejected instead of being
 treated as an ordinary registry image.
+
+Declare the recipe's kind explicitly in the source topology (`kind: linux` for
+the maintained recipes). The manager injects required fields only for deploy;
+destroy, graph, and direct Containerlab calls parse the raw topology without
+recipe injection.
 
 ## Injected and merged fields
 

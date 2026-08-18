@@ -53,6 +53,7 @@ threat model permits it.
 topology:
   nodes:
     outside-vm:
+      kind: linux
       image: eclab.containers/host-connector
       env:
         ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"
@@ -79,6 +80,7 @@ validation, health, security, and troubleshooting.
 topology:
   nodes:
     wan:
+      kind: linux
       image: eclab.containers/wan-access
       env:
         ECLAB_DHCP_SUBNET: "198.19.0.0/24"

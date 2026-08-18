@@ -298,6 +298,7 @@ collection owns the image namespace derived from its plugin ID; the core
 topology:
   nodes:
     outside-vm:
+      kind: linux
       image: eclab.containers/host-connector
       env:
         ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"

@@ -178,6 +178,10 @@ with the fixed label prefix above.
    [eclab-containers-core.md](references/eclab-containers-core.md) for the
    active catalog, including the `host-connector` VIP-mapping contract and
    the `wan-access` NAT/optional-DHCP contract used by WAN patterns 2 and 3.
+   Declare the recipe's required `kind` explicitly in the source topology
+   (normally `kind: linux`). Recipe injection and the temporary topology writer
+   run only for deploy; destroy, graph, and direct Containerlab calls must still
+   be able to parse the unmodified file.
 6. Keep lab-specific addressing, routes, credentials, and security policy in
    the consuming lab. Add servers or security features only when the repro
    requires them.
@@ -190,15 +194,55 @@ with the fixed label prefix above.
    configures the node's default route, it does not wire another node's
    interface to `eth0`.
 
+## Wire shared segments deliberately
+
+Containerlab links are point-to-point, and each `<node>:<interface>` endpoint
+may appear only once. For three or more endpoints on one L2 segment, give every
+participant a distinct port and connect them through a bridge node. A plain
+`kind: bridge` refers to an already existing host bridge; it does not create
+one. To create the bridge inside a declared container's network namespace, use:
+
+```yaml
+topology:
+  nodes:
+    segment|parent:
+      kind: bridge
+      network-mode: container:parent
+```
+
+Keep the suffix after `|` exactly equal to the parent node's short topology
+name. Containerlab strips the suffix when naming the in-namespace bridge, so
+inspect it with `docker exec <parent-container> ip link show master segment`.
+Choose a parent that tolerates the bridge and all slave interfaces appearing in
+its namespace. Never parent such a bridge on `eclab.containers/wan-access`: its
+runtime requires exactly `eth0` plus one lab-facing interface. Prefer a
+dedicated inert Linux parent; do not assume an appliance is safe without first
+confirming its interface-mapping behavior.
+
 ## Validate and operate safely
 
-- Parse YAML and inspect referenced files before invoking lifecycle commands.
+- After any topology rewiring, parse and validate the raw source file before
+  deploy. Use `yaml.safe_load` in a read-only checker rather than inspecting
+  only the deploy-time rendered topology. In addition to schema checks, verify
+  that every endpoint names a declared node (including the complete
+  `segment|parent` bridge name), no endpoint string appears twice, each
+  `wan-access` node has exactly one lab link, every plain bridge is an
+  intentional pre-existing host bridge, managed recipe nodes declare their
+  kind, and every built image uses a literal tag without `${...}` or other
+  variable syntax.
 - Prefer `eclab_validate` from the configured MCP service for offline graph
   validation. Read [eclab-mcp.md](references/eclab-mcp.md) before MCP work.
 - Use MCP job tools for privileged deploy/destroy when configured; otherwise
   use the edition's eclab CLI. Poll asynchronous jobs to a terminal result.
 - Do not deploy, destroy, remove runtime output, alter host networking, or clean
   Engulf state unless the user explicitly requests that operation.
+- If topology parsing prevents destroy after a deployment exists, do not edit
+  the topology and blindly retry a topology-based destroy. Inspect the exact lab
+  name and resources, then prefer the selected local launcher’s name-only
+  `destroy --name <lab-name>`. If manual cleanup remains necessary, obtain
+  authorization, select containers by the exact `containerlab=<lab-name>` label,
+  identify the associated management network from inspection, remove only
+  those verified targets, and confirm that both lists are empty before deploy.
 - Use `eclab freeze` for sanitized sharing. Read
   [eclab-freeze.md](references/eclab-freeze.md) before changing or debugging a
   freeze workflow.
@@ -215,9 +259,13 @@ with the fixed label prefix above.
    configure logging in a plugin while diagnosing it.
 4. For WAN failures, check the active prefix, DHCP marker, interface mode,
    uplink, lease-installed route, forwarding, and managed-state ownership.
-5. For image failures, distinguish packaged containers, Dockerfile builds,
+5. For shared-bridge failures, distinguish a `container based bridge requires
+   container name as suffix` mismatch from `bridge ... referenced in topology
+   but does not exist`, which means a plain bridge expected an existing host
+   bridge.
+6. For image failures, distinguish packaged containers, Dockerfile builds,
    vrnetlab source discovery, VM input selection, and registry access.
-6. For appliance imports, find the first missing or out-of-context object and
+7. For appliance imports, find the first missing or out-of-context object and
    add only the minimal dependency. Read Engulf snapshots only when the failure
    crosses wrapper/plugin lifecycle or state boundaries.
 

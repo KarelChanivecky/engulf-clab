@@ -33,6 +33,7 @@ name: static-wan-demo
 topology:
   nodes:
     wan:
+      kind: linux
       image: eclab.containers/wan-access
       exec:
         - ip address replace 198.19.0.1/24 dev eth1
@@ -72,6 +73,7 @@ name: dhcp-wan-demo
 topology:
   nodes:
     wan:
+      kind: linux
       image: eclab.containers/wan-access
       env:
         ECLAB_DHCP_SUBNET: "198.19.0.0/24"

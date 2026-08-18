@@ -17,6 +17,9 @@ the Dockerfile builder and lab writer.
   asset validation, required management networking, and conflict-safe merge
   rules. Do not silently override user fields or fall through malformed managed
   names to a registry pull.
+- Keep user documentation explicit that source topologies declare the recipe
+  kind. Injection is deploy-only, while other Containerlab commands parse the
+  raw topology.
 - The manager must not run Docker, import collection implementation modules
   directly, inspect undeclared fields, or retain state. The Dockerfile builder
   owns builds and the writer owns temporary-file cleanup.

@@ -73,6 +73,7 @@ topology:
         - ip addr add 10.10.10.1/24 dev eth1
         - ip link set eth1 up
     external:
+      kind: linux
       image: eclab.containers/host-connector
       env:
         ECLAB_CONNECT_HOST: "10.10.10.50;192.0.2.50"
