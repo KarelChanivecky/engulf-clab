@@ -60,6 +60,34 @@ class ConfigurationTest(unittest.TestCase):
             with self.assertRaisesRegex(DockerfileError, "DOCKER_CTX"):
                 build_requests_from_topology(root / "lab.clab.yml", data)
 
+    def test_variable_syntax_in_image_tag_is_rejected(self) -> None:
+        variable_images = (
+            "example/api:$TAG",
+            "example/api:${TAG}",
+            "example/api:${TAG:-dev}",
+            "example/api:$$TAG",
+        )
+        for image in variable_images:
+            with self.subTest(image=image):
+                data = {
+                    "topology": {
+                        "nodes": {
+                            "api": {
+                                "image": image,
+                                "env": {
+                                    "ECLAB_DOCKERFILE": "Dockerfile",
+                                    "ECLAB_DOCKER_CTX": ".",
+                                },
+                            }
+                        }
+                    }
+                }
+                with self.assertRaisesRegex(
+                    DockerfileError,
+                    "image tag must be literal and must not use variable syntax",
+                ):
+                    build_requests_from_topology(Path("/lab/lab.clab.yml"), data)
+
     def test_fixed_prefix_ignores_other_prefixes(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

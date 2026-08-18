@@ -22,6 +22,7 @@ class PluginHelpTest(unittest.TestCase):
         self.assertIn("Node YAML env fields", help_text)
         self.assertIn("ECLAB_DOCKERFILE", help_text)
         self.assertNotIn("FCLAB_DOCKERFILE", help_text)
+        self.assertIn("literal built tag; variables are unsupported", help_text)
         self.assertIn(
             "Runtime environment:\n"
             "    ECLAB_DOCKER_BUILD_JOBS  Concurrent image builds (default: 2)",

@@ -48,7 +48,8 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
             "  Runtime environment:\n"
             f"    {prefix}_DOCKER_BUILD_JOBS  Concurrent image builds "
             f"(default: {DEFAULT_DOCKER_BUILD_JOBS})\n"
-            "  The node image field is the built tag; --file and --tag are reserved."
+            "  The node image field is the literal built tag; variables are unsupported; "
+            "--file and --tag are reserved."
         )
 
     def analyze_call(

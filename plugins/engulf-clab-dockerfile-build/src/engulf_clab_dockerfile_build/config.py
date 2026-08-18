@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from .topology import topology_nodes
 # application's product metadata.
 LABEL_PREFIX = "ECLAB"
 _RESERVED_ARGUMENTS = frozenset(("-f", "--file", "-t", "--tag"))
+_IMAGE_VARIABLE_SYNTAX = re.compile(r"\$(?:\$|\{?[A-Za-z_][A-Za-z0-9_]*)")
 DEFAULT_DOCKER_BUILD_JOBS = 2
 
 
@@ -106,6 +108,11 @@ def build_requests_from_topology(
         image = _optional_string(node.data, "image", owner=f"node {node.name}")
         if image is None:
             raise DockerfileError(f"node {node.name} sets {dockerfile_key} but has no image tag")
+        if _IMAGE_VARIABLE_SYNTAX.search(image):
+            raise DockerfileError(
+                f"node {node.name} image tag must be literal and must not use variable syntax: "
+                f"{image}"
+            )
         dockerfile = _resolve_path(dockerfile_value, topology_dir=topology_dir, label=dockerfile_key)
         if not dockerfile.is_file():
             raise DockerfileError(f"{dockerfile_key} must name a file: {dockerfile}")
