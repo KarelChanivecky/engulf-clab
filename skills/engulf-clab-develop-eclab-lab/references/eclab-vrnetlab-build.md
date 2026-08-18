@@ -45,14 +45,16 @@ serial builds or when builds compete for host memory or disk bandwidth.
 
 The node `image` may differ from the native tag emitted by the builder. After a
 successful build, the plugin retains the native tag and adds the requested node
-image tag. `E_V_IMG_PATH` remains accepted as a compatibility alias, unrelated
+image tag. `ECLAB_VM_IMG` is also accepted as a compatibility alias;
+`ECLAB_VM_SRC` remains accepted as an older alias. Both aliases are unrelated
 to the fixed `ECLAB` prefix above.
 
 ## Source selection
 
-The runtime `*_VRNETLAB_IMG_PATH` value may be a literal path, `$VARIABLE`, or
-`${VARIABLE}`. A node `env` value of the same name is also accepted and takes
-precedence over the runtime value.
+The runtime `ECLAB_VRNETLAB_IMG_PATH` value may be a literal path, `$VARIABLE`,
+or `${VARIABLE}`. A node `env` value of the same name is also accepted and takes
+precedence over the runtime value. If the canonical runtime variable is unset,
+the plugin checks `ECLAB_VM_IMG` and then `ECLAB_VM_SRC`.
 Relative paths resolve from the topology directory. For `$IMAGE_SOURCE` on node
 `router-1` in lab `my-lab`, the invocation environment is checked in this order:
 
