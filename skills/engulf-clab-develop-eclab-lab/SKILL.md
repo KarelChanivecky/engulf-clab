@@ -51,15 +51,16 @@ runs Containerlab while installed plugins analyze the invocation, modify a
 temporary topology, prepare shared host resources, and clean up afterward. An
 eclab edition is a separately packaged launcher for the same wrapper application
 with different product metadata and possibly a different declared plugin set.
-That choice changes which topology controls exist and what their prefix is.
+That choice changes which topology controls exist; topology labels and
+environment keys keep the fixed `ECLAB` prefix under every edition.
 
 Choose one topology runtime:
 
 | Runtime | Meaning | Recognition and consequences |
 | --- | --- | --- |
 | Direct Containerlab | Run the topology without Engulf or eclab plugins. | Documentation uses `containerlab deploy/destroy`. Do not add eclab-managed WAN labels, license-pool variables, freeze behavior, or other plugin controls. |
-| Base eclab | Run Containerlab through the standard `engulf-clab` application and its declared plugins. | Documentation uses `eclab`; dynamic help lists installed plugin features. The standard application prefix is `ECLAB`. |
-| eclab edition | Run through an organization- or product-specific launcher that reuses `engulf-clab`. | The launcher has its own display/short product metadata and may select another plugin catalog. Its normalized short product name determines configuration prefixes. |
+| Base eclab | Run Containerlab through the standard `engulf-clab` application and its declared plugins. | Documentation uses `eclab`; dynamic help lists installed plugin features. The label prefix is `ECLAB`. |
+| eclab edition | Run through an organization- or product-specific launcher that reuses `engulf-clab`. | The launcher has its own display/short product metadata and may select another plugin catalog. Topology labels and environment keys still use the fixed `ECLAB` prefix. |
 
 Choose the lifecycle interface separately. A local CLI runs the selected
 launcher in the user's shell and workspace. The eclab MCP service is not another
