@@ -25,6 +25,8 @@ description: Build, refine, validate, operate, and troubleshoot Containerlab lab
    development-guidance snapshot.
 6. Inspect first, then ask only for choices that materially affect the lab,
    such as license source or host access.
+7. Available plugins print on --help after the containerlab help.
+8. If engulf-clab-containers is installed you can inspect the available containers with --eclab-containers-help
 
 ## Start from Containerlab YAML
 
