@@ -7,7 +7,7 @@ automatically before deploy when a topology references one of these images:
 
 - [Common container contract](#common-container-contract)
 - [Host connector](#host-connector)
-- [DHCP WAN gateway](#dhcp-wan-gateway)
+- [WAN access](#wan-access)
 - [Build and runtime behavior](#build-and-runtime-behavior)
 - [Troubleshooting](#troubleshooting)
 
@@ -21,7 +21,7 @@ eclab --eclab-containers-help
 | Image | Purpose |
 | --- | --- |
 | `eclab.containers/host-connector` | Map lab-facing VIPs to hosts reachable through management `eth0`. |
-| `eclab.containers/dhcp-wan-gateway` | Serve DHCP on one lab interface, routed out through management `eth0`. |
+| `eclab.containers/wan-access` | NAT one lab interface through management `eth0`, with optional DHCP. |
 
 Run `eclab --eclab-containers-help` to inspect the active catalog. A topology
 uses the image name directly; the container manager injects the package recipe,
@@ -73,13 +73,13 @@ appliance/client with the intended VIP route and security policy.
 See the packaged `containers/host-connector/README.md` for packet flow, mapping
 validation, health, security, and troubleshooting.
 
-## DHCP WAN gateway
+## WAN access
 
 ```yaml
 topology:
   nodes:
     wan:
-      image: eclab.containers/dhcp-wan-gateway
+      image: eclab.containers/wan-access
       env:
         ECLAB_DHCP_SUBNET: "198.19.0.0/24"
         ECLAB_DHCP_GATEWAY: "198.19.0.1"
@@ -87,16 +87,17 @@ topology:
     - endpoints: ["wan:eth1", "client:eth1"]
 ```
 
-`eth0` carries the node's own default route and is where the gateway
-masquerades all lab-subnet traffic. Exactly one other interface is
-lab-facing; it receives the configured gateway address and serves DHCP
-leases from the configured pool. It is a DHCP server and NAT gateway, not a
-VIP connector, VPN, or SSH endpoint.
+`eth0` carries the node's own default route. Exactly one other interface is
+lab-facing, and traffic arriving there is forwarded and masqueraded through
+`eth0`. DHCP is disabled when no supported `ECLAB_DHCP_*` variable is present;
+in that mode, configure static interface addresses and routes with normal
+Containerlab fields such as `exec`. Setting any supported DHCP variable enables
+the DHCP defaults, assigns the gateway address, and starts `dnsmasq`.
 
 The recipe adds `NET_ADMIN` and enables IPv4 forwarding. `dnsmasq` runs with
-DNS resolution disabled (`--port=0`) so it only serves DHCP. See the
-packaged `containers/dhcp-wan-gateway/README.md` for the full environment
-reference, packet flow, health, and troubleshooting.
+DNS resolution disabled (`--port=0`) when DHCP is enabled. See the packaged
+`containers/wan-access/README.md` for static and DHCP examples, the full
+environment reference, packet flow, health, and troubleshooting.
 
 ## Build and runtime behavior
 
@@ -121,6 +122,6 @@ image entrypoint and consuming lab.
 3. Check Docker access and builder output with targeted plugin logging.
 4. For startup failures, inspect `docker logs clab-<lab>-<node>` and the
    matching image guide under `containers/host-connector/README.md` or
-   `containers/dhcp-wan-gateway/README.md`.
+   `containers/wan-access/README.md`.
 5. For data-plane failures, confirm interface numbering, routes, address
    families, injected capabilities, and lab-specific configuration.

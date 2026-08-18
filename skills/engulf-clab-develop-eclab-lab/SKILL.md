@@ -148,22 +148,19 @@ with the fixed label prefix above.
       directly by IP, or a node (e.g. a server) simply needs its own
       outbound internet access. No extra WAN node, route, or plugin is
       needed.
-   2. Non-DHCP explicit route through a designated node. Spin up a generic
-      router node of any kind to act as the WAN egress, give that node's
-      own default route out its own `eth0` (Docker NAT again handles the
-      path to the host), and point the default route of every other node
-      that needs WAN access at that designated node's data-plane address.
-      Use this when the lab needs one explicit, static egress path instead
-      of every node reaching out independently.
+   2. Non-DHCP explicit route through the packaged
+      `eclab.containers/wan-access` node. It forwards and NATs its single
+      lab-facing interface through management `eth0`; configure static
+      addresses on both sides and point the client's default route at the
+      container's data-plane address. Leave every `ECLAB_DHCP_*` variable
+      unset.
    3. DHCP explicit route through the specialized
-      `eclab.containers/dhcp-wan-gateway` node. Same shape as the
-      non-DHCP pattern, but the designated egress node is the packaged
-      `eclab.containers/dhcp-wan-gateway` container: it serves DHCP on its
-      single lab-facing interface (handing out address, gateway, and DNS)
-      and routes/NATs that traffic out its own `eth0`. Point other nodes'
-      data-plane interfaces at it and configure them for DHCP instead of a
-      static route. Read
-      [eclab-container-dhcp-wan-gateway.md](references/eclab-container-dhcp-wan-gateway.md)
+      `eclab.containers/wan-access` node. Same image and forwarding path as
+      the non-DHCP pattern, but setting any supported `ECLAB_DHCP_*`
+      variable enables its DHCP server and default DHCP configuration.
+      Point other nodes' data-plane interfaces at it and configure them for
+      DHCP instead of a static route. Read
+      [eclab-container-wan-access.md](references/eclab-container-wan-access.md)
       for the environment contract and interface requirements.
    4. Host-managed WAN via the `engulf-clab-wan` plugin (`ECLAB_DHCP_WAN`
       bridge). Discouraged: it requires host root and changes host
@@ -180,7 +177,7 @@ with the fixed label prefix above.
 5. Prefer packaged `eclab.containers/*` nodes over copied Dockerfiles. Read
    [eclab-containers-core.md](references/eclab-containers-core.md) for the
    active catalog, including the `host-connector` VIP-mapping contract and
-   the `dhcp-wan-gateway` contract used by WAN pattern 3 above.
+   the `wan-access` NAT/optional-DHCP contract used by WAN patterns 2 and 3.
 6. Keep lab-specific addressing, routes, credentials, and security policy in
    the consuming lab. Add servers or security features only when the repro
    requires them.

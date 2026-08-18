@@ -25,7 +25,7 @@ checkout when one is available; otherwise use these package-local files.
 | `eclab-containers.md` | Container manager README |
 | `eclab-containers-core.md` | Core packaged-container collection README |
 | `eclab-container-host-connector.md` | Packaged host connector container README |
-| `eclab-container-dhcp-wan-gateway.md` | Packaged DHCP WAN gateway container README |
+| `eclab-container-wan-access.md` | Packaged WAN access container README |
 | `eclab-dockerfile-build.md` | Dockerfile builder README |
 | `eclab-ensure-checkout.md` | Managed checkout helper README |
 | `eclab-ensure-containerlab.md` | Containerlab resolver README |
