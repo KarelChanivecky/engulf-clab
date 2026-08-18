@@ -7,6 +7,7 @@ automatically before deploy when a topology references one of these images:
 
 - [Common container contract](#common-container-contract)
 - [Host connector](#host-connector)
+- [DHCP WAN gateway](#dhcp-wan-gateway)
 - [Build and runtime behavior](#build-and-runtime-behavior)
 - [Troubleshooting](#troubleshooting)
 
@@ -20,6 +21,7 @@ eclab --eclab-containers-help
 | Image | Purpose |
 | --- | --- |
 | `eclab.containers/host-connector` | Map lab-facing VIPs to hosts reachable through management `eth0`. |
+| `eclab.containers/dhcp-wan-gateway` | Serve DHCP on one lab interface, routed out through management `eth0`. |
 
 Run `eclab --eclab-containers-help` to inspect the active catalog. A topology
 uses the image name directly; the container manager injects the package recipe,
@@ -71,6 +73,31 @@ appliance/client with the intended VIP route and security policy.
 See the packaged `containers/host-connector/README.md` for packet flow, mapping
 validation, health, security, and troubleshooting.
 
+## DHCP WAN gateway
+
+```yaml
+topology:
+  nodes:
+    wan:
+      image: eclab.containers/dhcp-wan-gateway
+      env:
+        ECLAB_DHCP_SUBNET: "198.19.0.0/24"
+        ECLAB_DHCP_GATEWAY: "198.19.0.1"
+  links:
+    - endpoints: ["wan:eth1", "client:eth1"]
+```
+
+`eth0` carries the node's own default route and is where the gateway
+masquerades all lab-subnet traffic. Exactly one other interface is
+lab-facing; it receives the configured gateway address and serves DHCP
+leases from the configured pool. It is a DHCP server and NAT gateway, not a
+VIP connector, VPN, or SSH endpoint.
+
+The recipe adds `NET_ADMIN` and enables IPv4 forwarding. `dnsmasq` runs with
+DNS resolution disabled (`--port=0`) so it only serves DHCP. See the
+packaged `containers/dhcp-wan-gateway/README.md` for the full environment
+reference, packet flow, health, and troubleshooting.
+
 ## Build and runtime behavior
 
 The first deployment of a recipe builds its canonical `:latest` tag from the
@@ -93,6 +120,7 @@ image entrypoint and consuming lab.
    Dockerfile builder, parser, and writer are active.
 3. Check Docker access and builder output with targeted plugin logging.
 4. For startup failures, inspect `docker logs clab-<lab>-<node>` and the
-   host-connector guide under `containers/host-connector/README.md`.
+   matching image guide under `containers/host-connector/README.md` or
+   `containers/dhcp-wan-gateway/README.md`.
 5. For data-plane failures, confirm interface numbering, routes, address
    families, injected capabilities, and lab-specific configuration.

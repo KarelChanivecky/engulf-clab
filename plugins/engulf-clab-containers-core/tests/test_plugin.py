@@ -4,7 +4,7 @@ import unittest
 
 from engulf_clab_containers_api import ContainerCollectionPlugin, ContainerDefinition
 
-from engulf_clab_containers_core import HOST_CONNECTOR, plugin
+from engulf_clab_containers_core import DHCP_WAN_GATEWAY, HOST_CONNECTOR, plugin
 
 
 class CollectionTest(unittest.TestCase):
@@ -13,13 +13,13 @@ class CollectionTest(unittest.TestCase):
         self.assertEqual(plugin.plugin_id, "eclab.containers")
         self.assertEqual(
             tuple(item.name for item in plugin.containers),
-            ("host-connector",),
+            ("host-connector", "dhcp-wan-gateway"),
         )
 
     def test_exported_definitions_are_registered_once(self) -> None:
         self.assertEqual(
             plugin.containers,
-            (HOST_CONNECTOR,),
+            (HOST_CONNECTOR, DHCP_WAN_GATEWAY),
         )
 
     def test_recipes_are_typed_and_inside_the_package_context(self) -> None:

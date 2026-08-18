@@ -27,6 +27,10 @@ LOCAL_SOURCES = {
         "plugins/engulf-clab-containers-core/src/engulf_clab_containers_core/"
         "containers/host-connector/README.md"
     ): "eclab-container-host-connector.md",
+    (
+        "plugins/engulf-clab-containers-core/src/engulf_clab_containers_core/"
+        "containers/dhcp-wan-gateway/README.md"
+    ): "eclab-container-dhcp-wan-gateway.md",
     "plugins/engulf-clab-containers/README.md": "eclab-containers.md",
     "plugins/engulf-clab-dockerfile-build/README.md": "eclab-dockerfile-build.md",
     "plugins/engulf-clab-ensure-checkout/README.md": "eclab-ensure-checkout.md",

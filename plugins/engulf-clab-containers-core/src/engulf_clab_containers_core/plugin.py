@@ -31,7 +31,23 @@ HOST_CONNECTOR = ContainerDefinition(
     ),
 )
 
+DHCP_WAN_GATEWAY = ContainerDefinition(
+    name="dhcp-wan-gateway",
+    summary="Serve DHCP on one lab interface, routed out through eth0",
+    build=ContainerBuildRecipe(
+        dockerfile=_CONTEXT / "containers" / "dhcp-wan-gateway" / "Dockerfile",
+        context=_CONTEXT,
+    ),
+    node=ContainerNodeRequirements(
+        kind="linux",
+        cap_add=("NET_ADMIN",),
+        sysctls={
+            "net.ipv4.ip_forward": 1,
+        },
+    ),
+)
+
 plugin = ContainerCollectionPlugin(
     "eclab.containers",
-    (HOST_CONNECTOR,),
+    (HOST_CONNECTOR, DHCP_WAN_GATEWAY),
 )
