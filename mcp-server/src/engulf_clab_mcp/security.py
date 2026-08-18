@@ -26,7 +26,8 @@ _PROTECTED_EXACT = frozenset(
         "CDPATH",
         "GOMOD",
         "GOWORK",
-        "E_V_IMG_PATH",
+        "ECLAB_VM_IMG",
+        "ECLAB_VM_SRC",
         "ECLAB_VRNETLAB_IMG_PATH",
     }
 )
@@ -151,7 +152,9 @@ def reject_vrnetlab_source_overrides(
         for key, value in environment.items():
             if not isinstance(key, str) or not isinstance(value, str):
                 continue
-            if key != "E_V_IMG_PATH" and not key.endswith("VRNETLAB_IMG_PATH"):
+            if key not in {"ECLAB_VM_IMG", "ECLAB_VM_SRC"} and not key.endswith(
+                "VRNETLAB_IMG_PATH"
+            ):
                 continue
             match = _VARIABLE_REFERENCE.fullmatch(value.strip())
             if match is None:

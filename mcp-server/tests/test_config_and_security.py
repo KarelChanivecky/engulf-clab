@@ -56,6 +56,13 @@ class ConfigAndSecurityTests(unittest.TestCase):
                 sanitize_caller_overrides({"POOL": "other"}, secret_names=frozenset({"POOL"}))
             with self.assertRaisesRegex(RequestError, "controlled by the service"):
                 sanitize_caller_overrides({"PATH": "/tmp"}, secret_names=frozenset())
+            for name in ("ECLAB_VM_IMG", "ECLAB_VM_SRC"):
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    RequestError, "controlled by the service"
+                ):
+                    sanitize_caller_overrides(
+                        {name: "/tmp/image"}, secret_names=frozenset()
+                    )
 
     def test_license_pool_variable_cannot_be_caller_owned(self) -> None:
         document = {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}}
@@ -79,6 +86,22 @@ class ConfigAndSecurityTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(RequestError, "vrnetlab image source"):
             reject_vrnetlab_source_overrides(document, {"IMAGE_SOURCE": "/tmp/image"}, lab_name="demo")
+
+    def test_vrnetlab_compatibility_source_variable_cannot_be_caller_owned(self) -> None:
+        for source_name in ("ECLAB_VM_IMG", "ECLAB_VM_SRC"):
+            with self.subTest(source_name=source_name):
+                document = {
+                    "name": "demo",
+                    "topology": {
+                        "nodes": {
+                            "router": {"env": {source_name: "$IMAGE_SOURCE"}},
+                        }
+                    },
+                }
+                with self.assertRaisesRegex(RequestError, "vrnetlab image source"):
+                    reject_vrnetlab_source_overrides(
+                        document, {"IMAGE_SOURCE": "/tmp/image"}, lab_name="demo"
+                    )
 
 
 if __name__ == "__main__":
