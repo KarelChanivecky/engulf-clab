@@ -137,16 +137,48 @@ with the fixed label prefix above.
    do not assume vendor-specific startup, licensing, or management behavior.
 3. Use eclab license pools and stable node UUIDs. Never bake a personal license
    path or license content into a lab or skill asset.
-4. For a managed WAN of any addressing mode: when the test needs a specific
-   route toward the WAN, spin up a router node of any kind to act as the WAN,
-   configure that node's default route toward its own mgmt interface (Docker
-   networking takes care of NAT to the host), and point the routes for every 
-   node that needs WAN towards the router node. Do not add bare static routes 
-   from the FortiGate straight onto a WAN bridge unless specified. Do not use
-   the engulf-clab-wan plugin.
+4. Choose how each node reaches the WAN/internet. Four patterns exist, in
+   order of preference:
+   1. Direct through each node's own management `eth0`. Every Containerlab
+      node already has outbound reachability through its own `eth0` via
+      Docker NAT to the host. Use this when the test does not care which
+      path a node's default route takes, nodes reference each other
+      directly by IP, or a node (e.g. a server) simply needs its own
+      outbound internet access. No extra WAN node, route, or plugin is
+      needed.
+   2. Non-DHCP explicit route through a designated node. Spin up a generic
+      router node of any kind to act as the WAN egress, give that node's
+      own default route out its own `eth0` (Docker NAT again handles the
+      path to the host), and point the default route of every other node
+      that needs WAN access at that designated node's data-plane address.
+      Use this when the lab needs one explicit, static egress path instead
+      of every node reaching out independently.
+   3. DHCP explicit route through the specialized
+      `eclab.containers/dhcp-wan-gateway` node. Same shape as the
+      non-DHCP pattern, but the designated egress node is the packaged
+      `eclab.containers/dhcp-wan-gateway` container: it serves DHCP on its
+      single lab-facing interface (handing out address, gateway, and DNS)
+      and routes/NATs that traffic out its own `eth0`. Point other nodes'
+      data-plane interfaces at it and configure them for DHCP instead of a
+      static route. Read
+      [eclab-container-dhcp-wan-gateway.md](references/eclab-container-dhcp-wan-gateway.md)
+      for the environment contract and interface requirements.
+   4. Host-managed WAN via the `engulf-clab-wan` plugin (`ECLAB_DHCP_WAN`
+      bridge). Discouraged: it requires host root and changes host
+      networking, and exists only for labs that must not use any node's
+      management interface at all — for example exercising a device's own
+      DHCP client behavior on a real data-plane WAN port as part of the
+      scenario under test. Prefer one of the first three patterns whenever
+      the scenario allows using `eth0`. Read
+      [eclab-wan.md](references/eclab-wan.md) for the bridge labels,
+      lifecycle, and cleanup contract.
+
+   Do not add bare static routes onto a WAN bridge unless the scenario
+   specifically requires it.
 5. Prefer packaged `eclab.containers/*` nodes over copied Dockerfiles. Read
    [eclab-containers-core.md](references/eclab-containers-core.md) for the
-   active catalog and host-connector contract.
+   active catalog, including the `host-connector` VIP-mapping contract and
+   the `dhcp-wan-gateway` contract used by WAN pattern 3 above.
 6. Keep lab-specific addressing, routes, credentials, and security policy in
    the consuming lab. Add servers or security features only when the repro
    requires them.
@@ -155,7 +187,7 @@ with the fixed label prefix above.
    wire other nodes into. This has previously caused a built lab to
    accidentally connect a node's data traffic through its own management
    interface. The one exception is a node routing its own traffic out
-   through its own `eth0` (see the WAN-access-node pattern above) — that
+   through its own `eth0` (see the WAN-access patterns above) — that
    configures the node's default route, it does not wire another node's
    interface to `eth0`.
 
