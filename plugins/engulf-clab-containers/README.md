@@ -25,7 +25,8 @@ python -m pip install \
 
 Run `eclab --eclab-containers-help` to list containers supplied by active
 collections. The maintained `eclab.containers` collection currently supplies
-the host-connector recipe. The list is emitted through Engulf diagnostics.
+the `host-connector` and `wan-access` recipes. The list is emitted through
+Engulf diagnostics.
 
 ## Topology use
 
