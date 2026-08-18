@@ -31,6 +31,9 @@ injectors can contribute packaged Dockerfile recipes.
 - Resolve relative paths from the topology directory and validate file/directory
   roles. Do not require the Dockerfile to be inside the context for ordinary
   user declarations; Docker decides whether the selected combination is valid.
+- Reject Containerlab variable syntax in a configured image tag during
+  analysis. The builder consumes raw topology values before Containerlab's
+  variable expansion, so every built tag must be literal.
 - Coalesce identical definitions by image tag and reject conflicting ones.
   Acquire the complete multi-image lease set in the callback thread before
   launching workers; never use invocation-bound API objects inside workers.

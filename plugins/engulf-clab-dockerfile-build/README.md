@@ -55,6 +55,10 @@ edition.
 The plugin owns `--file` and `--tag`; do not put either in
 `*_DOCKER_ARGS`. Docker is required on the host.
 
+The node `image` must be a literal Docker tag. Containerlab variable forms such
+as `$TAG`, `${TAG}`, and `${TAG:-dev}` are rejected because the plugin builds
+the image before Containerlab expands topology variables.
+
 `*_DOCKER_ARGS` is parsed with shell-style quoting into an argument vector and
 is passed directly to `docker build` without a shell. Short/long forms of
 `--file` and `--tag`, including attached values, are rejected because the plugin
@@ -79,7 +83,7 @@ extra arguments; identical definitions coalesce into one leased build. A node
 that only consumes an image tag has no build-related configuration.
 
 During analysis the plugin requires node `env` to be a mapping, a paired
-Dockerfile/context declaration, a nonempty node image tag, an existing
+Dockerfile/context declaration, a nonempty literal node image tag, an existing
 Dockerfile file, an existing context directory, string build-argument values,
 and valid extra-argument quoting. Relative paths resolve from the selected
 topology's directory, not the invoking shell's current directory. Absolute paths
