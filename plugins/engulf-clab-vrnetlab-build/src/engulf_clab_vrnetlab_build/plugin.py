@@ -57,6 +57,8 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
             f"    {prefix}_VRNETLAB_TYPE      Opt in and select the vrnetlab builder\n"
             "  Runtime environment:\n"
             f"    {prefix}_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source\n"
+            f"    {prefix}_VM_IMG              Compatibility image-source alias\n"
+            f"    {prefix}_VM_SRC              Older image-source alias\n"
             f"    {prefix}_VRNETLAB_BUILD_JOBS Concurrent image builds "
             f"(default: {DEFAULT_VRNETLAB_BUILD_JOBS})"
         )

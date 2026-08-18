@@ -41,6 +41,11 @@ class PluginLifecycleTest(unittest.TestCase):
             "    ECLAB_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source",
             help_text,
         )
+        self.assertIn(
+            "ECLAB_VM_IMG              Compatibility image-source alias",
+            help_text,
+        )
+        self.assertIn("ECLAB_VM_SRC              Older image-source alias", help_text)
         self.assertIn("ECLAB_VRNETLAB_BUILD_JOBS Concurrent image builds", help_text)
 
     def test_help_and_non_deploy_calls_do_nothing(self) -> None:

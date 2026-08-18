@@ -21,7 +21,8 @@ from .topology import topology_name, topology_nodes
 
 VRNETLAB_TYPE = VRNETLAB_TYPE_ENV
 VRNETLAB_IMAGE_PATH = VRNETLAB_IMAGE_PATH_ENV
-VRNETLAB_IMAGE_PATH_SHORT = "ECLAB_VM_SRC"
+VRNETLAB_IMAGE_PATH_COMPAT = "ECLAB_VM_IMG"
+VRNETLAB_IMAGE_PATH_LEGACY = "ECLAB_VM_SRC"
 DEFAULT_VRNETLAB_BUILD_JOBS = 2
 
 _IMAGE_EXPRESSION = re.compile(r"^\$\{([^}:]+)(?:(:?[-=])(.*))?\}$")
@@ -146,7 +147,11 @@ def _source_setting(
         return node_value
     if value := environ.get(image_path_environment):
         return value
-    return environ.get(LEGACY_VRNETLAB_IMAGE_PATH_ENV) or environ.get(VRNETLAB_IMAGE_PATH_SHORT)
+    return (
+        environ.get(LEGACY_VRNETLAB_IMAGE_PATH_ENV)
+        or environ.get(VRNETLAB_IMAGE_PATH_COMPAT)
+        or environ.get(VRNETLAB_IMAGE_PATH_LEGACY)
+    )
 
 
 def build_requests_from_topology(

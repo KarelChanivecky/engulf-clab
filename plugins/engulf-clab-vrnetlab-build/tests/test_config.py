@@ -82,7 +82,7 @@ class SourceConfigurationTest(unittest.TestCase):
 
             self.assertEqual(requests[0].source, root / "images/router.qcow2")
 
-    def test_process_fallback_long_name_precedes_short_alias(self) -> None:
+    def test_process_fallback_long_name_precedes_compatibility_alias(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             data = topology(
@@ -96,11 +96,65 @@ class SourceConfigurationTest(unittest.TestCase):
                 data,
                 {
                     "ECLAB_VRNETLAB_IMG_PATH": "/images/long.qcow2",
-                    "E_V_IMG_PATH": "/images/short.qcow2",
+                    "ECLAB_VM_IMG": "/images/short.qcow2",
                 },
             )
 
         self.assertEqual(requests[0].source, Path("/images/long.qcow2"))
+
+    def test_process_fallback_accepts_compatibility_alias(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = topology(
+                {
+                    "image": "vrnetlab/vendor_router:1",
+                    "env": {VRNETLAB_TYPE: "vendor/router"},
+                }
+            )
+            requests = build_requests_from_topology(
+                root / "lab.clab.yml",
+                data,
+                {"ECLAB_VM_IMG": "/images/router.qcow2"},
+            )
+
+        self.assertEqual(requests[0].source, Path("/images/router.qcow2"))
+
+    def test_process_fallback_preserves_older_alias(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = topology(
+                {
+                    "image": "vrnetlab/vendor_router:1",
+                    "env": {VRNETLAB_TYPE: "vendor/router"},
+                }
+            )
+            requests = build_requests_from_topology(
+                root / "lab.clab.yml",
+                data,
+                {"ECLAB_VM_SRC": "/images/router.qcow2"},
+            )
+
+        self.assertEqual(requests[0].source, Path("/images/router.qcow2"))
+
+    def test_compatibility_alias_precedes_older_alias(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = topology(
+                {
+                    "image": "vrnetlab/vendor_router:1",
+                    "env": {VRNETLAB_TYPE: "vendor/router"},
+                }
+            )
+            requests = build_requests_from_topology(
+                root / "lab.clab.yml",
+                data,
+                {
+                    "ECLAB_VM_IMG": "/images/compat.qcow2",
+                    "ECLAB_VM_SRC": "/images/older.qcow2",
+                },
+            )
+
+        self.assertEqual(requests[0].source, Path("/images/compat.qcow2"))
 
     def test_fixed_prefix_ignores_other_prefixes(self) -> None:
         with TemporaryDirectory() as directory:
