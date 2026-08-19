@@ -15,6 +15,12 @@ PathPart = str | int
 YamlPath = tuple[PathPart, ...]
 _OPTIONS = frozenset(("-t", "--topo", "--topology"))
 _PATTERNS = ("*.clab.yml", "*.clab.yaml", "clab.yml", "clab.yaml", "topology.yml", "topology.yaml")
+# Temp topology files written beside the source by the lab writer plugin
+# (engulf_clab.lab_writer). The parser must ignore these when globbing for the
+# active topology: they are byproducts of a deploy, never a lab author's input.
+# Kept here as the single source of truth so the writer imports it rather than
+# duplicating the prefix and risking drift.
+WRITER_TEMP_PREFIX = ".engulf-clab-lab-"
 
 class TopologyError(RuntimeError): pass
 
@@ -32,7 +38,7 @@ def topology_path_from_args(args: tuple[str, ...], cwd: Path | None = None) -> P
                     found.append(Path(value).expanduser())
     if len(found) > 1: raise TopologyError("multiple topology options are not supported")
     if found: return found[0].resolve()
-    root = cwd or Path.cwd(); matches = list(dict.fromkeys(p.resolve() for pattern in _PATTERNS for p in sorted(root.glob(pattern)) if p.is_file()))
+    root = cwd or Path.cwd(); matches = list(dict.fromkeys(p.resolve() for pattern in _PATTERNS for p in sorted(root.glob(pattern)) if p.is_file() and not p.name.startswith(WRITER_TEMP_PREFIX)))
     if len(matches) != 1: raise TopologyError("pass exactly one topology with -t, --topo, or --topology")
     return matches[0]
 

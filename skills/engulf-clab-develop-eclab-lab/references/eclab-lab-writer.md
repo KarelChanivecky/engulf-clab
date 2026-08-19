@@ -46,8 +46,16 @@ prevents Containerlab from running.
 
 `after_call()` identifies only the writer-generated path in effective arguments
 and unlinks it if present, regardless of the wrapped outcome. It never deletes
-the source topology and does not recursively clean unrelated files. If the
-process is killed so abruptly that postprocessing cannot run, a hidden
+the source topology and does not recursively clean unrelated files.
+
+Before writing a fresh temp topology, `prepare_call()` sweeps any leftover
+`.engulf-clab-lab-*.clab.yml` files from the topology directory — the residue
+of a prior deploy whose `after_call()` could not run (process kill, crash). This
+keeps the directory tidy and the parser's glob-based topology selection
+unambiguous. The parser also ignores files with the `.engulf-clab-lab-` prefix
+when globbing for the active topology, so a stale temp file can never shadow or
+duplicate the source lab file. If the process is killed so abruptly that
+neither `after_call()` nor a subsequent `prepare_call()` can run, a hidden
 `.engulf-clab-lab-*.clab.yml` may remain beside the source; confirm it is not
 active before removing it manually.
 

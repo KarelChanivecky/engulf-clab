@@ -81,6 +81,56 @@ class TopologyCollectorPluginTest(unittest.TestCase):
             )
             self.assertFalse(target.exists())
 
+    def test_prepare_call_sweeps_stale_temp_topologies(self) -> None:
+        with TemporaryDirectory() as directory:
+            lab_directory = Path(directory) / "lab"
+            lab_directory.mkdir()
+            topology = lab_directory / "lab.clab.yml"
+            document = {"topology": {"nodes": {"a": {"x": 1}}}}
+            topology.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+            # A stale temp file from a prior killed deploy sits beside the source.
+            stale = lab_directory / ".engulf-clab-lab-deadbeef.clab.yml"
+            stale.write_text("topology: {}\n", encoding="utf-8")
+
+            plugin = TopologyCollectorPlugin()
+            wrapper_args = ("deploy",)
+            with chdir(lab_directory):
+                contribution = plugin.analyze_call(
+                    BeforeCallEvent("containerlab", wrapper_args, CallMode.NORMAL),
+                    Mock(spec=InvocationAPI),
+                )
+            assert contribution is not None
+            target = Path(contribution.additions[0].args[1])
+
+            api = Mock(spec=InvocationAPI)
+            api.require_context.return_value = TopologySession(topology, document)
+            effective_args = ("deploy", "-t", str(target))
+
+            self.assertTrue(stale.exists())
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab", wrapper_args, effective_args, CallMode.NORMAL
+                ),
+                api,
+            )
+            # The stale temp file must be gone, the fresh target must exist.
+            self.assertFalse(stale.exists())
+            self.assertTrue(target.exists())
+
+            plugin.after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    wrapper_args,
+                    effective_args,
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 0, process_started=True),
+                    0.1,
+                ),
+                api,
+            )
+            self.assertFalse(target.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
