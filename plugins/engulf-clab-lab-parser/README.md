@@ -16,8 +16,10 @@ YAML, labels, environment variables, or command options.
 
 For `deploy`, the plugin loads the selected `-t` / `--topo` / `--topology` YAML
 once and publishes an immutable original document plus a mutation editor in
-Engulf context. It has no YAML extension fields and no environment variables for
-lab authors.
+Engulf context. For an implicit `destroy`, it passes the single source topology
+to Containerlab explicitly so leftover writer files cannot make Containerlab's
+own discovery ambiguous. It has no YAML extension fields and no environment
+variables for lab authors.
 
 Plugin authors use the session through `engulf_clab_lab_parser`:
 
@@ -57,6 +59,12 @@ topology.yaml
 Zero or multiple matches require an explicit option. URL and stdin topologies
 are valid Containerlab features but cannot participate in this filesystem-based
 mutation pipeline; topology-mutating eclab features require one local file.
+
+Generated `.engulf-clab-lab-*.clab.yml` files are excluded from implicit source
+selection. On `destroy`, an explicit topology or `--name` remains untouched; if
+neither is supplied and exactly one source exists, the plugin contributes an
+explicit `-t` argument. With zero or multiple source files, Containerlab retains
+control of the diagnostic.
 
 `load_topology()` uses safe YAML loading and requires a top-level mapping. Base
 Containerlab schema/semantic validation remains Containerlab's responsibility;
