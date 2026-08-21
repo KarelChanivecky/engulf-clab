@@ -12,10 +12,10 @@ from engulf_clab_ensure_vrnetlab.topology import (
 
 class TopologyTest(unittest.TestCase):
     def test_explicit_topology_options(self) -> None:
-        self.assertEqual(topology_path_from_args(("-t", "lab.yml")), Path("lab.yml"))
+        self.assertEqual(topology_path_from_args(("-t", "lab.yml")), Path("lab.yml").resolve())
         self.assertEqual(
             topology_path_from_args(("--topo=labs/one.yml",)),
-            Path("labs/one.yml"),
+            Path("labs/one.yml").resolve(),
         )
 
     def test_default_topology(self) -> None:
@@ -23,7 +23,18 @@ class TopologyTest(unittest.TestCase):
             root = Path(directory)
             topology = root / "lab.clab.yml"
             topology.write_text("topology: {}\n", encoding="utf-8")
-            self.assertEqual(topology_path_from_args((), root), topology)
+            self.assertEqual(topology_path_from_args((), root), topology.resolve())
+
+    def test_default_topology_ignores_writer_residue(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+            (root / ".engulf-clab-lab-stale.clab.yml").write_text(
+                "topology: {}\n", encoding="utf-8"
+            )
+
+            self.assertEqual(topology_path_from_args((), root), topology.resolve())
 
     def test_only_nonempty_builder_type_activates(self) -> None:
         self.assertTrue(

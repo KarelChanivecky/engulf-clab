@@ -17,12 +17,12 @@ from engulf_clab_wan.topology import load_topology, topology_path_from_args
 
 class TopologyArgsTest(unittest.TestCase):
     def test_short_topology_option(self) -> None:
-        self.assertEqual(topology_path_from_args(("-t", "lab.yml")), Path("lab.yml"))
+        self.assertEqual(topology_path_from_args(("-t", "lab.yml")), Path("lab.yml").resolve())
 
     def test_long_topology_assignment(self) -> None:
         self.assertEqual(
             topology_path_from_args(("--topo=lab.yml",)),
-            Path("lab.yml"),
+            Path("lab.yml").resolve(),
         )
 
     def test_default_topology(self) -> None:
@@ -30,7 +30,18 @@ class TopologyArgsTest(unittest.TestCase):
             root = Path(directory)
             topology = root / "lab.clab.yml"
             topology.write_text("topology: {}\n", encoding="utf-8")
-            self.assertEqual(topology_path_from_args((), root), topology)
+            self.assertEqual(topology_path_from_args((), root), topology.resolve())
+
+    def test_default_topology_ignores_writer_residue(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+            (root / ".engulf-clab-lab-stale.clab.yml").write_text(
+                "topology: {}\n", encoding="utf-8"
+            )
+
+            self.assertEqual(topology_path_from_args((), root), topology.resolve())
 
     def test_multiple_default_topologies_fail(self) -> None:
         with TemporaryDirectory() as directory:

@@ -218,8 +218,20 @@ class ImageExpressionTest(unittest.TestCase):
 
 class TopologyArgumentTest(unittest.TestCase):
     def test_explicit_topology_options(self) -> None:
-        self.assertEqual(topology_path_from_args(("-t", "lab.yml")), Path("lab.yml"))
-        self.assertEqual(topology_path_from_args(("--topology=lab.yml",)), Path("lab.yml"))
+        expected = Path("lab.yml").resolve()
+        self.assertEqual(topology_path_from_args(("-t", "lab.yml")), expected)
+        self.assertEqual(topology_path_from_args(("--topology=lab.yml",)), expected)
+
+    def test_default_topology_ignores_writer_residue(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+            (root / ".engulf-clab-lab-stale.clab.yml").write_text(
+                "topology: {}\n", encoding="utf-8"
+            )
+
+            self.assertEqual(topology_path_from_args((), root), topology.resolve())
 
 
 if __name__ == "__main__":

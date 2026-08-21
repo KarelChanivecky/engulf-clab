@@ -3,74 +3,32 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
+from engulf_clab_lab_parser.session import (
+    TopologyError,
+)
+from engulf_clab_lab_parser.session import (
+    load_topology as load_parsed_topology,
+)
+from engulf_clab_lab_parser.session import (
+    topology_path_from_args as parsed_topology_path_from_args,
+)
 
 from .contract import LEGACY_VRNETLAB_TYPE_ENV, vrnetlab_type_env
 from .errors import EnsureVrnetlabError
 
-TOPOLOGY_PATTERNS = (
-    "*.clab.yml",
-    "*.clab.yaml",
-    "clab.yml",
-    "clab.yaml",
-    "topology.yml",
-    "topology.yaml",
-)
-TOPOLOGY_OPTIONS = frozenset(("-t", "--topo", "--topology"))
-
-
-def find_default_topology(cwd: Path | None = None) -> Path:
-    search_dir = cwd or Path.cwd()
-    matches: list[Path] = []
-    seen: set[Path] = set()
-
-    for pattern in TOPOLOGY_PATTERNS:
-        for candidate in sorted(search_dir.glob(pattern)):
-            resolved = candidate.resolve()
-            if candidate.is_file() and resolved not in seen:
-                matches.append(candidate)
-                seen.add(resolved)
-
-    if not matches:
-        raise EnsureVrnetlabError(f"could not find a Containerlab topology in {search_dir}")
-    if len(matches) > 1:
-        formatted = "\n".join(f"  {match}" for match in matches)
-        raise EnsureVrnetlabError(
-            "multiple Containerlab topology files found; pass one explicitly:\n" + formatted
-        )
-    return matches[0]
-
 
 def topology_path_from_args(args: tuple[str, ...], cwd: Path | None = None) -> Path:
-    for index, argument in enumerate(args):
-        if argument in TOPOLOGY_OPTIONS:
-            if index + 1 >= len(args):
-                raise EnsureVrnetlabError(f"{argument} requires a topology path")
-            return Path(args[index + 1]).expanduser()
-
-        for option in TOPOLOGY_OPTIONS:
-            prefix = f"{option}="
-            if argument.startswith(prefix):
-                value = argument[len(prefix) :]
-                if not value:
-                    raise EnsureVrnetlabError(f"{option} requires a topology path")
-                return Path(value).expanduser()
-
-    return find_default_topology(cwd)
+    try:
+        return parsed_topology_path_from_args(args, cwd)
+    except TopologyError as error:
+        raise EnsureVrnetlabError(str(error)) from error
 
 
 def load_topology(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise EnsureVrnetlabError(f"topology file does not exist: {path}")
-
     try:
-        with path.open(encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
-    except (UnicodeError, yaml.YAMLError) as error:
-        raise EnsureVrnetlabError(f"could not parse topology file {path}: {error}") from error
-    if not isinstance(data, dict):
-        raise EnsureVrnetlabError(f"topology file must contain a YAML mapping: {path}")
-    return data
+        return load_parsed_topology(path)
+    except TopologyError as error:
+        raise EnsureVrnetlabError(str(error)) from error
 
 
 def topology_needs_vrnetlab(topology_data: dict[str, Any]) -> bool:

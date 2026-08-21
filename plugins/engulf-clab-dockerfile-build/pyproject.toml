@@ -12,7 +12,7 @@ license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
-    "engulf-clab-lab-parser>=0.1,<0.2",
+    "engulf-clab-lab-parser>=0.1.2,<0.2",
     "PyYAML>=6.0",
 ]
 

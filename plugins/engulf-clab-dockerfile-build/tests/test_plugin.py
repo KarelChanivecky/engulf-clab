@@ -9,9 +9,21 @@ from engulf_clab_lab_parser import TopologySession, load_topology
 from engulf_executable_wrapper_api import CallMode, PreparedCallEvent
 
 from engulf_clab_dockerfile_build.plugin import DockerfilePlugin
+from engulf_clab_dockerfile_build.topology import topology_path_from_args
 
 
 class PluginHelpTest(unittest.TestCase):
+    def test_default_topology_ignores_writer_residue(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+            (root / ".engulf-clab-lab-stale.clab.yml").write_text(
+                "topology: {}\n", encoding="utf-8"
+            )
+
+            self.assertEqual(topology_path_from_args((), root), topology.resolve())
+
     def test_help_uses_fixed_prefix_regardless_of_edition(self) -> None:
         api = Mock()
         api.application.short_product_name = "vendor clab"
@@ -57,8 +69,8 @@ class PluginHelpTest(unittest.TestCase):
             DockerfilePlugin().prepare_call(
                 PreparedCallEvent(
                     "containerlab",
-                    ("deploy", "-t", str(topology)),
-                    ("deploy", "-t", str(topology)),
+                    ("deploy",),
+                    ("deploy",),
                     CallMode.NORMAL,
                 ),
                 api,

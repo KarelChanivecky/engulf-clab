@@ -98,9 +98,9 @@ class WanPlugin(ExecutableWrapperPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *rest = event.wrapper_args
+        command, *_ = event.wrapper_args
         if command == "deploy":
-            self._setup_before_deploy(tuple(rest), api)
+            self._setup_before_deploy(api)
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         if event.mode is CallMode.HELP or not event.wrapper_args:
@@ -121,12 +121,12 @@ class WanPlugin(ExecutableWrapperPlugin):
                 workspace = api.state(StateScope.WORKSPACE)
                 self._cleanup_workspace(api, workspace)
 
-    def _setup_before_deploy(self, args: tuple[str, ...], api: InvocationAPI) -> None:
+    def _setup_before_deploy(self, api: InvocationAPI) -> None:
         try:
-            topology_path = topology_path_from_args(args)
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession):
                 raise WanError("invalid shared topology session")
+            topology_path = session.path
             topology_data = session.original_document()
             contract = wan_contract()
             bridges = dhcp_wan_bridges(topology_data, contract)

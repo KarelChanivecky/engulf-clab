@@ -72,14 +72,14 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *rest = event.wrapper_args
+        command, *_ = event.wrapper_args
         if command != "deploy":
             return
         try:
-            topology_path = topology_path_from_args(tuple(rest))
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession):
                 raise DockerfileError("invalid shared topology session")
+            topology_path = session.path
             requests = build_requests_from_topology(topology_path, session.materialize())
             build_images(
                 requests,

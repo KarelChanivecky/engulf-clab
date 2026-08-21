@@ -130,8 +130,8 @@ topology:
             plugin.prepare_call(
                 PreparedCallEvent(
                     "containerlab",
-                    ("deploy", "-t", str(topology)),
-                    ("deploy", "-t", str(topology)),
+                    ("deploy",),
+                    ("deploy",),
                     CallMode.NORMAL,
                 ),
                 api,
