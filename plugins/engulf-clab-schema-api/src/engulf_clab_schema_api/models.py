@@ -162,6 +162,13 @@ class PluginOrdering:
 
 
 @dataclass(frozen=True, slots=True)
+class NodeKindDeclaration:
+    kind: str
+    explanation: str
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReferenceSnapshot:
     path: str
     title: str | None
@@ -183,6 +190,7 @@ class RecordedPluginSchema:
     requirements: tuple[RuntimeRequirement, ...] = ()
     routes: tuple[TaskRoute, ...] = ()
     ordering: tuple[PluginOrdering, ...] = ()
+    node_kinds: tuple[NodeKindDeclaration, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +215,15 @@ class ContainerlabSourceHint:
     binary: Path | None = None
     repository: str | None = None
     revision: str | None = None
+    resolved: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class VrnetlabSourceHint:
+    checkout: Path | None = None
+    repository: str | None = None
+    revision: str | None = None
+    resolved: bool = False
 
 
 @dataclass(frozen=True, slots=True)

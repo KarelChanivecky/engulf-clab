@@ -16,6 +16,7 @@ from engulf_clab_ensure_checkout import (
     ensure_checkout,
     update_checkout,
 )
+from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKind
 
 from .errors import EnsureContainerlabError
 from .logging import info, warning
@@ -70,6 +71,91 @@ def find_repo_binary(checkout: Path) -> Path | None:
         if executable(candidate):
             return candidate
     return None
+
+
+def source_checkout_for_binary(binary: Path) -> Path | None:
+    candidate = binary.expanduser().resolve()
+    for parent in (candidate.parent, *candidate.parents):
+        if (parent / "go.mod").is_file() and (parent / "schemas").is_dir():
+            return parent
+    return None
+
+
+def containerlab_source_hint(
+    state: StateStore,
+    environ: Mapping[str, str],
+) -> ContainerlabSourceHint:
+    configured_binary = environ.get("CONTAINERLAB_BIN", "").strip()
+    if configured_binary:
+        candidate = Path(configured_binary).expanduser().resolve()
+        if executable(candidate):
+            checkout = source_checkout_for_binary(candidate)
+            return (
+                ContainerlabSourceHint(
+                    ContainerlabSourceKind.CHECKOUT,
+                    checkout=checkout,
+                )
+                if checkout is not None
+                else ContainerlabSourceHint(
+                    ContainerlabSourceKind.BINARY,
+                    binary=candidate,
+                )
+            )
+
+    configured_checkout = environ.get("CONTAINERLAB_DIR", "").strip()
+    if configured_checkout:
+        candidate = Path(configured_checkout).expanduser().resolve()
+        if valid_containerlab_checkout(candidate):
+            return ContainerlabSourceHint(
+                ContainerlabSourceKind.CHECKOUT,
+                checkout=candidate,
+            )
+
+    if path_binary := shutil.which("containerlab"):
+        binary = Path(path_binary).resolve()
+        checkout = source_checkout_for_binary(binary)
+        return (
+            ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=checkout)
+            if checkout is not None
+            else ContainerlabSourceHint(ContainerlabSourceKind.BINARY, binary=binary)
+        )
+
+    managed = state.path("containerlab")
+    if valid_containerlab_checkout(managed):
+        return ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=managed)
+
+    repository = environ.get("CONTAINERLAB_REPO", DEFAULT_CONTAINERLAB_REPO)
+    repository, embedded_revision = _split_repository_revision(repository)
+    revision = environ.get("CONTAINERLAB_VERSION", "").strip() or embedded_revision or "HEAD"
+    return ContainerlabSourceHint(
+        ContainerlabSourceKind.REPOSITORY,
+        repository=repository,
+        revision=revision,
+    )
+
+
+def resolved_containerlab_source(binary: Path) -> ContainerlabSourceHint:
+    checkout = source_checkout_for_binary(binary)
+    if checkout is not None:
+        return ContainerlabSourceHint(
+            ContainerlabSourceKind.CHECKOUT,
+            checkout=checkout,
+            resolved=True,
+        )
+    return ContainerlabSourceHint(
+        ContainerlabSourceKind.BINARY,
+        binary=binary.resolve(),
+        resolved=True,
+    )
+
+
+def _split_repository_revision(repository: str) -> tuple[str, str | None]:
+    marker = "/tree/"
+    if marker in repository and repository.startswith("https://github.com/"):
+        base, revision = repository.split(marker, 1)
+        if revision:
+            return base, revision
+    return repository, None
 
 
 def _run(argv: Sequence[str], *, cwd: Path | None = None) -> None:

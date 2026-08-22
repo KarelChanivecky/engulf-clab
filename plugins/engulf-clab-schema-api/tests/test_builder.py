@@ -57,6 +57,11 @@ def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
             before=("engulf_clab.generator",),
         )
         .route("install-runtime-data", "README.md", "Read installation behavior.")
+        .add_node_kind(
+            "linux",
+            "Use the standard Containerlab Linux node kind.",
+            reference="README.md",
+        )
         .use_case("Generate exact runtime documentation.")
         .reject("Do not substitute controls from an inactive plugin.")
         .refer("README.md")
@@ -73,6 +78,8 @@ def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
     assert snapshot.requirements[0].name == "git"
     assert snapshot.ordering[0].before == ("engulf_clab.generator",)
     assert snapshot.routes[0].task == "install-runtime-data"
+    assert snapshot.node_kinds[0].kind == "linux"
+    assert snapshot.node_kinds[0].reference == "README.md"
 
 
 @pytest.mark.parametrize("explanation", ["", "two\nlines", "x" * 241])
@@ -140,4 +147,12 @@ def test_semantics_require_declared_options_and_packaged_routes() -> None:
     schema.add_runtime_var("KNOWN", "A known value.", values=ValueType.STRING)
     schema.route("missing-reference", "missing.md", "Read missing details.").refer("README.md")
     with pytest.raises(ValueError, match="unpackaged"):
+        schema.snapshot(APPLICATION)
+
+
+def test_node_kind_guidance_requires_a_packaged_reference() -> None:
+    schema = PluginSchema("engulf_clab.schema", package="engulf_clab_schema")
+    schema.add_node_kind("linux", "Use a Linux container.", reference="missing.md")
+    schema.refer("README.md")
+    with pytest.raises(ValueError, match="node kind declarations"):
         schema.snapshot(APPLICATION)

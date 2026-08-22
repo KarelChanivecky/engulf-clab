@@ -13,6 +13,8 @@ from engulf_clab_schema_api import (
     SCHEMA_REGISTRY_CONTEXT,
     SCHEMA_REQUEST_CONTEXT,
     SCHEMA_SOURCE_CONTEXT,
+    SCHEMA_VRNETLAB_PATH_CONTEXT,
+    SCHEMA_VRNETLAB_SOURCE_CONTEXT,
     CompiledSchemaBundle,
     ContainerlabSourceHint,
     LifecycleStage,
@@ -22,11 +24,13 @@ from engulf_clab_schema_api import (
     SchemaBuildRequest,
     SchemaDeclarationFailure,
     ValueType,
+    VrnetlabSourceHint,
     record_plugin_schema,
 )
 from engulf_executable_wrapper_api import ExecutableWrapperPlugin, HelpAPI, PreparedCallEvent
 
 from .compiler import compile_schema_bundle
+from .node_kinds import resolve_node_kind_catalog
 from .source import resolve_base_schema, source_hint_from_environment
 
 PLUGIN_SCHEMA = (
@@ -64,6 +68,7 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
     priority = -1000
     context_reads = frozenset(
         {SCHEMA_REGISTRY_CONTEXT, SCHEMA_SOURCE_CONTEXT, SCHEMA_REQUEST_CONTEXT}
+        | {SCHEMA_VRNETLAB_SOURCE_CONTEXT, SCHEMA_VRNETLAB_PATH_CONTEXT}
     )
     context_writes = frozenset({SCHEMA_REGISTRY_CONTEXT, SCHEMA_COMPILED_CONTEXT})
 
@@ -77,7 +82,7 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
         if not any(request.required for request in requests):
             return None
         try:
-            bundle = self._build(api, invocation.environment)
+            bundle = self._build(api, invocation.environment, strict=True)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             api.logger.error("failed to generate runtime schema: %s", error)
             return GoalResult.failed(1, error=str(error))
@@ -88,7 +93,7 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
         if not _requests(api):
             return
         try:
-            bundle = self._build(api, os.environ, binary=event.binary)
+            bundle = self._build(api, os.environ, binary=event.binary, strict=False)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             api.logger.warning(
                 "runtime schema refresh failed; retaining the last valid artifact: %s",
@@ -111,6 +116,7 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
         environment: Mapping[str, str],
         *,
         binary: str | Path | None = None,
+        strict: bool,
     ) -> CompiledSchemaBundle:
         current = api.get_context(SCHEMA_REGISTRY_CONTEXT, ())
         if type(current) is not tuple or any(
@@ -123,10 +129,27 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
             source = source_hint_from_environment(environment, binary=binary)
         if not isinstance(source, ContainerlabSourceHint):
             raise TypeError("invalid Containerlab schema source hint")
+        vrnetlab_source = api.get_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT)
+        if vrnetlab_source is not None and not isinstance(vrnetlab_source, VrnetlabSourceHint):
+            raise TypeError("invalid vrnetlab schema source hint")
+        if vrnetlab_source is None:
+            prepared_vrnetlab = api.get_context(SCHEMA_VRNETLAB_PATH_CONTEXT)
+            if prepared_vrnetlab is not None:
+                if not isinstance(prepared_vrnetlab, str):
+                    raise TypeError("invalid prepared vrnetlab checkout context")
+                vrnetlab_source = VrnetlabSourceHint(checkout=Path(prepared_vrnetlab))
         state = api.state(StateScope.USER)
         with api.lease("containerlab-runtime-schema"):
-            base = resolve_base_schema(state, environment, source)
-            bundle = compile_schema_bundle(api.application, base, current)
+            base = resolve_base_schema(state, environment, source, refresh=strict)
+            node_kinds = resolve_node_kind_catalog(
+                state,
+                environment,
+                base,
+                source,
+                vrnetlab_source,
+                refresh=strict,
+            )
+            bundle = compile_schema_bundle(api.application, base, current, node_kinds)
             _cache_bundle(state.directory, bundle)
         return bundle
 

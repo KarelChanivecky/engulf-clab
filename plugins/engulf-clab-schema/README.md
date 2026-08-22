@@ -7,6 +7,11 @@ source with declarations recorded by active Engulf plugins. It produces:
 - `catalog.json`, the same task and provider routing in a queryable form;
 - `plugins/<plugin-id>/schema.yaml`, one compact agent-facing capability schema
   per active plugin;
+- `plugins/containerlab.node_kinds/schema.yaml`, the node-kind index harvested
+  from the selected Containerlab and vrnetlab repositories;
+- `plugins/containerlab.node_kinds/node-kinds/<kind>/schema.yaml`, one compact
+  source record per exact Containerlab kind, plus whichever upstream documents
+  exist for that kind;
 - `manifest.json`, the complete provider inventory and ownership index;
 - `clab.schema.json`, the exact composed topology validation schema; and
 - `plugins/<plugin-id>/...`, the packaged detailed references named by routes.
@@ -26,6 +31,26 @@ first choice. If it is unavailable, the plugin reads the same Git commit and may
 fetch only that exact repository revision. For a binary, it uses
 `containerlab version --json`. `CONTAINERLAB_SCHEMA` supplies a local schema for
 private or offline binary builds.
+
+Node kinds come from the selected Containerlab schema. The generator maps them
+to `docs/manual/kinds/` in that same checkout or exact fetched commit and, where
+a unique mapping exists, to the vendor/product README in the selected vrnetlab
+source. Missing documents are represented as missing and do not remove a valid
+kind. Ambiguous vrnetlab matches are not guessed.
+
+vrnetlab source precedence is a published resolved hint, a prepared checkout,
+`VRNETLAB_DIR`, the managed user-state checkout, then
+`VRNETLAB_REPO`/`VRNETLAB_VERSION` or the configured default repository. A
+custom Containerlab repository without an explicit revision uses and records
+its resolved `HEAD`; it does not inherit the default fork's branch. Explicit
+skill generation refreshes moving repository selections and records exact
+commits. Normal refresh reuses the verified cache until another lifecycle
+source update or strict generation occurs.
+
+The ensure-containerlab and ensure-vrnetlab plugins own source precedence. They
+publish non-mutating selections before the terminal generator and resolved
+sources after preparation. Direct environment and state inference here is only
+a compatibility fallback when an owning ensure plugin is absent.
 
 Normal calls refresh lazily after executable preparation and never fail solely
 because documentation generation failed. Explicit consumers request a strict

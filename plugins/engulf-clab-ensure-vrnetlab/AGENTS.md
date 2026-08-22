@@ -32,6 +32,10 @@ It derives from `ExecutableWrapperPlugin` supplied by
   about and ignored before the managed fallback is considered.
 - The managed fallback belongs under `api.state(StateScope.USER)` because one
   checkout is shared by image builds for every workspace.
+- Publish a read-only source selection during `before_goal()` so strict schema
+  generation can preempt the wrapped call. Publish the resolved checkout during
+  `prepare_call()` alongside `engulf_clab.vrnetlab.path`; do not clone or update
+  merely to produce the early hint.
 - `StateStore.path()` is used for the checkout directory because Git requires
   a filesystem path. Direct checkout operations therefore bypass managed-file
   atomic writes; clone into a temporary sibling and rename only after validating

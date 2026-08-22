@@ -14,11 +14,14 @@ from .models import (
     RecordedPluginSchema,
     SchemaBuildRequest,
     SchemaDeclarationFailure,
+    VrnetlabSourceHint,
 )
 
 SCHEMA_PLUGIN_ID = "engulf_clab.schema"
 SCHEMA_REGISTRY_CONTEXT = "engulf_clab.schema.registry"
 SCHEMA_SOURCE_CONTEXT = "engulf_clab.schema.containerlab_source"
+SCHEMA_VRNETLAB_SOURCE_CONTEXT = "engulf_clab.schema.vrnetlab_source"
+SCHEMA_VRNETLAB_PATH_CONTEXT = "engulf_clab.vrnetlab.path"
 SCHEMA_REQUEST_CONTEXT = "engulf_clab.schema.requests"
 SCHEMA_COMPILED_CONTEXT = "engulf_clab.schema.compiled"
 SCHEMA_CONTEXTS = frozenset({SCHEMA_REGISTRY_CONTEXT})
@@ -47,6 +50,12 @@ def publish_containerlab_source(
     api: BeforeGoalAPI | InvocationAPI, source: ContainerlabSourceHint
 ) -> None:
     api.set_context(SCHEMA_SOURCE_CONTEXT, source)
+
+
+def publish_vrnetlab_source(
+    api: BeforeGoalAPI | InvocationAPI, source: VrnetlabSourceHint
+) -> None:
+    api.set_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT, source)
 
 
 def request_schema_build(api: BeforeGoalAPI, request: SchemaBuildRequest) -> None:

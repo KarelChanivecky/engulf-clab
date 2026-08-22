@@ -15,11 +15,13 @@ from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     SCHEMA_PLUGIN_DEPENDENCY,
+    SCHEMA_VRNETLAB_SOURCE_CONTEXT,
     LifecycleStage,
     PathBase,
     PluginSchema,
     Privilege,
     ValueType,
+    publish_vrnetlab_source,
     record_plugin_schema,
 )
 from engulf_executable_wrapper_api import (
@@ -31,7 +33,13 @@ from engulf_executable_wrapper_api import (
     PreparedCallEvent,
 )
 
-from .checkout import ensure_checkout, require_vrnetlab_dependencies, update_vrnetlab
+from .checkout import (
+    ensure_checkout,
+    require_vrnetlab_dependencies,
+    resolved_vrnetlab_source,
+    update_vrnetlab,
+    vrnetlab_source_hint,
+)
 from .contract import (
     ENSURE_VRNETLAB_PLUGIN_ID,
     VRNETLAB_PATH_CONTEXT,
@@ -132,12 +140,19 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
         ),
         SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_writes = frozenset({VRNETLAB_PATH_CONTEXT}) | SCHEMA_CONTEXTS
+    context_writes = (
+        frozenset({VRNETLAB_PATH_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT})
+        | SCHEMA_CONTEXTS
+    )
     context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
-        del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
+        source = vrnetlab_source_hint(
+            api.state(StateScope.USER),
+            invocation.environment,
+        )
+        publish_vrnetlab_source(api, source)
         return None
 
     def help(self, api: HelpAPI) -> str:
@@ -199,6 +214,7 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
                 checkout = ensure_checkout(state, os.environ)
                 update_vrnetlab(state, checkout, os.environ)
             api.set_context(VRNETLAB_PATH_CONTEXT, str(checkout))
+            publish_vrnetlab_source(api, resolved_vrnetlab_source(checkout))
             api.logger.info("published checkout %s", checkout)
         except (EnsureVrnetlabError, OSError) as error:
             api.logger.error("%s", error)

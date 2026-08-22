@@ -19,6 +19,12 @@ structured queries, then loads only task-relevant
 composed schema as final topology validation rather than as its discovery
 interface.
 
+The catalog also contains a `containerlab.node_kinds` provider generated from
+the resolved Containerlab and vrnetlab repositories. Its compact index routes
+each exact `kind:` to one small YAML record and only the upstream documents
+available for that kind; custom source repositories therefore produce custom
+skill guidance.
+
 The installed `SKILL.md` combines durable cross-plugin lab guidance with the
 current catalog appended at generation time. Catalog paths are rewritten to be
 relative to the skill directory, so the agent can route directly from its

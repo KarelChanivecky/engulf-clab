@@ -44,7 +44,9 @@ checkout branch, or fast-forward by commit when no release tags exist. Non-Git
 checkouts are not changed; dirty Git checkouts are rejected rather than reset.
 
 The resolved checkout is published as context `engulf_clab.vrnetlab.path` for
-the vrnetlab build plugin. This plugin itself does not build images.
+the vrnetlab build plugin. A side-effect-free source selection is also
+published before the schema generator runs, then replaced with the resolved
+checkout during preparation. This plugin itself does not build images.
 
 ## Checkout validation and state
 
@@ -88,5 +90,7 @@ Docker/Make work.
 
 ## Runtime schema discovery
 
-The plugin records its checkout and node opt-in controls and snapshots this
-packaged README before the runtime schema generator runs last.
+The plugin records its checkout and node opt-in controls, publishes the selected
+source during `before_goal`, and snapshots this packaged README before the
+runtime schema generator runs last. The generator therefore needs to infer the
+vrnetlab source only when this ensure plugin is absent.

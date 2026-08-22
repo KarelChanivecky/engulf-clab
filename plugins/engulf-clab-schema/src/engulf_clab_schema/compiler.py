@@ -26,10 +26,11 @@ from engulf_clab_schema_api import (
     split_property_path,
 )
 
+from .node_kinds import NODE_KIND_PROVIDER_ID, NodeKindCatalog, NodeKindRecord, SourceIdentity
 from .source import BaseSchema
 
 FORMAT_VERSION = 1
-COMPILER_VERSION = "2"
+COMPILER_VERSION = "3"
 
 
 class SchemaCompilationError(RuntimeError):
@@ -40,6 +41,7 @@ def compile_schema_bundle(
     application: ApplicationMetadata,
     base: BaseSchema,
     entries: Iterable[SchemaRegistryEntry],
+    node_kinds: NodeKindCatalog | None = None,
 ) -> CompiledSchemaBundle:
     providers: list[RecordedPluginSchema] = []
     failures: list[SchemaDeclarationFailure] = []
@@ -58,13 +60,19 @@ def compile_schema_bundle(
         detail = "; ".join(f"{item.plugin_id}: {item.error}" for item in failures)
         raise SchemaCompilationError(f"incomplete plugin schema contributions: {detail}")
     providers.sort(key=lambda item: item.plugin_id)
-    plugin_schemas = tuple(_compiled_plugin_schema(provider) for provider in providers)
-    plugin_schema_index = {item.plugin_id: item for item in plugin_schemas}
+    _validate_node_kind_declarations(providers, node_kinds)
+    provider_schemas = tuple(_compiled_plugin_schema(provider) for provider in providers)
+    plugin_schema_index = {item.plugin_id: item for item in provider_schemas}
+    upstream_schema = (
+        None if node_kinds is None else _compiled_node_kind_schema(node_kinds, providers)
+    )
+    plugin_schemas = provider_schemas + (() if upstream_schema is None else (upstream_schema,))
     fingerprint_input = {
         "format": FORMAT_VERSION,
         "compiler": COMPILER_VERSION,
         "application": _application(application),
         "containerlab": _source(base),
+        "node_kinds": None if node_kinds is None else _node_kind_fingerprint(node_kinds),
         "plugins": [
             _provider_manifest(
                 provider,
@@ -81,6 +89,11 @@ def compile_schema_bundle(
         "fingerprint": fingerprint,
         "application": _application(application),
         "containerlab": _source(base),
+        "node_kinds": (
+            None
+            if node_kinds is None or upstream_schema is None
+            else _node_kind_manifest(node_kinds, upstream_schema, providers)
+        ),
         "plugins": [
             _provider_manifest(
                 provider,
@@ -91,7 +104,15 @@ def compile_schema_bundle(
         ],
         "paths": _path_index(providers),
     }
-    catalog = _catalog(application, base, providers, plugin_schema_index, fingerprint)
+    catalog = _catalog(
+        application,
+        base,
+        providers,
+        plugin_schema_index,
+        fingerprint,
+        node_kinds,
+        upstream_schema,
+    )
     schema = _compose_schema(base.document, providers, fingerprint)
     references = tuple(
         CompiledReference(
@@ -103,6 +124,10 @@ def compile_schema_bundle(
         )
         for provider in providers
         for reference in provider.references
+    ) + (
+        ()
+        if node_kinds is None
+        else _compiled_node_kind_references(node_kinds, providers)
     )
     if sum(len(item.content) for item in references) > 32 * 1024 * 1024:
         raise SchemaCompilationError("compiled references exceed 32 MiB")
@@ -202,6 +227,14 @@ def _provider_manifest(
                 "explanation": item.explanation,
             }
             for item in provider.ordering
+        ],
+        "node_kinds": [
+            {
+                "kind": item.kind,
+                "explanation": item.explanation,
+                "reference": item.reference,
+            }
+            for item in provider.node_kinds
         ],
     }
 
@@ -361,6 +394,17 @@ def _plugin_agent_document(provider: RecordedPluginSchema) -> dict[str, object]:
     )
     _put(
         document,
+        "node_kinds",
+        {
+            item.kind: {
+                "description": item.explanation,
+                "reference": item.reference,
+            }
+            for item in provider.node_kinds
+        },
+    )
+    _put(
+        document,
         "references",
         [_without_empty({"path": item.path, "title": item.title}) for item in provider.references],
     )
@@ -428,12 +472,221 @@ def _without_empty(source: Mapping[str, object]) -> dict[str, object]:
     return {key: value for key, value in source.items() if value not in (None, [], {}, ())}
 
 
+def _validate_node_kind_declarations(
+    providers: Iterable[RecordedPluginSchema], node_kinds: NodeKindCatalog | None
+) -> None:
+    if node_kinds is None:
+        return
+    available = {item.kind for item in node_kinds.kinds}
+    missing = [
+        f"{provider.plugin_id}:{item.kind}"
+        for provider in providers
+        for item in provider.node_kinds
+        if item.kind not in available
+    ]
+    if missing:
+        raise SchemaCompilationError(
+            "plugin node-kind guidance is unavailable in the selected Containerlab source: "
+            + ", ".join(missing)
+        )
+
+
+def _source_identity(source: SourceIdentity) -> dict[str, object]:
+    return {
+        "kind": source.kind,
+        "repository": source.repository,
+        "revision": source.revision,
+        "dirty": source.dirty,
+        "sha256": source.sha256,
+    }
+
+
+def _node_kind_fingerprint(catalog: NodeKindCatalog) -> dict[str, object]:
+    return {
+        "containerlab": _source_identity(catalog.containerlab),
+        "vrnetlab": _source_identity(catalog.vrnetlab),
+        "kinds": [
+            {
+                "kind": item.kind,
+                "summary": item.summary,
+                "containerlab_path": item.containerlab_path,
+                "containerlab_sha256": _optional_sha256(item.containerlab_content),
+                "vrnetlab_path": item.vrnetlab_path,
+                "vrnetlab_sha256": _optional_sha256(item.vrnetlab_content),
+            }
+            for item in catalog.kinds
+        ],
+    }
+
+
+def _node_kind_manifest(
+    catalog: NodeKindCatalog,
+    schema: CompiledPluginSchema,
+    providers: Iterable[RecordedPluginSchema],
+) -> dict[str, object]:
+    return {
+        "provider_id": NODE_KIND_PROVIDER_ID,
+        "agent_schema": {
+            "path": f"plugins/{NODE_KIND_PROVIDER_ID}/{schema.path}",
+            "sha256": schema.sha256,
+        },
+        "references": [
+            {
+                "path": f"plugins/{item.plugin_id}/{item.path}",
+                "title": item.title,
+                "sha256": item.sha256,
+            }
+            for item in _compiled_node_kind_references(catalog, providers)
+        ],
+        **_node_kind_fingerprint(catalog),
+    }
+
+
+def _compiled_node_kind_schema(
+    catalog: NodeKindCatalog, providers: Iterable[RecordedPluginSchema]
+) -> CompiledPluginSchema:
+    content = yaml.safe_dump(
+        {
+            "format": "engulf-clab-node-kind-index",
+            "version": 1,
+            "sources": {
+                "containerlab": _source_identity(catalog.containerlab),
+                "vrnetlab": _source_identity(catalog.vrnetlab),
+            },
+            "kinds": {
+                item.kind: _without_empty(
+                    {
+                        "description": item.summary,
+                        "schema": f"node-kinds/{item.kind}/schema.yaml",
+                        "containerlab": (
+                            None
+                            if item.containerlab_content is None
+                            else f"node-kinds/{item.kind}/containerlab.md"
+                        ),
+                        "vrnetlab": (
+                            None
+                            if item.vrnetlab_content is None
+                            else f"node-kinds/{item.kind}/vrnetlab.md"
+                        ),
+                        "augmentations": _node_kind_augmentations(item.kind, providers),
+                    }
+                )
+                for item in catalog.kinds
+            },
+        },
+        sort_keys=False,
+        allow_unicode=True,
+        width=1000,
+    ).encode()
+    return CompiledPluginSchema(
+        NODE_KIND_PROVIDER_ID,
+        "schema.yaml",
+        content,
+        hashlib.sha256(content).hexdigest(),
+    )
+
+
+def _compiled_node_kind_references(
+    catalog: NodeKindCatalog,
+    providers: Iterable[RecordedPluginSchema],
+) -> tuple[CompiledReference, ...]:
+    result: list[CompiledReference] = []
+    for item in catalog.kinds:
+        schema_path = f"node-kinds/{item.kind}/schema.yaml"
+        schema = yaml.safe_dump(
+            _node_kind_document(item, catalog, providers),
+            sort_keys=False,
+            allow_unicode=True,
+            width=1000,
+        ).encode()
+        result.append(
+            CompiledReference(
+                NODE_KIND_PROVIDER_ID,
+                schema_path,
+                f"{item.kind} source guidance",
+                schema,
+                hashlib.sha256(schema).hexdigest(),
+            )
+        )
+        for name, content in (
+            ("containerlab.md", item.containerlab_content),
+            ("vrnetlab.md", item.vrnetlab_content),
+        ):
+            if content is None:
+                continue
+            path = f"node-kinds/{item.kind}/{name}"
+            result.append(
+                CompiledReference(
+                    NODE_KIND_PROVIDER_ID,
+                    path,
+                    f"{item.kind} {name.removesuffix('.md')} guidance",
+                    content,
+                    hashlib.sha256(content).hexdigest(),
+                )
+            )
+    return tuple(result)
+
+
+def _node_kind_document(
+    item: NodeKindRecord,
+    catalog: NodeKindCatalog,
+    providers: Iterable[RecordedPluginSchema],
+) -> dict[str, object]:
+    return _without_empty(
+        {
+            "format": "engulf-clab-node-kind",
+            "version": 1,
+            "kind": item.kind,
+            "description": item.summary,
+            "containerlab": _without_empty(
+                {
+                    "source_path": item.containerlab_path,
+                    "reference": (
+                        "containerlab.md" if item.containerlab_content is not None else None
+                    ),
+                    "revision": catalog.containerlab.revision,
+                }
+            ),
+            "vrnetlab": _without_empty(
+                {
+                    "source_path": item.vrnetlab_path,
+                    "reference": "vrnetlab.md" if item.vrnetlab_content is not None else None,
+                    "revision": catalog.vrnetlab.revision,
+                }
+            ),
+            "augmentations": _node_kind_augmentations(item.kind, providers),
+        }
+    )
+
+
+def _node_kind_augmentations(
+    kind: str, providers: Iterable[RecordedPluginSchema]
+) -> list[dict[str, str]]:
+    return [
+        {
+            "plugin_id": provider.plugin_id,
+            "description": declaration.explanation,
+            "schema": f"plugins/{provider.plugin_id}/schema.yaml",
+            "reference": f"plugins/{provider.plugin_id}/{declaration.reference}",
+        }
+        for provider in providers
+        for declaration in provider.node_kinds
+        if declaration.kind == kind
+    ]
+
+
+def _optional_sha256(content: bytes | None) -> str | None:
+    return None if content is None else hashlib.sha256(content).hexdigest()
+
+
 def _catalog(
     application: ApplicationMetadata,
     base: BaseSchema,
     providers: list[RecordedPluginSchema],
     plugin_schemas: dict[str, CompiledPluginSchema],
     fingerprint: str,
+    node_kinds: NodeKindCatalog | None,
+    node_kind_schema: CompiledPluginSchema | None,
 ) -> dict[str, object]:
     routes: dict[str, list[dict[str, str]]] = defaultdict(list)
     provider_items: list[dict[str, object]] = []
@@ -467,6 +720,16 @@ def _catalog(
             "authoritative_command": f"{application.short_product_name} --help",
             "explanation": "Discover base Containerlab commands and flags from the selected runtime before constructing a call.",
         },
+        "node_kinds": (
+            None
+            if node_kinds is None or node_kind_schema is None
+            else {
+                "schema": f"plugins/{NODE_KIND_PROVIDER_ID}/{node_kind_schema.path}",
+                "containerlab": _source_identity(node_kinds.containerlab),
+                "vrnetlab": _source_identity(node_kinds.vrnetlab),
+                "count": len(node_kinds.kinds),
+            }
+        ),
         "tasks": {key: routes[key] for key in sorted(routes)},
         "providers": provider_items,
     }
@@ -487,11 +750,32 @@ def _catalog_markdown(catalog: dict[str, object]) -> str:
         "Use the task routes or provider directory to select compact plugin YAML files. The composed",
         "`clab.schema.json` is the final validation authority, not the primary discovery surface.",
         "",
-        "## Task routing",
-        "",
-        "| Task | Provider | Capabilities | Detailed reference | Why |",
-        "| --- | --- | --- | --- | --- |",
     ]
+    node_kinds = catalog.get("node_kinds")
+    if isinstance(node_kinds, dict):
+        containerlab = cast(dict[str, object], node_kinds["containerlab"])
+        vrnetlab = cast(dict[str, object], node_kinds["vrnetlab"])
+        lines.extend(
+            [
+                "## Node-kind routing",
+                "",
+                f"Read `{node_kinds['schema']}` when a topology uses a specialized `kind:`. It",
+                "routes to one small kind record and only the upstream documents available in the",
+                "selected repositories.",
+                "",
+                f"Containerlab node guidance revision: `{containerlab['revision']}`",
+                f"vrnetlab builder guidance revision: `{vrnetlab['revision']}`",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Task routing",
+            "",
+            "| Task | Provider | Capabilities | Detailed reference | Why |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
     tasks = cast(dict[str, list[dict[str, str]]], catalog["tasks"])
     for task, routes in tasks.items():
         for route in routes:

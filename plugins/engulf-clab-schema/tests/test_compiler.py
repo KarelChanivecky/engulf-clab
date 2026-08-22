@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import replace
 
 import pytest
 import yaml
@@ -7,6 +8,7 @@ from engulf_api import ApplicationMetadata
 from engulf_clab_schema_api import (
     ExplainedValue,
     LifecycleStage,
+    NodeKindDeclaration,
     OptionDeclaration,
     OptionKind,
     PluginOrdering,
@@ -21,6 +23,7 @@ from engulf_clab_schema_api import (
 )
 
 from engulf_clab_schema.compiler import SchemaCompilationError, compile_schema_bundle
+from engulf_clab_schema.node_kinds import NodeKindCatalog, NodeKindRecord, SourceIdentity
 from engulf_clab_schema.source import BaseSchema
 
 APPLICATION = ApplicationMetadata(
@@ -209,3 +212,63 @@ def test_failed_or_duplicate_contributors_are_rejected() -> None:
         )
     with pytest.raises(SchemaCompilationError, match="duplicate"):
         compile_schema_bundle(APPLICATION, _base(), (_provider(), _provider()))
+
+
+def test_node_kind_catalog_and_plugin_augmentation_are_compiled() -> None:
+    identity = SourceIdentity("checkout", "https://example.test/source", "abc", False, "1" * 64)
+    node_kinds = NodeKindCatalog(
+        identity,
+        replace(identity, repository="https://example.test/vrnetlab", revision="def"),
+        (
+            NodeKindRecord(
+                "linux",
+                "Linux container",
+                "docs/manual/kinds/linux.md",
+                b"# Linux\n",
+                None,
+                None,
+            ),
+        ),
+    )
+    provider = replace(
+        _provider(),
+        node_kinds=(
+            NodeKindDeclaration("linux", "Apply the example Linux conventions.", "README.md"),
+        ),
+    )
+
+    bundle = compile_schema_bundle(APPLICATION, _base(), (provider,), node_kinds)
+
+    catalog = json.loads(bundle.catalog_json)
+    manifest = json.loads(bundle.manifest)
+    assert catalog["node_kinds"]["schema"] == "plugins/containerlab.node_kinds/schema.yaml"
+    assert catalog["node_kinds"]["count"] == 1
+    assert manifest["node_kinds"]["vrnetlab"]["revision"] == "def"
+    assert manifest["node_kinds"]["references"][0]["path"].startswith(
+        "plugins/containerlab.node_kinds/node-kinds/linux/"
+    )
+    upstream = next(
+        item for item in bundle.plugin_schemas if item.plugin_id == "containerlab.node_kinds"
+    )
+    index = yaml.safe_load(upstream.content)
+    assert index["kinds"]["linux"]["schema"] == "node-kinds/linux/schema.yaml"
+    kind_schema = next(
+        item
+        for item in bundle.references
+        if item.plugin_id == "containerlab.node_kinds"
+        and item.path == "node-kinds/linux/schema.yaml"
+    )
+    kind = yaml.safe_load(kind_schema.content)
+    assert kind["augmentations"][0]["plugin_id"] == "example.plugin"
+    assert b"## Node-kind routing" in bundle.catalog_markdown
+
+
+def test_plugin_node_kind_must_exist_in_selected_containerlab_source() -> None:
+    identity = SourceIdentity("checkout", None, None, False, "0" * 64)
+    node_kinds = NodeKindCatalog(identity, identity, ())
+    provider = replace(
+        _provider(),
+        node_kinds=(NodeKindDeclaration("missing", "Missing kind.", "README.md"),),
+    )
+    with pytest.raises(SchemaCompilationError, match="selected Containerlab"):
+        compile_schema_bundle(APPLICATION, _base(), (provider,), node_kinds)

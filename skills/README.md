@@ -13,15 +13,18 @@ declarations with the exact Containerlab schema selected for the invocation:
 3. the repository and revision reported by the selected Containerlab binary;
 4. `CONTAINERLAB_SCHEMA` for an exact private or offline binary build.
 
-The result is fingerprinted from the Containerlab source identity, application
-metadata, active plugin distributions and versions, declarations, and reference
-contents. It is therefore an inventory of the installed runtime, not of this
-checkout.
+The result is fingerprinted from the exact Containerlab and vrnetlab source
+identities, application metadata, active plugin distributions and versions,
+declarations, and reference contents. It is therefore an inventory of the
+installed runtime, not of this checkout.
 
 Each runtime contains a task catalog, one compact YAML capability schema per
 plugin, and a complete self-contained Containerlab schema for machine
 validation. Agents route through the catalog and read only relevant plugin YAML
 files; they do not use the full validation schema for feature discovery.
+The catalog also routes specialized `kind:` values through a generated upstream
+provider containing one small record per kind and the available documentation
+from the selected Containerlab and vrnetlab repositories.
 The installer also appends the current catalog to `SKILL.md`, after durable
 runtime-selection, topology-design, safety, and diagnostic guidance.
 

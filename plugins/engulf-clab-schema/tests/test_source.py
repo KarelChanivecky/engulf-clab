@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKind
 
 from engulf_clab_schema.source import (
@@ -13,6 +14,9 @@ from engulf_clab_schema.source import (
 class State:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
+
+    def path(self, name: str) -> Path:
+        return self.directory / name
 
 
 def test_checkout_working_tree_schema_is_authoritative(tmp_path: Path) -> None:
@@ -31,7 +35,9 @@ def test_checkout_working_tree_schema_is_authoritative(tmp_path: Path) -> None:
     assert result.source_kind == "checkout"
 
 
-def test_source_precedence_and_credential_sanitization(tmp_path: Path) -> None:
+def test_source_precedence_and_credential_sanitization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     hint = source_hint_from_environment(
         {"CONTAINERLAB_BIN": str(tmp_path / "bin"), "CONTAINERLAB_DIR": str(tmp_path / "checkout")}
     )
@@ -40,3 +46,10 @@ def test_source_precedence_and_credential_sanitization(tmp_path: Path) -> None:
         sanitize_repository("https://name:secret@example.test/repo.git?token=bad#fragment")
         == "https://example.test/repo.git"
     )
+
+    monkeypatch.setattr("engulf_clab_schema.source.shutil.which", lambda _name: None)
+    custom = source_hint_from_environment(
+        {"CONTAINERLAB_REPO": "https://example.test/custom-containerlab.git"}
+    )
+    assert custom.repository == "https://example.test/custom-containerlab.git"
+    assert custom.revision == "HEAD"

@@ -15,8 +15,10 @@ def test_edition_names_and_rendered_skill(tmp_path: Path) -> None:
     assert "name: develop-eclab-lab" in definition
     assert "eclab install-develop-eclab-lab-skill <CONFIG_ROOT>" in definition
     assert "compact `schema.yaml`" in definition
+    assert "generated node-kind" in definition
     assert "full topology schema for validation" in definition
     assert "basic network diagnostics" in definition
+    assert "Never assign, rename, or use `eth0`" in definition
     assert "## Choose WAN access deliberately" in definition
     assert "## Troubleshooting" in definition
     assert "## Diagnose in layers" in definition

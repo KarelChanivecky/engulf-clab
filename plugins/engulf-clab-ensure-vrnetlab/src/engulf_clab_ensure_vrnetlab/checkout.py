@@ -14,6 +14,7 @@ from engulf_clab_ensure_checkout import (
     update_checkout,
 )
 from engulf_clab_ensure_checkout import ensure_checkout as ensure
+from engulf_clab_schema_api import VrnetlabSourceHint
 
 from .errors import EnsureVrnetlabError
 from .logging import info, warning
@@ -48,6 +49,39 @@ def require_vrnetlab_dependencies() -> None:
 
 def valid_vrnetlab_checkout(path: Path) -> bool:
     return path.is_dir() and (path / "common" / "vrnetlab.py").is_file()
+
+
+def vrnetlab_source_hint(
+    state: StateStore,
+    environment: Mapping[str, str],
+) -> VrnetlabSourceHint:
+    configured = environment.get("VRNETLAB_DIR", "").strip()
+    if configured:
+        checkout = Path(configured).expanduser().resolve()
+        if valid_vrnetlab_checkout(checkout):
+            return VrnetlabSourceHint(checkout=checkout)
+
+    managed = state.path(VRNETLAB_CHECKOUT_BASENAME)
+    if valid_vrnetlab_checkout(managed):
+        return VrnetlabSourceHint(checkout=managed)
+
+    repository = environment.get("VRNETLAB_REPO", DEFAULT_VRNETLAB_REPO)
+    repository, embedded_revision = _split_repository_revision(repository)
+    revision = environment.get("VRNETLAB_VERSION", "").strip() or embedded_revision or "HEAD"
+    return VrnetlabSourceHint(repository=repository, revision=revision)
+
+
+def resolved_vrnetlab_source(checkout: Path) -> VrnetlabSourceHint:
+    return VrnetlabSourceHint(checkout=checkout.resolve(), resolved=True)
+
+
+def _split_repository_revision(repository: str) -> tuple[str, str | None]:
+    marker = "/tree/"
+    if marker in repository and repository.startswith("https://github.com/"):
+        base, revision = repository.split(marker, 1)
+        if revision:
+            return base, revision
+    return repository, None
 
 
 def _run(argv: Sequence[str]) -> None:

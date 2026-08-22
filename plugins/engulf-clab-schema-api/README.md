@@ -167,6 +167,12 @@ order(
 ) -> PluginSchema
 
 route(task: str, reference: str, explanation: str) -> PluginSchema
+add_node_kind(
+    kind: str,
+    explanation: str,
+    *,
+    reference: str,
+) -> PluginSchema
 use_case(explanation: str) -> PluginSchema
 reject(reason: str) -> PluginSchema
 refer(path: str | PurePosixPath, *, title: str | None = None) -> PluginSchema
@@ -185,11 +191,27 @@ edge to other exact plugin IDs and requires at least one `after` or `before`
 value. `route()` maps a lowercase task token to a resource also packaged by
 `refer()`; an unresolved route makes snapshot creation fail.
 
+`add_node_kind()` augments an exact kind discovered from the selected
+Containerlab source. It does not invent a new valid kind or copy Containerlab's
+structural schema. Its detailed edition-specific guidance must name a resource
+also packaged through `refer()`; compilation fails when the selected
+Containerlab source does not advertise the kind.
+
 `use_case()` tells the skill when the plugin is a fit. `reject()` records a
 boundary or prohibited assumption. `refer()` is repeatable and snapshots a
 package-relative Markdown, text, JSON, or YAML resource when the invocation
 runs; absolute paths, traversal, case-colliding duplicates, and oversized
 resources are rejected.
+
+`publish_containerlab_source()` and `publish_vrnetlab_source()` may publish
+immutable source hints when another plugin has already resolved a checkout or
+repository revision. Without a vrnetlab hint, the generator follows
+`VRNETLAB_DIR`, the managed checkout, `VRNETLAB_REPO`/`VRNETLAB_VERSION`, then
+the configured default repository.
+The hint's `resolved` field is false for an early selection and true only after
+the owning ensure plugin has selected the concrete checkout or binary. The
+generator still resolves repository revisions to exact commits before writing
+the manifest.
 
 `ValueSpec` is either one `ValueType` or a nonempty tuple containing accepted
 types, literal JSON scalars, or `ExplainedValue(value, explanation)` entries.

@@ -5,7 +5,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_clab_ensure_vrnetlab.checkout import ensure_checkout, require_vrnetlab_dependencies
+from engulf_clab_ensure_vrnetlab.checkout import (
+    ensure_checkout,
+    require_vrnetlab_dependencies,
+    resolved_vrnetlab_source,
+    vrnetlab_source_hint,
+)
 from engulf_clab_ensure_vrnetlab.errors import EnsureVrnetlabError
 
 
@@ -49,6 +54,44 @@ class EnsureCheckoutTest(unittest.TestCase):
             self.assertEqual(resolved, configured.resolve())
             self.assertFalse((root / "state").exists())
             run.assert_not_called()
+
+    def test_source_hint_uses_selected_or_managed_checkout(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            configured = root / "external"
+            make_checkout(configured)
+            state = FilesystemState(root / "state")
+
+            selected = vrnetlab_source_hint(state, {"VRNETLAB_DIR": str(configured)})
+            resolved = resolved_vrnetlab_source(configured)
+
+            self.assertEqual(selected.checkout, configured.resolve())
+            self.assertFalse(selected.resolved)
+            self.assertEqual(resolved.checkout, configured.resolve())
+            self.assertTrue(resolved.resolved)
+
+            managed = root / "state" / "vrnetlab"
+            make_checkout(managed)
+            fallback = vrnetlab_source_hint(
+                state,
+                {"VRNETLAB_DIR": str(root / "missing")},
+            )
+
+        self.assertEqual(fallback.checkout, managed)
+
+    def test_source_hint_preserves_custom_repository_selection(self) -> None:
+        with TemporaryDirectory() as directory:
+            hint = vrnetlab_source_hint(
+                FilesystemState(Path(directory) / "state"),
+                {
+                    "VRNETLAB_REPO": "https://example.test/vrnetlab.git",
+                    "VRNETLAB_VERSION": "feature",
+                },
+            )
+
+        self.assertEqual(hint.repository, "https://example.test/vrnetlab.git")
+        self.assertEqual(hint.revision, "feature")
+        self.assertFalse(hint.resolved)
 
     @patch("engulf_clab_ensure_vrnetlab.checkout._run")
     def test_invalid_environment_falls_back_to_managed_checkout(self, run: Mock) -> None:

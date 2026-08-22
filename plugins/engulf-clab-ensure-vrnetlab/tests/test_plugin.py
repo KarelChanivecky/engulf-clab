@@ -6,8 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_api import InvocationAPI, StateScope
+from engulf_api import BeforeGoalAPI, Invocation, InvocationAPI, StateScope
 from engulf_clab_lab_parser import TopologySession, load_topology
+from engulf_clab_schema_api import VrnetlabSourceHint
 from engulf_executable_wrapper_api import BeforeCallEvent, CallMode, PreparedCallEvent
 
 from engulf_clab_ensure_vrnetlab.contract import (
@@ -35,6 +36,31 @@ def invocation_api() -> Mock:
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    @patch("engulf_clab_ensure_vrnetlab.plugin.record_plugin_schema")
+    @patch("engulf_clab_ensure_vrnetlab.plugin.publish_vrnetlab_source")
+    @patch("engulf_clab_ensure_vrnetlab.plugin.vrnetlab_source_hint")
+    def test_before_goal_publishes_side_effect_free_selection(
+        self,
+        select: Mock,
+        publish: Mock,
+        _record: Mock,
+    ) -> None:
+        state = object()
+        source = VrnetlabSourceHint(
+            repository="https://example.test/vrnetlab.git",
+            revision="feature",
+        )
+        select.return_value = source
+        api = Mock(spec=BeforeGoalAPI)
+        api.state.return_value = state
+        invocation = Invocation((), Path("/labs"), {"VRNETLAB_VERSION": "feature"})
+
+        EnsureVrnetlabPlugin().before_goal(invocation, api)
+
+        api.state.assert_called_once_with(StateScope.USER)
+        select.assert_called_once_with(state, invocation.environment)
+        publish.assert_called_once_with(api, source)
+
     @patch("engulf_clab_ensure_vrnetlab.plugin.ensure_checkout")
     def test_non_opted_topology_does_not_touch_state(self, ensure: Mock) -> None:
         with TemporaryDirectory() as directory:
@@ -56,11 +82,16 @@ class PluginLifecycleTest(unittest.TestCase):
         api.state.assert_not_called()
         api.set_context.assert_not_called()
 
+    @patch("engulf_clab_ensure_vrnetlab.plugin.publish_vrnetlab_source")
     @patch("engulf_clab_ensure_vrnetlab.plugin.require_vrnetlab_dependencies")
     @patch("engulf_clab_ensure_vrnetlab.plugin.update_vrnetlab")
     @patch("engulf_clab_ensure_vrnetlab.plugin.ensure_checkout")
     def test_opted_topology_publishes_user_checkout(
-        self, ensure: Mock, _update: Mock, _dependencies: Mock
+        self,
+        ensure: Mock,
+        _update: Mock,
+        _dependencies: Mock,
+        publish: Mock,
     ) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
@@ -87,6 +118,9 @@ class PluginLifecycleTest(unittest.TestCase):
         api.lease.assert_called_once_with(VRNETLAB_REPOSITORY_LEASE)
         self.assertIs(ensure.call_args.args[0], state)
         api.set_context.assert_called_once_with(VRNETLAB_PATH_CONTEXT, str(checkout))
+        source = publish.call_args.args[1]
+        self.assertEqual(source.checkout, checkout.resolve())
+        self.assertTrue(source.resolved)
 
     @patch(
         "engulf_clab_ensure_vrnetlab.plugin.ensure_checkout",

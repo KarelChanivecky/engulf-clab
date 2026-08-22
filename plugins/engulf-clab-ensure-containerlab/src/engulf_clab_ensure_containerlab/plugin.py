@@ -7,8 +7,6 @@ from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     SCHEMA_PLUGIN_DEPENDENCY,
     SCHEMA_SOURCE_CONTEXT,
-    ContainerlabSourceHint,
-    ContainerlabSourceKind,
     LifecycleStage,
     PathBase,
     PluginSchema,
@@ -26,7 +24,12 @@ from engulf_executable_wrapper_api import (
     PreparedCallEvent,
 )
 
-from .containerlab import ensure_binary, require_containerlab_dependencies
+from .containerlab import (
+    containerlab_source_hint,
+    ensure_binary,
+    require_containerlab_dependencies,
+    resolved_containerlab_source,
+)
 from .contract import CONTAINERLAB_REPOSITORY_LEASE, ENSURE_CONTAINERLAB_PLUGIN_ID
 from .errors import EnsureContainerlabError
 from .logging import use_logger
@@ -117,8 +120,12 @@ class EnsureContainerlabPlugin(ExecutableWrapperPlugin):
         self._original_path: str | None = None
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
-        del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
+        source = containerlab_source_hint(
+            api.state(StateScope.USER),
+            invocation.environment,
+        )
+        publish_containerlab_source(api, source)
         return None
 
     def help(self, api: HelpAPI) -> str:
@@ -148,12 +155,7 @@ class EnsureContainerlabPlugin(ExecutableWrapperPlugin):
             require_containerlab_dependencies()
             with use_logger(api.logger), api.lease(CONTAINERLAB_REPOSITORY_LEASE):
                 binary = ensure_binary(api.state(StateScope.USER), os.environ)
-            checkout = binary.parent
-            if (checkout / "schemas" / "clab.schema.json").is_file():
-                source = ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=checkout)
-            else:
-                source = ContainerlabSourceHint(ContainerlabSourceKind.BINARY, binary=binary)
-            publish_containerlab_source(api, source)
+            publish_containerlab_source(api, resolved_containerlab_source(binary))
             self._original_path = os.environ.get("PATH", "")
             os.environ["PATH"] = f"{binary.parent}{os.pathsep}{self._original_path}"
         except (EnsureContainerlabError, OSError) as error:

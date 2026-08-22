@@ -68,14 +68,17 @@ def source_hint_from_environment(
             ContainerlabSourceKind.BINARY,
             binary=Path(resolved).resolve(),
         )
-    repository, revision = split_repository_revision(
-        environment.get("CONTAINERLAB_REPO", DEFAULT_REPOSITORY)
-    )
+    configured_repository = environment.get("CONTAINERLAB_REPO", "").strip()
+    repository, revision = split_repository_revision(configured_repository or DEFAULT_REPOSITORY)
     explicit_revision = environment.get("CONTAINERLAB_VERSION", "").strip()
     return ContainerlabSourceHint(
         ContainerlabSourceKind.REPOSITORY,
         repository=repository,
-        revision=explicit_revision or revision or DEFAULT_REVISION,
+        revision=(
+            explicit_revision
+            or revision
+            or ("HEAD" if configured_repository else DEFAULT_REVISION)
+        ),
     )
 
 
@@ -83,6 +86,8 @@ def resolve_base_schema(
     state: StateStore,
     environment: Mapping[str, str],
     hint: ContainerlabSourceHint,
+    *,
+    refresh: bool = False,
 ) -> BaseSchema:
     if hint.kind is ContainerlabSourceKind.CHECKOUT:
         if hint.checkout is None:
@@ -99,12 +104,14 @@ def resolve_base_schema(
         return _from_binary(state, hint.binary)
     if hint.repository is None or hint.revision is None:
         raise SchemaSourceError("repository source hint is incomplete")
-    content = _fetch_schema(state, hint.repository, hint.revision)
+    content, resolved_revision = _fetch_schema(
+        state, hint.repository, hint.revision, refresh=refresh
+    )
     return _base(
         content,
         source_kind="repository",
         repository=sanitize_repository(hint.repository),
-        revision=hint.revision,
+        revision=resolved_revision,
     )
 
 
@@ -175,7 +182,7 @@ def _from_checkout(state: StateStore, checkout: Path) -> BaseSchema:
                 revision=revision,
             )
     if repository is not None and revision is not None:
-        content = _fetch_schema(state, repository, revision)
+        content, _ = _fetch_schema(state, repository, revision)
         return _base(
             content,
             source_kind="checkout-fetch",
@@ -222,12 +229,12 @@ def _from_binary(state: StateStore, binary: Path) -> BaseSchema:
             "Containerlab binary does not report an exact repository revision; "
             "set CONTAINERLAB_SCHEMA"
         )
-    content = _fetch_schema(state, repository, revision)
+    content, resolved_revision = _fetch_schema(state, repository, revision)
     return _base(
         content,
         source_kind="binary",
         repository=sanitize_repository(repository),
-        revision=revision,
+        revision=resolved_revision,
         version=version,
     )
 
@@ -248,17 +255,30 @@ def _binary_metadata(binary: Path) -> dict[str, object]:
     return value
 
 
-def _fetch_schema(state: StateStore, repository: str, revision: str) -> bytes:
+def _fetch_schema(
+    state: StateStore,
+    repository: str,
+    revision: str,
+    *,
+    refresh: bool = False,
+) -> tuple[bytes, str]:
     repository, embedded_revision = split_repository_revision(repository)
-    revision = embedded_revision or revision
-    key = hashlib.sha256(f"{sanitize_repository(repository)}\0{revision}".encode()).hexdigest()
+    selected_revision = revision or embedded_revision
+    if selected_revision is None:
+        raise SchemaSourceError("Containerlab repository source has no revision")
+    key = hashlib.sha256(
+        f"{sanitize_repository(repository)}\0{selected_revision}".encode()
+    ).hexdigest()
     cache_root = state.directory / "containerlab-schemas"
     cache_root.mkdir(parents=True, exist_ok=True)
     cached = cache_root / f"{key}.json"
-    if cached.is_file():
+    cached_revision = cache_root / f"{key}.revision"
+    if not refresh and cached.is_file() and cached_revision.is_file():
         content = cached.read_bytes()
         _parse_schema(content)
-        return content
+        resolved = cached_revision.read_text(encoding="utf-8").strip()
+        if resolved:
+            return content, resolved
     repository_cache = cache_root / f"{key}.git"
     try:
         if not repository_cache.is_dir():
@@ -277,7 +297,7 @@ def _fetch_schema(state: StateStore, repository: str, revision: str) -> bytes:
                 "--depth",
                 "1",
                 repository,
-                revision,
+                selected_revision,
             ],
             check=True,
             capture_output=True,
@@ -297,15 +317,20 @@ def _fetch_schema(state: StateStore, repository: str, revision: str) -> bytes:
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SchemaSourceError(
-            f"failed to fetch Containerlab schema at {revision} from "
+            f"failed to fetch Containerlab schema at {selected_revision} from "
             f"{sanitize_repository(repository)}"
         ) from error
     content = process.stdout
+    resolved_revision = _git(repository_cache, ("rev-parse", "FETCH_HEAD"), required=True)
+    assert resolved_revision is not None
     _parse_schema(content)
     temporary = cached.with_suffix(".tmp")
     temporary.write_bytes(content)
     temporary.replace(cached)
-    return content
+    temporary_revision = cached_revision.with_suffix(".tmp")
+    temporary_revision.write_text(resolved_revision + "\n", encoding="utf-8")
+    temporary_revision.replace(cached_revision)
+    return content, resolved_revision
 
 
 def _base(

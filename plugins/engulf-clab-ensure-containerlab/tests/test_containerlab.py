@@ -5,10 +5,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+from engulf_clab_schema_api import ContainerlabSourceKind
+
 from engulf_clab_ensure_containerlab.containerlab import (
+    containerlab_source_hint,
     ensure_binary,
     ensure_repo_binary,
     require_containerlab_dependencies,
+    resolved_containerlab_source,
 )
 from engulf_clab_ensure_containerlab.errors import EnsureContainerlabError
 
@@ -55,6 +59,41 @@ class EnsureContainerlabTest(unittest.TestCase):
             )
 
         self.assertEqual(resolved, binary.resolve())
+
+    def test_source_hint_recovers_checkout_from_selected_binary(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout = root / "containerlab"
+            make_checkout(checkout, binary=True)
+            (checkout / "schemas").mkdir()
+            binary = checkout / "bin" / "containerlab"
+
+            hint = containerlab_source_hint(
+                FilesystemState(root / "state"),
+                {"CONTAINERLAB_BIN": str(binary)},
+            )
+            resolved = resolved_containerlab_source(binary)
+
+        self.assertIs(hint.kind, ContainerlabSourceKind.CHECKOUT)
+        self.assertEqual(hint.checkout, checkout.resolve())
+        self.assertFalse(hint.resolved)
+        self.assertIs(resolved.kind, ContainerlabSourceKind.CHECKOUT)
+        self.assertTrue(resolved.resolved)
+
+    @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which", return_value=None)
+    def test_source_hint_uses_managed_checkout_before_repository(self, _which: Mock) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            managed = root / "state" / "containerlab"
+            make_checkout(managed)
+
+            hint = containerlab_source_hint(
+                FilesystemState(root / "state"),
+                {"CONTAINERLAB_REPO": "https://example.test/containerlab.git"},
+            )
+
+        self.assertIs(hint.kind, ContainerlabSourceKind.CHECKOUT)
+        self.assertEqual(hint.checkout, managed)
 
     @patch("engulf_clab_ensure_containerlab.containerlab._run")
     @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which")

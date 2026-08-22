@@ -19,6 +19,7 @@ from .models import (
     JsonScalar,
     JsonValue,
     LifecycleStage,
+    NodeKindDeclaration,
     OptionDeclaration,
     OptionKind,
     PathBase,
@@ -42,6 +43,7 @@ _COMMAND = re.compile(r"^[a-z0-9][a-z0-9_.{}-]*$")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\*)?$")
 _TASK = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _TOOL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
+_NODE_KIND = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 _REFERENCE_SUFFIXES = frozenset({".md", ".txt", ".json", ".yaml", ".yml"})
 _MAX_REFERENCE_BYTES = 1024 * 1024
 _MAX_PROVIDER_BYTES = 8 * 1024 * 1024
@@ -201,6 +203,7 @@ class PluginSchema:
         self._requirements: list[RuntimeRequirement] = []
         self._routes: list[TaskRoute] = []
         self._ordering: list[PluginOrdering] = []
+        self._node_kinds: list[NodeKindDeclaration] = []
         self._keys: set[tuple[object, ...]] = set()
 
     def _add(self, option: OptionDeclaration, key: tuple[object, ...]) -> Self:
@@ -690,6 +693,31 @@ class PluginSchema:
         self._ordering.append(item)
         return self
 
+    def add_node_kind(
+        self,
+        kind: str,
+        explanation: str,
+        *,
+        reference: str,
+    ) -> Self:
+        if not isinstance(kind, str) or _NODE_KIND.fullmatch(kind) is None:
+            raise ValueError("node kind must be an exact lowercase Containerlab kind value")
+        candidate = PurePosixPath(reference)
+        if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+            raise ValueError("node kind reference must be package-relative without traversal")
+        if candidate.suffix.lower() not in _REFERENCE_SUFFIXES:
+            raise ValueError("unsupported node kind reference file type")
+        if any(item.kind == kind for item in self._node_kinds):
+            raise ValueError(f"duplicate node kind declaration: {kind}")
+        self._node_kinds.append(
+            NodeKindDeclaration(
+                kind,
+                _prose(explanation, label="node kind explanation"),
+                candidate.as_posix(),
+            )
+        )
+        return self
+
     def refer(self, path: str | PurePosixPath, *, title: str | None = None) -> Self:
         candidate = PurePosixPath(path)
         if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
@@ -718,6 +746,14 @@ class PluginSchema:
             raise ValueError(
                 f"task routes reference unpackaged resources: {', '.join(missing_routes)}"
             )
+        missing_kind_references = [
+            item.reference for item in self._node_kinds if item.reference not in reference_paths
+        ]
+        if missing_kind_references:
+            raise ValueError(
+                "node kind declarations reference unpackaged resources: "
+                + ", ".join(missing_kind_references)
+            )
         distribution, version = _distribution(self.package)
         return RecordedPluginSchema(
             self.plugin_id,
@@ -732,6 +768,7 @@ class PluginSchema:
             tuple(self._expanded_requirement(item, short_product) for item in self._requirements),
             tuple(self._routes),
             tuple(self._ordering),
+            tuple(self._node_kinds),
         )
 
     def _expanded_option(self, option: OptionDeclaration, short_product: str) -> OptionDeclaration:

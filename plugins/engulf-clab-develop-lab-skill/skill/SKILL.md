@@ -15,6 +15,9 @@ description: Build, refine, validate, operate, and troubleshoot Containerlab lab
 3. Route through the catalog appended below. Read only the relevant provider's
    compact `schema.yaml`, then open a routed reference when detailed syntax,
    lifecycle, security, or troubleshooting information is needed.
+   When the topology uses a specialized `kind:`, open the generated node-kind
+   index, then that kind's small YAML record and only its available
+   Containerlab or vrnetlab reference.
 4. Use `references/current.json` or the catalog JSON for programmatic paths and
    fingerprint checks. Use the full topology schema for validation, not feature
    discovery.
@@ -33,6 +36,8 @@ environment may differ from the local shell.
   services on the failing path, preserving object dependencies.
 - Follow the selected node kind, image, and helper contracts. Keep addressing,
   routing, policy, and credentials in the lab rather than generic helpers.
+- Never assign, rename, or use `eth0` as a topology or data-plane link
+  endpoint. Containerlab reserves it for the node's management interface.
 - Ensure every deployed container provides basic network diagnostics: `ping`,
   `traceroute`, DNS lookup (`nslookup` or equivalent), `nc`, `tcpdump`, or the
   platform's corresponding commands.
@@ -45,8 +50,9 @@ environment may differ from the local shell.
 
 Use the least invasive method that exercises the behavior the lab needs:
 
-1. Use a node's management `eth0` and container-runtime NAT when the test does
-   not care about a data-plane default route. No WAN node is needed.
+1. Rely on the automatic management network and container-runtime NAT when the
+   test does not care about a data-plane default route. Do not author `eth0`
+   into the topology; no WAN node is needed.
 2. Use a packaged WAN-access node with static data-plane addressing when the
    client must route through a WAN node but does not need DHCP.
 3. Enable DHCP on the packaged WAN-access node when the test needs an explicit
@@ -57,8 +63,7 @@ Use the least invasive method that exercises the behavior the lab needs:
 
 Read the chosen provider schema before authoring its controls. Packaged-node
 environment variables and host-managed bridge labels belong to different
-plugins and lifecycles. Management `eth0` carries a node's own traffic; it is
-not a topology link endpoint for another node.
+plugins and lifecycles.
 
 For shared segments, verify endpoint cardinality, bridge ownership, parent
 naming, and helper interface constraints in the selected provider references.

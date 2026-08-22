@@ -23,8 +23,10 @@ diagnostics and must restore the process `PATH` after each call.
 
 ## Development Notes
 
-- Apply only to calls whose wrapped binary is exactly `containerlab`. Keep all
-  probing, provisioning, Git work, and Go builds in `prepare_call()`.
+- Apply only to calls whose wrapped binary is exactly `containerlab`. The
+  read-only source selection published during `before_goal()` may inspect
+  configured paths, `PATH`, and existing managed state. Keep provisioning, Git
+  mutation, dependency probing, and Go builds in `prepare_call()`.
 - Require Docker before resolution. Preserve explicit binary -> configured
   checkout -> `PATH` binary -> managed checkout order and invalid-value
   fallthrough.
@@ -43,4 +45,5 @@ diagnostics and must restore the process `PATH` after each call.
 - Run containerlab resolution/plugin tests plus ensure-checkout tests. Mock Git,
   Go, and dependency lookup; do not clone or build Containerlab in unit tests.
 - Build/install the wheel and inspect active help/plugin discovery. Publish the
-  selected checkout/binary source hint and keep `PLUGIN_SCHEMA` current.
+  selection hint before the terminal schema generator and replace it with the
+  resolved checkout/binary source during preparation.

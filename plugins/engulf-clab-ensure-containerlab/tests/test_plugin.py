@@ -7,7 +7,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_api import InvocationAPI, StateScope
+from engulf_api import BeforeGoalAPI, Invocation, InvocationAPI, StateScope
+from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKind
 from engulf_executable_wrapper_api import AfterCallEvent, CallMode, PreparedCallEvent
 
 from engulf_clab_ensure_containerlab.containerlab import executable
@@ -15,9 +16,41 @@ from engulf_clab_ensure_containerlab.plugin import EnsureContainerlabPlugin
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    @patch("engulf_clab_ensure_containerlab.plugin.record_plugin_schema")
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
+    @patch("engulf_clab_ensure_containerlab.plugin.containerlab_source_hint")
+    def test_before_goal_publishes_side_effect_free_selection(
+        self,
+        select: Mock,
+        publish: Mock,
+        _record: Mock,
+    ) -> None:
+        state = object()
+        source = ContainerlabSourceHint(
+            ContainerlabSourceKind.REPOSITORY,
+            repository="https://example.test/containerlab.git",
+            revision="feature",
+        )
+        select.return_value = source
+        api = Mock(spec=BeforeGoalAPI)
+        api.state.return_value = state
+        invocation = Invocation((), Path("/labs"), {"CONTAINERLAB_VERSION": "feature"})
+
+        EnsureContainerlabPlugin().before_goal(invocation, api)
+
+        api.state.assert_called_once_with(StateScope.USER)
+        select.assert_called_once_with(state, invocation.environment)
+        publish.assert_called_once_with(api, source)
+
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
     @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_dependencies")
     @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
-    def test_prepare_exposes_binary_for_the_wrapped_call(self, ensure: Mock, _dependencies: Mock) -> None:
+    def test_prepare_exposes_binary_for_the_wrapped_call(
+        self,
+        ensure: Mock,
+        _dependencies: Mock,
+        publish: Mock,
+    ) -> None:
         with TemporaryDirectory() as directory:
             binary = Path(directory) / "containerlab"
             binary.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -38,6 +71,9 @@ class PluginLifecycleTest(unittest.TestCase):
 
         self.assertEqual(os.environ.get("PATH", ""), original_path)
         api.state.assert_called_once_with(StateScope.USER)
+        published = publish.call_args.args[1]
+        self.assertIs(published.kind, ContainerlabSourceKind.BINARY)
+        self.assertTrue(published.resolved)
 
     @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
     def test_custom_wrapper_binary_is_not_replaced(self, ensure: Mock) -> None:

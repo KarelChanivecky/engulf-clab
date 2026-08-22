@@ -12,6 +12,10 @@
 - Plugin YAML is the agent-facing capability surface. Keep it compact, omit
   empty/default metadata, and leave the full JSON Schema self-contained for
   validators.
+- The node-kind provider is generated from the resolved Containerlab and
+  vrnetlab source pair. Never substitute packaged default-repository snapshots
+  for custom repositories, guess ambiguous vendor/product mappings, or fail
+  merely because an upstream kind document is absent.
 - Never expose credential-bearing repository URLs or absolute reference source
   paths.
 - The generator imports only stable API packages, not Engulf runtime modules or

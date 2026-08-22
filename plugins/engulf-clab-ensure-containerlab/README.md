@@ -9,6 +9,9 @@ The plugin applies only when the executable-wrapper call targets the standard
 `containerlab` binary. It does not change a custom wrapper binary. Provisioning
 happens in `prepare_call()` after analysis succeeds, under a user-scoped
 repository lease; help rendering and analysis remain side-effect free.
+During `before_goal()`, the plugin publishes the same source selection without
+cloning, updating, or building. After preparation it replaces that hint with
+the exact resolved checkout or binary source for the schema generator.
 
 ## Resolution order
 
@@ -86,6 +89,7 @@ plugin does not install Docker, Go, Git, or operating-system packages.
 
 ## Runtime schema discovery
 
-The plugin records its provisioning variables during `before_goal` and publishes
-the checkout or binary actually selected during preparation. The schema
-generator uses a checkout's existing `schemas/clab.schema.json` first.
+The plugin records its provisioning variables and publishes a side-effect-free
+source selection during `before_goal`. It publishes the resolved checkout or
+binary again during preparation. The schema generator prefers these contexts
+and uses a checkout's existing `schemas/clab.schema.json` first.
