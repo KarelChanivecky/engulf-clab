@@ -43,6 +43,10 @@ It derives from `ExecutableWrapperPlugin` supplied by
 - Build fingerprints belong in `api.state(StateScope.USER)` because Docker
   tags are shared across workspaces. Use Engulf's managed `exists`,
   `read_text`, and `write_text` operations rather than direct filesystem I/O.
+- Require lab-unique requested image tags in help and authoring guidance. This
+  is firm guidance rather than runtime validation: image leases prevent
+  simultaneous mutation, but shared tags still couple independently launched
+  labs to one host-global Docker image identity.
 - State handles are invocation-bound. Obtain and consume the store inside the
   active callback and never retain it on the plugin instance. Keep validation in
   side-effect-free `analyze_call()` and image work in `prepare_call()`.
@@ -57,5 +61,5 @@ It derives from `ExecutableWrapperPlugin` supplied by
 - Run config, source, image, state/vrnetlab, and plugin tests plus the
   ensure-vrnetlab build-pipeline suite. Build/install both wheels and verify
   discovery ordering/context wiring.
-- Regenerate the vrnetlab-build skill references after behavior or
-  documentation changes.
+- Keep `PLUGIN_SCHEMA` aligned with image-source aliases, opt-in variables, and
+  the last-running generator dependency; run `make check-skill`.

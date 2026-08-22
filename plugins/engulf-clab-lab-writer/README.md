@@ -75,3 +75,9 @@ remove that file immediately afterward.
 Run parser and writer tests together after changing option replacement,
 operation resolution, file placement, YAML serialization, atomic publication,
 or cleanup.
+
+## Runtime schema discovery
+
+The writer records its materialization role and this packaged README during
+`before_goal`. Registration is side-effect free and precedes temporary topology
+creation.

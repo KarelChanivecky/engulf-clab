@@ -2,8 +2,26 @@ from __future__ import annotations
 
 import os
 
-from engulf_api import DependencyPosition, InvocationAPI, PluginDependency, StateScope
+from engulf_api import (
+    BeforeGoalAPI,
+    DependencyPosition,
+    GoalResult,
+    Invocation,
+    InvocationAPI,
+    PluginDependency,
+    StateScope,
+)
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_schema_api import (
+    SCHEMA_CONTEXTS,
+    SCHEMA_PLUGIN_DEPENDENCY,
+    LifecycleStage,
+    PathBase,
+    PluginSchema,
+    Privilege,
+    ValueType,
+    record_plugin_schema,
+)
 from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
@@ -24,6 +42,84 @@ from .errors import EnsureVrnetlabError
 from .logging import use_logger
 from .topology import load_topology, topology_needs_vrnetlab, topology_path_from_args
 
+PLUGIN_SCHEMA = (
+    PluginSchema("engulf_clab.ensure_vrnetlab", package="engulf_clab_ensure_vrnetlab")
+    .add_node_var(
+        "ECLAB_VRNETLAB_TYPE",
+        "Opt a node into vrnetlab and select its builder directory.",
+        values=ValueType.STRING,
+    )
+    .add_runtime_var(
+        "VRNETLAB_DIR", "Use an existing vrnetlab checkout.", values=ValueType.DIRECTORY_PATH
+    )
+    .add_runtime_var("VRNETLAB_REPO", "Override the vrnetlab Git repository.", values=ValueType.URI)
+    .add_runtime_var(
+        "VRNETLAB_UPDATE",
+        "Enable the daily checkout update check.",
+        values=ValueType.BOOLEAN,
+        default=False,
+    )
+    .add_runtime_var(
+        "VRNETLAB_VERSION",
+        "Clamp the checkout to a Git tag, commit, or revision.",
+        values=ValueType.STRING,
+    )
+    .annotate(
+        "ECLAB_VRNETLAB_TYPE",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
+        shared_with=("engulf_clab.vrnetlab_build",),
+        implies=("a vrnetlab checkout is required before image construction",),
+        examples=("vendor/router",),
+    )
+    .annotate("VRNETLAB_DIR", commands=("deploy",), path_base=PathBase.INVOCATION_DIRECTORY)
+    .annotate("VRNETLAB_REPO", commands=("deploy",))
+    .annotate(
+        "VRNETLAB_UPDATE",
+        commands=("deploy",),
+        implies=("perform at most one update check per day",),
+    )
+    .annotate(
+        "VRNETLAB_VERSION",
+        commands=("deploy",),
+        implies=("enable revision checking and clamp the checkout",),
+    )
+    .require_host_tool(
+        "git", "Managed vrnetlab checkout resolution uses Git.", commands=("deploy",)
+    )
+    .require_host_tool(
+        "docker", "vrnetlab builders construct container images.", commands=("deploy",)
+    )
+    .require_host_tool(
+        "qemu-img", "Image preparation validates and converts virtual disks.", commands=("deploy",)
+    )
+    .require_host_tool(
+        "qemu-system-x86_64",
+        "vrnetlab image construction boots the virtual appliance.",
+        commands=("deploy",),
+    )
+    .require_privilege(
+        Privilege.CONTAINER_RUNTIME,
+        "The caller must be authorized to use Docker.",
+        commands=("deploy",),
+    )
+    .use_case("Provision vrnetlab only when a deploy contains an opted-in node.")
+    .reject("Do not provision vrnetlab for a topology without ECLAB_VRNETLAB_TYPE.")
+    .order(
+        LifecycleStage.PREPARE_CALL,
+        "The checkout must be available before the vrnetlab image builder consumes it.",
+        after=("engulf_clab.lab_parser",),
+        before=("engulf_clab.vrnetlab_build", "engulf_clab.lab_writer"),
+    )
+    .route(
+        "prepare-vrnetlab",
+        "README.md",
+        "Read checkout selection, prerequisites, and conditional lifecycle.",
+    )
+    .refer("README.md")
+    .refer("AGENTS.md")
+)
+
 
 class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
     plugin_id = ENSURE_VRNETLAB_PLUGIN_ID
@@ -34,9 +130,15 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
             preprocess=DependencyPosition.BEFORE,
             postprocess=None,
         ),
+        SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_writes = frozenset({VRNETLAB_PATH_CONTEXT})
-    context_reads = frozenset({TOPOLOGY_CONTEXT})
+    context_writes = frozenset({VRNETLAB_PATH_CONTEXT}) | SCHEMA_CONTEXTS
+    context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
+
+    def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
+        del invocation
+        record_plugin_schema(api, PLUGIN_SCHEMA)
+        return None
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering vrnetlab checkout help")
@@ -84,7 +186,8 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
 
         try:
             session = api.require_context(TOPOLOGY_CONTEXT)
-            if not isinstance(session, TopologySession): raise EnsureVrnetlabError("invalid shared topology session")
+            if not isinstance(session, TopologySession):
+                raise EnsureVrnetlabError("invalid shared topology session")
             topology_data = session.original_document()
             if not topology_needs_vrnetlab(topology_data):
                 api.logger.debug("no vrnetlab-configured nodes in original topology")

@@ -127,3 +127,9 @@ image entrypoint and consuming lab.
    `containers/wan-access/README.md`.
 5. For data-plane failures, confirm interface numbering, routes, address
    families, injected capabilities, and lab-specific configuration.
+
+## Runtime schema discovery
+
+The collection records every helper-container node variable and snapshots this
+packaged README before the runtime schema generator runs last. Generated skills
+therefore reflect only an installed, active core collection.

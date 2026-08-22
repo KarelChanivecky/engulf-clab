@@ -37,7 +37,7 @@ meta-package to enable the complete maintained set.
 | `mcp-server/README.md` | Privileged local MCP architecture, configuration, tools, security boundary, and operations |
 | `CONTRIBUTING.md` | Development setup, Engulf contracts, documentation standards, validation, commits, and releases |
 | `skills/README.md` | Skill architecture, source synchronization, installation, hooks, packaging, and release workflow |
-| `skills/develop-eclab-lab/SKILL.md` | Concise agent workflow for building and troubleshooting labs |
+| `skills/README.md` | Runtime-generated lab-skill architecture, installation, and contributor contract |
 
 The nearest `AGENTS.md` adds non-user-facing invariants for agents changing a
 specific package. Package source and tests remain the precise specification for
@@ -172,7 +172,7 @@ and source distribution with Twine, and uploads only those fresh artifacts. If
 the URL matches the package repository managed by the neighboring Engulf
 checkout, it verifies that the managed container is active and loads its upload
 token and CA automatically. The publish target explicitly checks that both the
-`engulf-clab-develop-eclab-lab` wheel and source distribution are present before uploading.
+`engulf-clab-develop-lab-skill` wheel and source distribution are present before uploading.
 Set `ENGULF_DIR` when that checkout is not at
 `../engulf`; credentials for other repositories use Twine's normal environment
 variables or configuration.
@@ -423,30 +423,26 @@ engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
 engulf.plugins.v1.application.engulf_clab
 ```
 
-### Repository skill
+### Runtime-generated skill
 
-The canonical `develop-eclab-lab` Codex skill lives under
-`skills/develop-eclab-lab` and is distributed as the separately buildable
-`engulf-clab-develop-eclab-lab` pip package.
-Read [`skills/README.md`](skills/README.md) before changing its definition,
-source mappings, normalizations, package data, installer, or hooks.
-Install a user-level copy and configure this checkout's hooks with:
+Each installed plugin declares its exact controls and packaged references. The
+schema generator emits a task catalog and compact YAML capability file for each
+plugin, while also combining the declarations with the selected Containerlab
+source's `schemas/clab.schema.json` for complete validation.
+`engulf-clab-develop-lab-skill` installs the result as an edition-aware,
+fingerprinted Codex skill. Read
+[`skills/README.md`](skills/README.md) for the contract and lifecycle.
+
+For the standard edition, install it into a Codex configuration root with:
 
 ```bash
-make install-skill
+eclab install-develop-eclab-lab-skill "$CODEX_HOME"
 ```
 
-The pip package embeds the skill and all copied Engulf/ECLAB context. After
-installing `engulf-clab-develop-eclab-lab`, run `develop-eclab-lab-install` to copy the
-embedded skill into `$CODEX_HOME/skills/develop-eclab-lab`, or
-`~/.codex/skills/develop-eclab-lab` when `CODEX_HOME` is unset. The installed
-skill does not need this checkout. Use `develop-eclab-lab-install --check` to
-compare an installed copy with its package and `--skills-dir` / `--backup-dir`
-for non-default locations.
-
-Run `make update-skill` after changing documentation copied into the skill, and
-run `make check-skill` in CI. The hooks compare staged documentation with its
-staged skill reference and reject vendor-specific material in the new skill.
+Other editions receive corresponding command and skill names from callback-bound
+application metadata. The installer refuses unsafe or unrelated destinations
+and refreshes tracked installations after later runtime schema changes. Run
+`make check-skill` in CI.
 Commits that change wrapper, plugin, or MCP behavior or documentation must
 include exactly one review trailer:
 
@@ -454,8 +450,7 @@ include exactly one review trailer:
 Skill-Impact: updated
 ```
 
-or `Skill-Impact: none`. The `updated` value requires a staged change beneath
-`skills/develop-eclab-lab/`.
+or `Skill-Impact: none`.
 
 ## License
 

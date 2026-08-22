@@ -31,7 +31,11 @@ class PluginLifecycleTest(unittest.TestCase):
     def test_help_identifies_node_environment_fields(self) -> None:
         help_text = VrnetlabPlugin().help(self.api())
 
-        self.assertIn("Node YAML env fields:", help_text)
+        self.assertIn("Node YAML fields:", help_text)
+        self.assertIn(
+            "image                      Use a lab-unique requested Docker tag",
+            help_text,
+        )
         self.assertIn(
             "ECLAB_VRNETLAB_TYPE      Opt in and select the vrnetlab builder",
             help_text,

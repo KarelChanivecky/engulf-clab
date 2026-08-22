@@ -145,3 +145,9 @@ managed bridges remain. A pre-existing bridge is preserved.
   while another workspace claims the bridge.
 - If an outside tool changes a managed address/rule/process, reconcile that host
   state deliberately; ownership checks may refuse destructive cleanup.
+
+## Runtime schema discovery
+
+The plugin records every fixed-prefix WAN label, the uplink variable, and this
+packaged README during `before_goal`. The terminal generator exposes them only
+for an active WAN plugin.

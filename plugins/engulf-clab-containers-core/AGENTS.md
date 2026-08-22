@@ -29,5 +29,5 @@ environment-driven, and reusable across labs. The fixed collection plugin ID is
   parsers and generators separately; use a real build only when explicitly
   authorized and necessary to validate an image change.
 - Run core tests plus container API and manager tests, build the wheel, inspect
-  packaged assets, and verify installed catalog help. Regenerate all affected
-  skill references after documentation changes.
+  packaged assets, and verify installed catalog help. Keep `PLUGIN_SCHEMA` and
+  its last-running generator dependency aligned with recipe controls.

@@ -45,4 +45,5 @@ injectors can contribute packaged Dockerfile recipes.
   constructed Docker argv synchronized.
 - Run config, build, and plugin tests; include parser/manager/core tests when
   changing materialized-topology behavior. Mock Docker in automated tests.
-- Regenerate the skill's Dockerfile and development references after changes.
+- Keep `PLUGIN_SCHEMA` aligned with every node/runtime variable and retain the
+  last-running schema dependency. Run `make check-skill` after changes.

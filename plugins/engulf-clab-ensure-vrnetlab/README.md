@@ -85,3 +85,8 @@ Docker/Make work.
   that builder exists.
 - Under MCP, configure checkout controls and topology-referenced image-source
   paths service-side; callers cannot override protected inputs.
+
+## Runtime schema discovery
+
+The plugin records its checkout and node opt-in controls and snapshots this
+packaged README before the runtime schema generator runs last.

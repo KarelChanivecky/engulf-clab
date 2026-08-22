@@ -30,5 +30,5 @@ through the shared topology editor.
 - Keep runtime help, README, freeze redaction, MCP profile restrictions, and
   state tests synchronized.
 - Run frozen-prompt tests plus parser/writer/freeze tests after behavior changes.
-  Use temporary dummy files; never use real licenses. Regenerate the license
-  skill references after changes.
+  Use temporary dummy files; never use real licenses. Keep `PLUGIN_SCHEMA`
+  synchronized with fixed-prefix and edition-aware license controls.

@@ -1,9 +1,9 @@
 # Contributing to engulf-clab
 
 This monorepo releases the `eclab` wrapper, a local privileged MCP service,
-independent Engulf plugin distributions, and the packaged `develop-eclab-lab`
-Codex skill. A change is complete only when its behavior, runtime help,
-user-facing README, contributor guidance, and bundled skill snapshot agree.
+independent Engulf plugin distributions, and a runtime-generated lab-development
+Codex skill. A change is complete only when behavior, runtime help, package
+documentation, schema declarations, and tests agree.
 
 ## Contents
 
@@ -12,7 +12,7 @@ user-facing README, contributor guidance, and bundled skill snapshot agree.
 - [Engulf plugin contract](#engulf-plugin-contract)
 - [Adding or changing a plugin](#adding-or-changing-a-plugin)
 - [Documentation contract](#documentation-contract)
-- [Skill synchronization](#skill-synchronization)
+- [Runtime schema and skill](#runtime-schema-and-skill)
 - [Validation](#validation)
 - [Commits and releases](#commits-and-releases)
 
@@ -23,8 +23,9 @@ user-facing README, contributor guidance, and bundled skill snapshot agree.
 | `engulf-clab/` | Defines the `eclab` application and wraps Containerlab. | `engulf-clab` |
 | `plugins/<distribution>/` | Implements one feature or shared typed contract. | One Python distribution per directory |
 | `mcp-server/` | Provides the stdio bridge, privileged daemon, installer, and systemd unit. | `engulf-clab-mcp` |
-| `skills/develop-eclab-lab/` | Holds the canonical skill, embedded references, and pip installer. | `engulf-clab-develop-eclab-lab` |
-| `scripts/` and `.githooks/` | Synchronize and validate the skill and commit metadata. | Repository tooling only |
+| `plugins/engulf-clab-schema-api/` | Stable plugin schema declaration and invocation-state contract. | `engulf-clab-schema-api` |
+| `plugins/engulf-clab-schema/` | Compiles Containerlab and active-plugin schemas at runtime. | `engulf-clab-schema` |
+| `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes an edition-aware generated skill. | `engulf-clab-develop-lab-skill` |
 
 The wrapper imports the `engulf` runtime. Runtime plugins import the stable
 `engulf_api` and `engulf_executable_wrapper_api` contracts, not their runtime
@@ -170,24 +171,18 @@ examples generic unless the package is intentionally product-specific. Never
 put credentials, license contents, private paths, or profile secrets in an
 example.
 
-## Skill synchronization
+## Runtime schema and skill
 
-The canonical skill lives in `skills/develop-eclab-lab`; installed copies are
-outputs, not sources. Its references are normalized snapshots of this monorepo
-and the neighboring Engulf repository. Read `skills/README.md` for the complete
-maintenance, packaging, installation, hook, and release workflow.
+Each feature plugin owns an import-time `PluginSchema` builder and records its
+immutable snapshot during `before_goal`. The generator runs last and composes
+those snapshots with the exact selected Containerlab schema. Detailed references
+come from packaged `README.md` and `AGENTS.md` resources, not repository mirrors.
 
-After changing a mirrored README or `AGENTS.md`, synchronize and validate:
-
-```bash
-ENGULF_DIR=../cliwrap make update-skill
-ENGULF_DIR=../cliwrap make check-skill
-```
-
-Do not edit generated reference snapshots independently. Add a source mapping
-or a documented normalization when new authoritative context is required. Keep
-`SKILL.md` procedural and concise; put detailed package contracts in
-`references/` so an agent loads them only when relevant.
+After changing a declaration, referenced document, compiler, or skill template,
+run `make check-skill`. Keep every option explanation to one line and at most
+240 characters. The generated `SKILL.md` stays procedural and concise; detailed
+package contracts and the composed JSON Schema live under fingerprinted
+references.
 
 ## Validation
 
@@ -201,7 +196,7 @@ from an installed development environment are:
 .venv/bin/eclab --help
 .venv/bin/eclab --engulf-plugin-list
 .venv/bin/eclab --eclab-containers-help
-ENGULF_DIR=../cliwrap make check-skill
+make check-skill
 git diff --check
 ```
 
@@ -221,23 +216,20 @@ privileged MCP installation unless the task explicitly requires them.
 
 ## Commits and releases
 
-Repository hooks are installed by `make install-skill`. The pre-commit hook
-checks staged source/reference parity and rejects vendor-specific content in the
-generic skill. The commit-message hook requires exactly one trailer when a
-wrapper, plugin, MCP, or mirrored documentation change may affect the skill:
+Commits that change wrapper, plugin, MCP, schema, skill, or related documentation
+need exactly one review trailer:
 
 ```text
 Skill-Impact: updated
 ```
 
-Use `Skill-Impact: none` only after reviewing the skill and determining that no
-instruction or bundled reference changes. An `updated` commit must stage a
-change under `skills/develop-eclab-lab/`.
+Use `Skill-Impact: updated` when runtime declarations, compiler output, or the
+generated skill contract changes. Use `none` only after reviewing the impact.
 
 Keep commits focused. Before releasing, update each changed distribution's
 version and compatible dependency range together, build all artifacts with
 `make build`, inspect the wheel contents, and publish only freshly built output.
 `TWINE_REPOSITORY_URL` selects the package index; `publish.sh` can obtain local
 managed-repository credentials from the neighboring Engulf checkout. The
-publish target also verifies that the self-contained `engulf-clab-develop-eclab-lab` wheel
+publish target also verifies that the `engulf-clab-develop-lab-skill` wheel
 and sdist are included before any upload occurs.

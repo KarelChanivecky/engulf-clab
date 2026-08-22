@@ -45,7 +45,13 @@ serial builds or when builds compete for host memory or disk bandwidth.
 
 The node `image` may differ from the native tag emitted by the builder. After a
 successful build, the plugin retains the native tag and adds the requested node
-image tag. `ECLAB_VM_IMG` is also accepted as a compatibility alias;
+image tag. Use a requested image value unique to the lab, such as a tag that
+includes the lab name. Do not reuse that mutable requested tag across
+independently launched labs. Docker tags and build-fingerprint state are shared
+across workspaces, so lab-unique values avoid cross-lab tag contention and allow
+multiple labs to launch concurrently.
+
+`ECLAB_VM_IMG` is also accepted as a compatibility alias;
 `ECLAB_VM_SRC` remains accepted as an older alias. Both aliases are unrelated
 to the fixed `ECLAB` prefix above.
 
@@ -148,3 +154,9 @@ override.
   checkout revision, builder type, requested tag, and fingerprint state.
 - Preserve the builder directory and diagnostics after failure; the plugin
   should restore original qcow2 inputs and remove only its temporary artifacts.
+
+## Runtime schema discovery
+
+The plugin records opt-in, image-source, compatibility-alias, and concurrency
+controls and snapshots this packaged README before the runtime schema generator
+runs last.

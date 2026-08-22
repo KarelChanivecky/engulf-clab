@@ -21,6 +21,7 @@ class FreezePluginTest(unittest.TestCase):
         workspace = MagicMock(spec=WorkspaceState)
         workspace.root = Path("/labs/demo")
         api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = ()
         api.state.return_value = workspace
         api.leases.return_value.__enter__.return_value = None
         api.application = MagicMock(spec=ApplicationMetadata)
@@ -56,6 +57,7 @@ class FreezePluginTest(unittest.TestCase):
         workspace.root = Path("/labs/demo")
         user_state = MagicMock(spec=WorkspaceState)
         api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = ()
         api.state.side_effect = lambda scope: {
             StateScope.WORKSPACE: workspace,
             StateScope.USER: user_state,
@@ -94,6 +96,9 @@ class FreezePluginTest(unittest.TestCase):
 
     def test_non_freeze_invocations_continue_to_the_wrapped_goal(self) -> None:
         api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = ()
+        api.application = MagicMock(spec=ApplicationMetadata)
+        api.application.short_product_name = "fclab"
         invocation = Invocation(("deploy", "-t", "lab.clab.yml"), Path.cwd(), {})
 
         with patch("engulf_clab_freeze.plugin.run_freeze_command") as command:

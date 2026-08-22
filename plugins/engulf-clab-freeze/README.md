@@ -162,3 +162,9 @@ make freeze fail instead of risking inclusion. The legacy
   ignore rule; freeze will not dereference external content implicitly.
 - If an old archive is unexpectedly excluded, remove it and freeze again; stale
   tracking records are pruned automatically.
+
+## Runtime schema discovery
+
+Before handling or bypassing `freeze`, the plugin records the command, its
+command-scoped flags, and this packaged README for the terminal runtime schema
+generator.

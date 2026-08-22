@@ -13,6 +13,9 @@ discovers those installed entry points when `engulf-clab` runs.
 
 | Distribution | Installed capability |
 | --- | --- |
+| `engulf-clab-schema-api` | Stable declaration builder and shared invocation-state contract. |
+| `engulf-clab-schema` | Last-running compiler for the exact Containerlab source and active plugin set. |
+| `engulf-clab-develop-lab-skill` | Edition-aware command that installs and refreshes a generated Codex lab skill. |
 | `engulf-clab-lab-parser` and `engulf-clab-lab-writer` | Immutable source-topology session and temporary derived-topology collector. |
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
 | `engulf-clab-ensure-containerlab` | Containerlab executable discovery, managed checkout, update, and build. |
@@ -61,7 +64,7 @@ Python environment's package manager to remove individual features.
 ## Compatibility and releases
 
 The meta-package pins every maintained feature to its compatible `0.1` release
-line and the stable container API to its `1.x` line through transitive
+line and the stable container and schema APIs to their `1.x` lines through
 dependencies. When a maintained plugin is added, removed, or moves to an
 incompatible series, update this dependency set and this table in the same
 release. The package contains no runtime configuration, source topology fields,

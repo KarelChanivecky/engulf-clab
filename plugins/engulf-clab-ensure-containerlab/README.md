@@ -83,3 +83,9 @@ plugin does not install Docker, Go, Git, or operating-system packages.
   explicitly when safe; the plugin deliberately refuses to overwrite it.
 - Under MCP, configure fixed Containerlab/eclab executable paths and checkout
   controls service-side. Caller overrides for these variables are rejected.
+
+## Runtime schema discovery
+
+The plugin records its provisioning variables during `before_goal` and publishes
+the checkout or binary actually selected during preparation. The schema
+generator uses a checkout's existing `schemas/clab.schema.json` first.

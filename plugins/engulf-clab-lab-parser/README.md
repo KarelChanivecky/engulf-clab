@@ -122,3 +122,9 @@ recipes—may call `materialize()` during preparation without writing a file.
 Run parser tests after changing selection, freezing, path resolution, operation
 precedence, conflicts, copying, or materialization. Run every mutator and writer
 suite after a public session/operation behavior change.
+
+## Runtime schema discovery
+
+The parser records its role, exclusions, and this packaged README during
+`before_goal`. Base topology syntax remains owned by the exact Containerlab
+schema composed by the terminal generator.

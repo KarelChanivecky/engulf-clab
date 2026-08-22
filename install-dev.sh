@@ -54,6 +54,9 @@ fi
 "${engulf_root}/build.sh"
 
 local_packages=(
+    "plugins/engulf-clab-schema-api"
+    "plugins/engulf-clab-schema"
+    "plugins/engulf-clab-develop-lab-skill"
     "plugins/engulf-clab-ensure-checkout"
     "plugins/engulf-clab-lab-parser"
     "plugins/engulf-clab-lab-writer"

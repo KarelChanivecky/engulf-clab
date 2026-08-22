@@ -23,5 +23,5 @@ mutation API. Do not write topology files here.
   behavior as a shared compatibility contract. Update README API detail and
   tests together.
 - Run parser tests plus writer and every direct topology-mutator suite after a
-  contract change. Use temporary YAML only; never deploy. Regenerate parser
-  skill references after changes.
+  contract change. Use temporary YAML only; never deploy. Preserve schema
+  registration before the generator's terminal preprocessing position.

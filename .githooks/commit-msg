@@ -1,5 +1,13 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(git rev-parse --show-toplevel)
-exec python3 "$repo_root/scripts/develop_eclab_lab_skill.py" --repo "$repo_root" commit-message "$1"
+changed=$(git diff --cached --name-only)
+if ! printf '%s\n' "$changed" | rg -q '^(engulf-clab/|plugins/|mcp-server/|README\.md$|CONTRIBUTING\.md$|skills/)'; then
+    exit 0
+fi
+
+count=$(rg -c '^Skill-Impact: (updated|none)$' "$1" || true)
+if [ "$count" != "1" ]; then
+    echo "error: affected commits require exactly one Skill-Impact: updated|none trailer" >&2
+    exit 1
+fi

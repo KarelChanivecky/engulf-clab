@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
+    "engulf-clab-schema-api>=1.0,<2",
+    "engulf-clab-schema>=0.1,<0.2",
+    "engulf-clab-develop-lab-skill>=0.1,<0.2",
     "engulf-clab-containers>=0.1,<0.2",
     "engulf-clab-containers-core>=0.1,<0.2",
     "engulf-clab-license-pool>=0.1,<0.2",
@@ -20,6 +23,7 @@ dependencies = [
     "engulf-clab-ensure-containerlab>=0.1,<0.2",
     "engulf-clab-ensure-vrnetlab>=0.1,<0.2",
     "engulf-clab-vrnetlab-build>=0.1,<0.2",
+    "engulf-clab-wan>=0.1,<0.2",
 ]
 
 [tool.hatch.build.targets.wheel]

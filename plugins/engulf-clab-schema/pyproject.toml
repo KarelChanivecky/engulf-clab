@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-schema"
+version = "0.1.0"
+description = "Runtime Containerlab and Engulf plugin schema generator"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0,<2",
+    "PyYAML>=6.0,<7",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.schema" = "engulf_clab_schema:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.schema" = "engulf_clab_schema:plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_schema"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_schema/README.md"
+"AGENTS.md" = "engulf_clab_schema/AGENTS.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/build.sh", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_schema"]

@@ -1,7 +1,10 @@
 PYTHON := .venv/bin/python
-SKILL_PACKAGE_DIR := skills/engulf-clab-develop-eclab-lab
-SKILL_DISTRIBUTION := engulf-clab-develop-eclab-lab
+SKILL_PACKAGE_DIR := plugins/engulf-clab-develop-lab-skill
+SKILL_DISTRIBUTION := engulf-clab-develop-lab-skill
 PACKAGE_DIRS := \
+	plugins/engulf-clab-schema-api \
+	plugins/engulf-clab-schema \
+	plugins/engulf-clab-develop-lab-skill \
 	plugins/engulf-clab-containers-api \
 	plugins/engulf-clab-lab-parser \
 	plugins/engulf-clab-lab-writer \
@@ -16,11 +19,10 @@ PACKAGE_DIRS := \
 	plugins/engulf-clab-license-pool \
 	plugins/engulf-clab-freeze \
 	plugins/engulf-clab-all-plugins \
-	$(SKILL_PACKAGE_DIR) \
 	engulf-clab \
 	mcp-server
 
-.PHONY: environment clean-dist build publish install-skill update-skill check-skill
+.PHONY: environment clean-dist build publish check-skill
 
 environment:
 	@if [ ! -d .venv ]; then \
@@ -52,21 +54,18 @@ publish: build
 		echo "error: TWINE_REPOSITORY_URL is required" >&2; \
 		exit 1; \
 	}
-	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_eclab_lab-*.whl' -print -quit)" || { \
+	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_lab_skill-*.whl' -print -quit)" || { \
 		echo "error: $(SKILL_DISTRIBUTION) wheel is missing from the release artifacts" >&2; \
 		exit 1; \
 	}
-	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_eclab_lab-*.tar.gz' -print -quit)" || { \
+	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_lab_skill-*.tar.gz' -print -quit)" || { \
 		echo "error: $(SKILL_DISTRIBUTION) sdist is missing from the release artifacts" >&2; \
 		exit 1; \
 	}
 	@$(PYTHON) -m twine upload --repository-url "$$TWINE_REPOSITORY_URL" dist/*/*
 
-install-skill:
-	@./scripts/install-develop-eclab-lab
-
-update-skill:
-	@./scripts/update-develop-eclab-lab
-
 check-skill:
-	@./scripts/update-develop-eclab-lab --check
+	@$(PYTHON) -m pytest -q \
+		plugins/engulf-clab-schema-api/tests \
+		plugins/engulf-clab-schema/tests \
+		plugins/engulf-clab-develop-lab-skill/tests

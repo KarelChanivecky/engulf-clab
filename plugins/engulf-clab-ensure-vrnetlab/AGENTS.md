@@ -49,5 +49,5 @@ It derives from `ExecutableWrapperPlugin` supplied by
   ensure-checkout tests. Mock Docker/QEMU/Git lookup and never build vendor
   images in unit tests.
 - Build/install the wheel and verify active help/discovery with the downstream
-  builder installed. Regenerate both ensure-vrnetlab skill references after
-  behavior or documentation changes.
+  builder installed. Keep `PLUGIN_SCHEMA` and its last-running generator
+  dependency aligned with checkout and opt-in controls.

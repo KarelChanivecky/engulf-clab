@@ -15,6 +15,9 @@ fi
     engulf-clab-mcp \
     engulf-clab \
     engulf-clab-all-plugins \
+    engulf-clab-develop-lab-skill \
+    engulf-clab-schema \
+    engulf-clab-schema-api \
     engulf-clab-health-gates \
     engulf-clab-containers-core \
     engulf-clab-containers \

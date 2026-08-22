@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import unittest
 
+from engulf_api import ApplicationMetadata
 from engulf_clab_containers_api import ContainerCollectionPlugin, ContainerDefinition
+from engulf_clab_schema_api import ExplainedValue, ValueMode, ValueType
 
 from engulf_clab_containers_core import HOST_CONNECTOR, WAN_ACCESS, plugin
+from engulf_clab_containers_core.plugin import PLUGIN_SCHEMA
+
+APPLICATION = ApplicationMetadata(
+    application_id="engulf-clab",
+    display_name="ECLAB",
+    vendor="Engulf",
+    product="ECLAB",
+    short_product_name="eclab",
+    version="1.0",
+)
 
 
 class CollectionTest(unittest.TestCase):
@@ -45,6 +57,36 @@ class CollectionTest(unittest.TestCase):
                     (definition.build.context / source).exists(),
                     f"{definition.name}: missing COPY source {source}",
                 )
+
+    def test_schema_advertises_images_and_packages_per_node_guides(self) -> None:
+        snapshot = PLUGIN_SCHEMA.snapshot(APPLICATION)
+        image = next(option for option in snapshot.options if option.name == "image")
+
+        self.assertIs(image.value_mode, ValueMode.TYPE)
+        self.assertEqual(image.values, (ValueType.IMAGE_REFERENCE.value,))
+        self.assertEqual(
+            image.explained_values,
+            (
+                ExplainedValue(
+                    "eclab-containers/host-connector",
+                    "Map lab-facing VIPs to external IPv4 or IPv6 hosts through management networking.",
+                ),
+                ExplainedValue(
+                    "eclab-containers/wan-access",
+                    "Provide outbound IPv4 NAT with optional DHCP on one lab-facing interface.",
+                ),
+            ),
+        )
+        paths = {reference.path for reference in snapshot.references}
+        self.assertIn("containers/host-connector/README.md", paths)
+        self.assertIn("containers/wan-access/README.md", paths)
+        routes = {route.task: route.reference for route in snapshot.routes}
+        self.assertEqual(
+            routes["connect-lab-to-host"], "containers/host-connector/README.md"
+        )
+        self.assertEqual(
+            routes["provide-lab-wan-access"], "containers/wan-access/README.md"
+        )
 
 if __name__ == "__main__":
     unittest.main()

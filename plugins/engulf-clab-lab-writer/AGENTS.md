@@ -17,4 +17,4 @@ YAML file, and always attempts cleanup in `after_call()`.
   mutation logic, state, leases, or runtime help.
 - Keep README argv/file/cleanup behavior and parser contracts synchronized.
 - Run writer plus parser and direct mutator tests. Use temporary files; never run
-  Containerlab. Regenerate writer skill references after changes.
+  Containerlab. Keep schema registration separate from temporary-file work.

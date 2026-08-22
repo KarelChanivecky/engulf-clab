@@ -12,6 +12,8 @@ license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0,<2",
+    "engulf-clab-schema>=0.1,<0.2",
     "engulf-clab-lab-parser>=0.1.2,<0.2",
     "PyYAML>=6.0",
 ]
@@ -24,6 +26,10 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_dockerfile_build"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_dockerfile_build/README.md"
+"AGENTS.md" = "engulf_clab_dockerfile_build/AGENTS.md"
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]

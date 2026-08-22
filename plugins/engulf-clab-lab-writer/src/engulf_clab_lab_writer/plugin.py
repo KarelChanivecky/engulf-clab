@@ -6,12 +6,26 @@ import uuid
 from pathlib import Path
 
 import yaml
-from engulf_api import DependencyPosition, InvocationAPI, PluginDependency
+from engulf_api import (
+    BeforeGoalAPI,
+    DependencyPosition,
+    GoalResult,
+    Invocation,
+    InvocationAPI,
+    PluginDependency,
+)
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
     WRITER_TEMP_PREFIX,
     TopologySession,
     topology_path_from_args,
+)
+from engulf_clab_schema_api import (
+    SCHEMA_CONTEXTS,
+    SCHEMA_PLUGIN_DEPENDENCY,
+    LifecycleStage,
+    PluginSchema,
+    record_plugin_schema,
 )
 from engulf_executable_wrapper_api import (
     AdditionPlacement,
@@ -25,6 +39,25 @@ from engulf_executable_wrapper_api import (
 )
 
 _PREFIX = WRITER_TEMP_PREFIX
+PLUGIN_SCHEMA = (
+    PluginSchema("engulf_clab.lab_writer", package="engulf_clab_lab_writer")
+    .use_case(
+        "Materialize all plugin topology edits into a temporary topology for Containerlab."
+    )
+    .reject("Do not edit or persist the generated temporary topology.")
+    .order(
+        LifecycleStage.PREPARE_CALL,
+        "The writer runs after the parser and topology mutators so it serializes their final result.",
+        after=("engulf_clab.lab_parser",),
+    )
+    .route(
+        "materialize-topology",
+        "README.md",
+        "Read temporary topology ownership, forwarding, and cleanup behavior.",
+    )
+    .refer("README.md")
+    .refer("AGENTS.md")
+)
 
 
 class TopologyCollectorPlugin(ExecutableWrapperPlugin):
@@ -36,8 +69,17 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
             preprocess=DependencyPosition.BEFORE,
             postprocess=None,
         ),
+        SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_reads = frozenset({TOPOLOGY_CONTEXT})
+    context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
+    context_writes = SCHEMA_CONTEXTS
+
+    def before_goal(
+        self, invocation: Invocation, api: BeforeGoalAPI
+    ) -> GoalResult[object] | None:
+        del invocation
+        record_plugin_schema(api, PLUGIN_SCHEMA)
+        return None
 
     def analyze_call(
         self, event: BeforeCallEvent, api: InvocationAPI
@@ -65,7 +107,7 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
             return
         session = api.require_context(TOPOLOGY_CONTEXT)
         if not isinstance(session, TopologySession):
-            raise RuntimeError("invalid topology session")
+            raise TypeError("invalid topology session")
         target = _generated_path(event.effective_args)
         if target is None:
             raise RuntimeError("generated topology argument is missing")
@@ -92,7 +134,9 @@ def _topology_indexes(args: tuple[str, ...]) -> set[int]:
     for index, value in enumerate(args):
         if value in {"-t", "--topo", "--topology"}:
             indexes.update((index, index + 1))
-        elif any(value.startswith(prefix) for prefix in ("-t=", "--topo=", "--topology=")):
+        elif any(
+            value.startswith(prefix) for prefix in ("-t=", "--topo=", "--topology=")
+        ):
             indexes.add(index)
     return {index for index in indexes if index < len(args)}
 

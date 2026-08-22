@@ -9,10 +9,11 @@ wrapper and separately publishable Engulf plugin packages.
 - `plugins/` contains one directory per plugin distribution.
 - `mcp-server/` contains the separately publishable local privileged control
   service and unprivileged stdio bridge.
-- `skills/develop-eclab-lab/` contains the canonical, separately publishable
-  Codex skill and its generated reference snapshots.
+- `plugins/engulf-clab-schema-api/`, `plugins/engulf-clab-schema/`, and
+  `plugins/engulf-clab-develop-lab-skill/` own runtime schema declaration,
+  compilation, and generated Codex skill installation respectively.
 - `CONTRIBUTING.md` is the human-facing development and validation guide;
-  `skills/README.md` is the authoritative skill-maintenance guide.
+  `skills/README.md` documents the runtime-generated skill lifecycle.
 - Each plugin directory must be self-contained and publishable as its own Python
   package.
 
@@ -87,27 +88,20 @@ example `engulf_clab.example`.
   concise enough to scan while pointing to any secondary discovery option.
 - Keep examples generic and safe. Never commit credentials, license contents,
   private repository URLs, privileged profile paths, or service secrets.
-- After editing any mirrored README or `AGENTS.md`, run
-  `ENGULF_DIR=<checkout> make update-skill`; do not hand-edit its generated
-  counterpart in `skills/develop-eclab-lab/references/`.
+- Plugin README and `AGENTS.md` files referenced with `PluginSchema.refer()` are
+  snapshotted from the installed distribution and embedded during compilation.
 
 ## Skill Package Requirements
 
-- Keep `skills/develop-eclab-lab/SKILL.md` under 500 lines and focused on the
-  core procedure. Put detailed API, plugin, schema, and troubleshooting context
-  in one-level-deep `references/` files and route them directly from the skill.
-- Keep frontmatter limited to `name` and `description`. The description must
-  state both capability and triggering contexts. Keep `agents/openai.yaml`
-  aligned with the definition and use `$develop-eclab-lab` in its default
-  prompt.
-- The pip wheel must embed `SKILL.md`, `agents/`, and `references/`; an installed
-  skill must not depend on this repository. The installer must publish through
-  a staging directory, preserve recognized previous installations as backups,
-  and refuse unknown destinations.
-- Update `LOCAL_SOURCES`, `ENGULF_SOURCES`, normalizations, and
-  `references/source-index.md` together when changing bundled context.
-  Normalizations may genericize examples but must not conceal behavior
-  differences.
+- Keep the static template in `plugins/engulf-clab-develop-lab-skill/skill/`
+  concise and put runtime detail in the compiler-generated `references/` tree.
+- The generated skill name, command, and prompt must derive from callback-bound
+  application metadata. Install atomically, back up only recognized generated
+  targets, refuse symlinks and unknown targets, and retain fingerprinted runtime
+  snapshots for existing conversations.
+- Every runtime control needs a `PluginSchema` declaration with a one-line
+  explanation of at most 240 characters. Use packaged `refer()` snapshots for
+  detailed material.
 - Reject vendor-specific assumptions in the generic skill. Runtime and edition
   selection must come before plugin-specific authoring, and runtime help remains
   authoritative for installed availability.
@@ -131,10 +125,11 @@ example `engulf_clab.example`.
   checkout changes affect both ensure plugins.
 - Check installed documentation surfaces with `.venv/bin/eclab --help`,
   `.venv/bin/eclab --engulf-plugin-list`, and any advertised secondary help.
-- Run `make check-skill` after behavior or documentation changes and inspect
-  every regenerated reference diff. Validate a release candidate by building
-  the skill wheel, installing it into a temporary virtual environment and
-  skills directory, and running `develop-eclab-lab-install --check`.
-- Commits that change wrapper, plugin, MCP, or mirrored documentation paths need
-  exactly one `Skill-Impact: updated` or `Skill-Impact: none` trailer. Use
-  `updated` only with a staged skill change.
+- Run `make check-skill` after schema, plugin behavior, or generated-skill
+  changes. Validate a release candidate by building the three schema/skill
+  packages and invoking the edition-aware install command against a temporary
+  configuration root.
+- Commits that change wrapper, plugin, MCP, schema, skill, or referenced
+  documentation paths need exactly one `Skill-Impact: updated` or
+  `Skill-Impact: none` trailer. Use `updated` when declarations, compilation, or
+  the generated skill contract changes.

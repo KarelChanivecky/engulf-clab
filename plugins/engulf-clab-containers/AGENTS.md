@@ -29,5 +29,5 @@ the Dockerfile builder and lab writer.
 - Run manager tests, container API tests, and at least one installed core
   collection discovery/help check. Package-data behavior must be tested from a
   built wheel when paths or assets change.
-- Regenerate the skill's manager/development references after behavior or
-  documentation changes.
+- Record `PLUGIN_SCHEMA` during `before_goal`; the schema dependency must remain
+  last and reference snapshots come from built package data. Run `make check-skill`.

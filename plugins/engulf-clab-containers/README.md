@@ -118,3 +118,9 @@ credentials, seeds, certificates, routes, and policies into consuming labs.
   running from a source checkout can hide package-data omissions.
 - If a Docker build fails, continue with the Dockerfile builder's diagnostics;
   successful injection does not prove Docker access or Dockerfile correctness.
+
+## Runtime schema discovery
+
+At `before_goal`, the plugin records its controls and snapshots this packaged
+README for the last-running runtime schema generator. Generated skills therefore
+describe the installed manager version and active collections.

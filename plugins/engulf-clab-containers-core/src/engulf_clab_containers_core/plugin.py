@@ -2,11 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from engulf_api import BeforeGoalAPI, GoalResult, Invocation, PluginDependency
 from engulf_clab_containers_api import (
     ContainerBuildRecipe,
     ContainerCollectionPlugin,
     ContainerDefinition,
     ContainerNodeRequirements,
+)
+from engulf_clab_schema_api import (
+    SCHEMA_CONTEXTS,
+    SCHEMA_PLUGIN_DEPENDENCY,
+    ExplainedValue,
+    LifecycleStage,
+    PluginSchema,
+    ValueType,
+    record_plugin_schema,
 )
 
 _PACKAGE = Path(__file__).resolve().parent
@@ -47,7 +57,134 @@ WAN_ACCESS = ContainerDefinition(
     ),
 )
 
-plugin = ContainerCollectionPlugin(
-    "eclab.containers",
-    (HOST_CONNECTOR, WAN_ACCESS),
+PLUGIN_SCHEMA = (
+    PluginSchema("eclab.containers", package="engulf_clab_containers_core")
+    .add_node_prop(
+        "image",
+        "Select an ordinary image reference or one of this collection's packaged helpers.",
+        values=(
+            ValueType.IMAGE_REFERENCE,
+            ExplainedValue(
+                "eclab-containers/host-connector",
+                "Map lab-facing VIPs to external IPv4 or IPv6 hosts through management networking.",
+            ),
+            ExplainedValue(
+                "eclab-containers/wan-access",
+                "Provide outbound IPv4 NAT with optional DHCP on one lab-facing interface.",
+            ),
+        ),
+    )
+    .add_node_var(
+        "ECLAB_CONNECT_HOST",
+        "Map the default lab-facing VIP to a host with VIP;HOST syntax.",
+        values=ValueType.STRING,
+    )
+    .add_node_var(
+        "ECLAB_CONNECT_HOST_*",
+        "Map the wildcard suffix to another VIP;HOST pair.",
+        values=ValueType.STRING,
+    )
+    .add_node_var(
+        "ECLAB_DHCP_SUBNET",
+        "Enable DHCP and set the wan-access IPv4 subnet.",
+        values=ValueType.IPV4_CIDR,
+    )
+    .add_node_var(
+        "ECLAB_DHCP_GATEWAY", "Set the wan-access DHCP gateway.", values=ValueType.IPV4_ADDRESS
+    )
+    .add_node_var(
+        "ECLAB_DHCP_POOL_START",
+        "Set the first wan-access DHCP address.",
+        values=ValueType.IPV4_ADDRESS,
+    )
+    .add_node_var(
+        "ECLAB_DHCP_POOL_END",
+        "Set the last wan-access DHCP address.",
+        values=ValueType.IPV4_ADDRESS,
+    )
+    .add_node_var(
+        "ECLAB_DHCP_DNS", "Set the wan-access DHCP DNS address.", values=ValueType.IPV4_ADDRESS
+    )
+    .add_node_var(
+        "ECLAB_DHCP_LEASE_TIME",
+        "Set the wan-access DHCP lease duration in seconds.",
+        values=ValueType.POSITIVE_INTEGER,
+    )
+    .annotate(
+        "ECLAB_CONNECT_HOST",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.PREPARE_CALL,),
+        requires=("node image selects eclab-containers/host-connector",),
+        examples=("10.10.10.50;192.0.2.50",),
+    )
+    .annotate(
+        "ECLAB_CONNECT_HOST_*",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.PREPARE_CALL,),
+        requires=("node image selects eclab-containers/host-connector",),
+        examples=("ECLAB_CONNECT_HOST_2=2001:db8:10::50;2001:db8:20::50",),
+    )
+    .annotate(
+        "ECLAB_DHCP_SUBNET",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.PREPARE_CALL,),
+        requires=("node image selects eclab-containers/wan-access",),
+        implies=("DHCP is enabled on the lab-facing interface",),
+        examples=("198.19.0.0/24",),
+    )
+    .annotate("ECLAB_DHCP_GATEWAY", commands=("deploy",), requires=("ECLAB_DHCP_SUBNET",))
+    .annotate(
+        "ECLAB_DHCP_POOL_START",
+        commands=("deploy",),
+        requires=("ECLAB_DHCP_SUBNET", "ECLAB_DHCP_POOL_END"),
+    )
+    .annotate(
+        "ECLAB_DHCP_POOL_END",
+        commands=("deploy",),
+        requires=("ECLAB_DHCP_SUBNET", "ECLAB_DHCP_POOL_START"),
+    )
+    .annotate("ECLAB_DHCP_DNS", commands=("deploy",), requires=("ECLAB_DHCP_SUBNET",))
+    .annotate(
+        "ECLAB_DHCP_LEASE_TIME",
+        commands=("deploy",),
+        requires=("ECLAB_DHCP_SUBNET",),
+    )
+    .use_case("Use host-connector for explicit VIP mappings or wan-access for outbound access.")
+    .reject("Do not use helper-container variables on nodes that select another image.")
+    .order(
+        LifecycleStage.BEFORE_GOAL,
+        "The collection is registered before the container manager resolves packaged image names.",
+        before=("engulf_clab.containers",),
+    )
+    .route(
+        "connect-lab-to-host",
+        "containers/host-connector/README.md",
+        "Read host-connector syntax and routing behavior.",
+    )
+    .route(
+        "provide-lab-wan-access",
+        "containers/wan-access/README.md",
+        "Read wan-access DHCP and interface conventions.",
+    )
+    .refer("README.md")
+    .refer("AGENTS.md")
+    .refer("containers/host-connector/README.md", title="Host connector node")
+    .refer("containers/wan-access/README.md", title="WAN access node")
 )
+
+
+class CoreContainerCollectionPlugin(ContainerCollectionPlugin):
+    plugin_dependencies: tuple[PluginDependency, ...] = (
+        *ContainerCollectionPlugin.plugin_dependencies,
+        SCHEMA_PLUGIN_DEPENDENCY,
+    )
+    context_reads = ContainerCollectionPlugin.context_reads | SCHEMA_CONTEXTS
+    context_writes = ContainerCollectionPlugin.context_writes | SCHEMA_CONTEXTS
+
+    def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
+        result = super().before_goal(invocation, api)
+        record_plugin_schema(api, PLUGIN_SCHEMA)
+        return result
+
+
+plugin = CoreContainerCollectionPlugin("eclab.containers", (HOST_CONNECTOR, WAN_ACCESS))

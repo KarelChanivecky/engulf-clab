@@ -42,6 +42,10 @@ class EngulfStateIntegrationTest(unittest.TestCase):
                 "from engulf_clab_wan.plugin import plugin\n",
                 encoding="utf-8",
             )
+            (plugin_dir / "schema.py").write_text(
+                "from engulf_clab_schema import plugin\n",
+                encoding="utf-8",
+            )
             wrapper = ContainerlabApp(
                 "/bin/true",
                 plugin_dir=plugin_dir,

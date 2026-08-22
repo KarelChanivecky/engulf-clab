@@ -4,13 +4,25 @@ import subprocess
 from collections.abc import Iterable
 
 from engulf_api import (
+    BeforeGoalAPI,
     DependencyPosition,
+    GoalResult,
+    Invocation,
     InvocationAPI,
     PluginDependency,
     StateScope,
     WorkspaceState,
 )
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
+from engulf_clab_schema_api import (
+    SCHEMA_CONTEXTS,
+    SCHEMA_PLUGIN_DEPENDENCY,
+    LifecycleStage,
+    PluginSchema,
+    Privilege,
+    ValueType,
+    record_plugin_schema,
+)
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
     BeforeCallEvent,
@@ -39,6 +51,147 @@ from .networks import (
 from .registry import workspace_bridge_names
 from .topology import load_topology, topology_path_from_args
 
+PLUGIN_SCHEMA = (
+    PluginSchema("engulf_clab.wan", package="engulf_clab_wan")
+    .add_node_prop(
+        "labels.ECLAB_DHCP_WAN",
+        "Enable a managed IPv4 DHCP and NAT WAN on this bridge node.",
+        values=ValueType.BOOLEAN,
+    )
+    .add_node_prop(
+        "labels.ECLAB_DHCP_SUBNET",
+        "Set the managed WAN IPv4 subnet.",
+        values=ValueType.IPV4_CIDR,
+        default="198.19.0.0/24",
+    )
+    .add_node_prop(
+        "labels.ECLAB_DHCP_GATEWAY",
+        "Set the managed WAN IPv4 gateway.",
+        values=ValueType.IPV4_ADDRESS,
+        default="198.19.0.1",
+    )
+    .add_node_prop(
+        "labels.ECLAB_DHCP_POOL_START",
+        "Set the first managed WAN DHCP address.",
+        values=ValueType.IPV4_ADDRESS,
+        default="198.19.0.100",
+    )
+    .add_node_prop(
+        "labels.ECLAB_DHCP_POOL_END",
+        "Set the last managed WAN DHCP address.",
+        values=ValueType.IPV4_ADDRESS,
+        default="198.19.0.200",
+    )
+    .add_node_prop(
+        "labels.ECLAB_DHCP_DNS",
+        "Set the managed WAN DHCP DNS address.",
+        values=ValueType.IPV4_ADDRESS,
+        default="1.1.1.1",
+    )
+    .add_node_prop(
+        "labels.ECLAB_DHCP_LEASE_TIME",
+        "Set the DHCP lease duration in seconds.",
+        values=ValueType.POSITIVE_INTEGER,
+        default=43200,
+    )
+    .add_runtime_var(
+        "ECLAB_UPLINK_IF",
+        "Override the host uplink interface used for WAN NAT.",
+        values=ValueType.STRING,
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_WAN",
+        commands=("deploy", "destroy"),
+        lifecycle=(
+            LifecycleStage.ANALYZE_CALL,
+            LifecycleStage.PREPARE_CALL,
+            LifecycleStage.AFTER_CALL,
+        ),
+        requires=("node.kind is bridge",),
+        privilege=Privilege.ROOT,
+        host_tools=("ip", "iptables", "sysctl", "sh"),
+        implies=("create a managed host bridge, DHCP service, and IPv4 NAT",),
+        examples=("ECLAB_DHCP_WAN: 'true'",),
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_SUBNET",
+        commands=("deploy",),
+        requires=("labels.ECLAB_DHCP_WAN",),
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_GATEWAY",
+        commands=("deploy",),
+        requires=("labels.ECLAB_DHCP_WAN", "labels.ECLAB_DHCP_SUBNET"),
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_POOL_START",
+        commands=("deploy",),
+        requires=("labels.ECLAB_DHCP_WAN", "labels.ECLAB_DHCP_POOL_END"),
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_POOL_END",
+        commands=("deploy",),
+        requires=("labels.ECLAB_DHCP_WAN", "labels.ECLAB_DHCP_POOL_START"),
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_DNS",
+        commands=("deploy",),
+        requires=("labels.ECLAB_DHCP_WAN",),
+    )
+    .annotate(
+        "labels.ECLAB_DHCP_LEASE_TIME",
+        commands=("deploy",),
+        requires=("labels.ECLAB_DHCP_WAN",),
+    )
+    .annotate(
+        "ECLAB_UPLINK_IF",
+        commands=("deploy",),
+        requires=("an existing host egress interface",),
+    )
+    .require_host_tool(
+        "ip",
+        "Create and inspect the managed host bridge.",
+        commands=("deploy", "destroy"),
+    )
+    .require_host_tool(
+        "iptables",
+        "Create and remove managed IPv4 forwarding and NAT rules.",
+        commands=("deploy", "destroy"),
+    )
+    .require_host_tool(
+        "sysctl",
+        "Enable and restore shared IPv4 forwarding state.",
+        commands=("deploy", "destroy"),
+    )
+    .require_host_tool(
+        "sh", "Launch the packaged Python DHCP service.", commands=("deploy",)
+    )
+    .require_privilege(
+        Privilege.ROOT,
+        "Managed bridges, addresses, processes, forwarding, and NAT require root.",
+        commands=("deploy", "destroy"),
+    )
+    .use_case(
+        "Provide isolated lab nodes with managed IPv4 DHCP and outbound NAT through a bridge node."
+    )
+    .reject(
+        "Do not apply WAN labels to a non-bridge node or reuse a bridge owned by another workspace."
+    )
+    .order(
+        LifecycleStage.PREPARE_CALL,
+        "WAN setup consumes the parsed topology and completes before final topology serialization.",
+        after=("engulf_clab.lab_parser",),
+        before=("engulf_clab.lab_writer",),
+    )
+    .route(
+        "add-managed-wan",
+        "README.md",
+        "Read bridge topology, addressing, privileges, ownership, and cleanup.",
+    )
+    .refer("README.md")
+    .refer("AGENTS.md")
+)
+
 
 def destroy_all_requested(args: tuple[str, ...]) -> bool:
     for argument in args:
@@ -55,10 +208,27 @@ class WanPlugin(ExecutableWrapperPlugin):
     plugin_id = "engulf_clab.wan"
     priority = 50
     plugin_dependencies = (
-        PluginDependency("engulf_clab.lab_parser", preprocess=DependencyPosition.BEFORE, postprocess=None),
-        PluginDependency("engulf_clab.lab_writer", preprocess=DependencyPosition.AFTER, postprocess=None),
+        PluginDependency(
+            "engulf_clab.lab_parser",
+            preprocess=DependencyPosition.BEFORE,
+            postprocess=None,
+        ),
+        PluginDependency(
+            "engulf_clab.lab_writer",
+            preprocess=DependencyPosition.AFTER,
+            postprocess=None,
+        ),
+        SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_reads = frozenset({TOPOLOGY_CONTEXT})
+    context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
+    context_writes = SCHEMA_CONTEXTS
+
+    def before_goal(
+        self, invocation: Invocation, api: BeforeGoalAPI
+    ) -> GoalResult[object] | None:
+        del invocation
+        record_plugin_schema(api, PLUGIN_SCHEMA)
+        return None
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering DHCP WAN help")
@@ -147,11 +317,23 @@ class WanPlugin(ExecutableWrapperPlugin):
                 topology = topology_data.get("topology", {})
                 nodes = topology.get("nodes", {}) if isinstance(topology, dict) else {}
                 for bridge in bridges:
-                    labels = nodes.get(bridge.name, {}).get("labels", {}) if isinstance(nodes, dict) else {}
+                    labels = (
+                        nodes.get(bridge.name, {}).get("labels", {})
+                        if isinstance(nodes, dict)
+                        else {}
+                    )
                     if isinstance(labels, dict):
                         for key in labels:
                             if str(key) in contract.control_labels:
-                                mutation.delete(("topology", "nodes", bridge.name, "labels", str(key)))
+                                mutation.delete(
+                                    (
+                                        "topology",
+                                        "nodes",
+                                        bridge.name,
+                                        "labels",
+                                        str(key),
+                                    )
+                                )
         except (WanError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)
             raise

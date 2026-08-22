@@ -35,5 +35,5 @@ a partial output at its requested destination.
 - Keep README archive layout, exclusion, launcher, offline, and license behavior
   synchronized with implementation and tests.
 - Run command, plugin, and state tests. Mock pip, Docker, Git, and tool lookup;
-  use temporary labs and never deploy during automated validation. Build and
-  inspect a wheel, then regenerate freeze skill references.
+  use temporary labs and never deploy during automated validation. Record the
+  schema before handling `freeze`, and run `make check-skill`.

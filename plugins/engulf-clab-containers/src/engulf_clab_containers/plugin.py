@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from engulf_api import DependencyPosition, InvocationAPI, PluginDependency
+from engulf_api import (
+    BeforeGoalAPI,
+    DependencyPosition,
+    GoalResult,
+    Invocation,
+    InvocationAPI,
+    PluginDependency,
+)
 from engulf_clab_containers_api import (
     CONTAINER_COLLECTION_CONTEXT,
     RegisteredContainerCollection,
@@ -11,6 +18,14 @@ from engulf_clab_lab_parser import (
     editor,
     load_topology,
     topology_path_from_args,
+)
+from engulf_clab_schema_api import (
+    SCHEMA_CONTEXTS,
+    SCHEMA_PLUGIN_DEPENDENCY,
+    LifecycleStage,
+    PluginSchema,
+    ValueType,
+    record_plugin_schema,
 )
 from engulf_executable_wrapper_api import (
     BeforeCallEvent,
@@ -25,6 +40,48 @@ from .errors import ContainersError
 from .manager import LABEL_PREFIX, catalog, format_catalog, topology_edits
 
 _HELP_OPTION = "--eclab-containers-help"
+PLUGIN_SCHEMA = (
+    PluginSchema("engulf_clab.containers", package="engulf_clab_containers")
+    .add_cli_flag(_HELP_OPTION, "List packaged containers from every active collection.")
+    .add_node_prop(
+        "image",
+        "Select a packaged image as collection/name[:tag].",
+        values=ValueType.IMAGE_REFERENCE,
+    )
+    .annotate(
+        _HELP_OPTION,
+        lifecycle=(LifecycleStage.ANALYZE_CALL,),
+        implies=("wrapped Containerlab execution is preempted after printing the catalog",),
+    )
+    .annotate(
+        "image",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
+        requires=("an active container collection advertises the selected namespace/name",),
+        shared_with=("eclab.containers",),
+        examples=("eclab-containers/host-connector:latest",),
+    )
+    .use_case("Use a packaged helper container and inject its required node recipe.")
+    .reject("Do not invent collection names; inspect the installed container catalog first.")
+    .order(
+        LifecycleStage.BEFORE_GOAL,
+        "Collection registration precedes manager catalog discovery.",
+        after=("eclab.containers",),
+    )
+    .order(
+        LifecycleStage.PREPARE_CALL,
+        "Recipe injection follows topology parsing and precedes builds and final serialization.",
+        after=("engulf_clab.lab_parser",),
+        before=("engulf_clab.dockerfile_build", "engulf_clab.lab_writer"),
+    )
+    .route(
+        "use-packaged-container",
+        "README.md",
+        "Read collection naming and recipe injection behavior.",
+    )
+    .refer("README.md")
+    .refer("AGENTS.md")
+)
 
 
 class ContainersPlugin(ExecutableWrapperPlugin):
@@ -46,8 +103,16 @@ class ContainersPlugin(ExecutableWrapperPlugin):
             preprocess=DependencyPosition.AFTER,
             postprocess=None,
         ),
+        SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_reads = frozenset({CONTAINER_COLLECTION_CONTEXT, TOPOLOGY_CONTEXT})
+    context_reads = frozenset({CONTAINER_COLLECTION_CONTEXT, TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
+    context_writes = SCHEMA_CONTEXTS
+
+    def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
+        del invocation
+        record_plugin_schema(api, PLUGIN_SCHEMA)
+        self._collections(api)
+        return None
 
     def help(self, api: HelpAPI) -> str:
         del api
@@ -101,7 +166,9 @@ class ContainersPlugin(ExecutableWrapperPlugin):
             raise
 
     @staticmethod
-    def _collections(api: InvocationAPI) -> tuple[RegisteredContainerCollection, ...]:
+    def _collections(
+        api: BeforeGoalAPI | InvocationAPI,
+    ) -> tuple[RegisteredContainerCollection, ...]:
         value = api.get_context(CONTAINER_COLLECTION_CONTEXT, ())
         if type(value) is not tuple or any(
             not isinstance(item, RegisteredContainerCollection) for item in value

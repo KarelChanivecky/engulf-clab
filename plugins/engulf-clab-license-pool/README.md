@@ -138,3 +138,9 @@ file. Profile names may be advertised; values and secrets are not.
   underscores.
 - Do not edit the registry or remove generated copies while a lab is active.
   Preserve state and use targeted diagnostics to identify the owning workspace.
+
+## Runtime schema discovery
+
+The plugin records its topology properties, node variables, runtime variables,
+and this packaged README during `before_goal`; the generator runs only after all
+active contributors have recorded their controls.

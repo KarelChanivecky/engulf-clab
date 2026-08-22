@@ -42,5 +42,5 @@ diagnostics and must restore the process `PATH` after each call.
   synchronized.
 - Run containerlab resolution/plugin tests plus ensure-checkout tests. Mock Git,
   Go, and dependency lookup; do not clone or build Containerlab in unit tests.
-- Build/install the wheel and inspect active help/plugin discovery. Regenerate
-  the skill's ensure-containerlab references after changes.
+- Build/install the wheel and inspect active help/plugin discovery. Publish the
+  selected checkout/binary source hint and keep `PLUGIN_SCHEMA` current.

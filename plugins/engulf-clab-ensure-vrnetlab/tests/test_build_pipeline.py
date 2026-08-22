@@ -28,6 +28,10 @@ def write_plugin_directory(directory: Path) -> Path:
         "from engulf_clab_vrnetlab_build.plugin import plugin\n",
         encoding="utf-8",
     )
+    (plugin_dir / "schema.py").write_text(
+        "from engulf_clab_schema import plugin\n",
+        encoding="utf-8",
+    )
     return plugin_dir
 
 

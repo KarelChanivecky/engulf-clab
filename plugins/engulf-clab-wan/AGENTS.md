@@ -62,6 +62,5 @@ It derives from `ExecutableWrapperPlugin` supplied by
 - Run topology, registry, state, plugin, and Engulf integration tests. Mock
   effective UID and every `ip`/`iptables`/`sysctl`/process operation; never
   mutate real host networking in automated tests.
-- Build/install the wheel with parser/writer and inspect the fixed-prefix
-  help. Regenerate WAN skill references after behavior or documentation
-  changes.
+- Build/install the wheel with parser/writer and inspect the fixed-prefix help.
+  Keep every WAN label in `PLUGIN_SCHEMA` and run `make check-skill`.

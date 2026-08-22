@@ -114,3 +114,9 @@ labs must not overwrite one another's local image.
   argument vector without adding plugin-owned `--file`/`--tag` overrides.
 - If two nodes conflict, make their complete build declarations identical or
   give them distinct image tags.
+
+## Runtime schema discovery
+
+The plugin records its node and runtime variables and snapshots this packaged
+README during `before_goal`. The terminal generator exposes those controls only
+when this distribution is active.
