@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-develop-lab-skill"
-version = "0.1.1"
+version = "0.1.3"
 description = "Runtime-generated lab development skill for engulf-clab editions"
 readme = "README.md"
 requires-python = ">=3.14"
