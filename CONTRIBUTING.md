@@ -25,7 +25,7 @@ documentation, schema declarations, and tests agree.
 | `mcp-server/` | Provides the stdio bridge, privileged daemon, installer, and systemd unit. | `engulf-clab-mcp` |
 | `plugins/engulf-clab-schema-api/` | Stable plugin schema declaration and invocation-state contract. | `engulf-clab-schema-api` |
 | `plugins/engulf-clab-schema/` | Compiles Containerlab and active-plugin schemas at runtime. | `engulf-clab-schema` |
-| `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes an edition-aware generated skill. | `engulf-clab-develop-lab-skill` |
+| `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes an edition-aware generated skill. | `engulf-clab-develop-eclab-lab` |
 
 The wrapper imports the `engulf` runtime. Runtime plugins import the stable
 `engulf_api` and `engulf_executable_wrapper_api` contracts, not their runtime
@@ -237,5 +237,5 @@ version and compatible dependency range together, build all artifacts with
 `make build`, inspect the wheel contents, and publish only freshly built output.
 `TWINE_REPOSITORY_URL` selects the package index; `publish.sh` can obtain local
 managed-repository credentials from the neighboring Engulf checkout. The
-publish target also verifies that the `engulf-clab-develop-lab-skill` wheel
+publish target also verifies that the `engulf-clab-develop-eclab-lab` wheel
 and sdist are included before any upload occurs.

@@ -183,7 +183,7 @@ and source distribution with Twine, and uploads only those fresh artifacts. If
 the URL matches the package repository managed by the neighboring Engulf
 checkout, it verifies that the managed container is active and loads its upload
 token and CA automatically. The publish target explicitly checks that both the
-`engulf-clab-develop-lab-skill` wheel and source distribution are present before uploading.
+`engulf-clab-develop-eclab-lab` wheel and source distribution are present before uploading.
 Set `ENGULF_DIR` when that checkout is not at
 `../engulf`; credentials for other repositories use Twine's normal environment
 variables or configuration.
@@ -440,7 +440,7 @@ Each installed plugin declares its exact controls and packaged references. The
 schema generator emits a task catalog and compact YAML capability file for each
 plugin, while also combining the declarations with the selected Containerlab
 source's `schemas/clab.schema.json` for complete validation.
-`engulf-clab-develop-lab-skill` installs the result as an edition-aware,
+`engulf-clab-develop-eclab-lab` installs the result as an edition-aware,
 fingerprinted Codex skill. Read
 [`skills/README.md`](skills/README.md) for the contract and lifecycle.
 

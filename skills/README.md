@@ -32,7 +32,7 @@ runtime-selection, topology-design, safety, and diagnostic guidance.
 
 ## Install
 
-Install `engulf-clab-develop-lab-skill` in the same environment as the wrapper,
+Install `engulf-clab-develop-eclab-lab` in the same environment as the wrapper,
 then inspect the edition's help. The command is derived from its short product
 name. For the standard edition:
 

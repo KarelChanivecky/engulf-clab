@@ -15,6 +15,7 @@ fi
     engulf-clab-mcp \
     engulf-clab \
     engulf-clab-all-plugins \
+    engulf-clab-develop-eclab-lab \
     engulf-clab-develop-lab-skill \
     engulf-clab-schema \
     engulf-clab-schema-api \

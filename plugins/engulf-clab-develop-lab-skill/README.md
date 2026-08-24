@@ -3,6 +3,17 @@
 This Engulf plugin installs a Codex-compatible lab development skill containing
 the schema and documentation contributed by the exact active plugin set.
 
+Install the stable eclab skill distribution in the same environment as the
+wrapper:
+
+```bash
+python -m pip install engulf-clab-develop-eclab-lab
+```
+
+The older `engulf-clab-develop-lab-skill` distribution name was a short-lived
+development artifact. Remove it before upgrading if it is present, so Engulf
+does not discover the same plugin ID twice.
+
 Run the command advertised by the selected launcher, passing the configuration
 root that owns `skills/`. For base eclab:
 

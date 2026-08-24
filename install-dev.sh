@@ -99,6 +99,7 @@ install_wheel() {
 # Remove distributions superseded by the current package names. This also
 # repairs development environments populated from stale dist/ artifacts.
 "${python_executable}" -m pip uninstall --yes \
+    engulf-clab-develop-lab-skill \
     engulf-clab-plugins \
     engulf-clab-dockerfile \
     engulf-clab-vrnetlab \

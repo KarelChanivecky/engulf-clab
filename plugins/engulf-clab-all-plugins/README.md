@@ -15,7 +15,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | --- | --- |
 | `engulf-clab-schema-api` | Stable declaration builder and shared invocation-state contract. |
 | `engulf-clab-schema` | Last-running compiler for the exact Containerlab source and active plugin set. |
-| `engulf-clab-develop-lab-skill` | Edition-aware command that installs and refreshes a generated Codex lab skill. |
+| `engulf-clab-develop-eclab-lab` | Edition-aware command that installs and refreshes the `develop-eclab-lab` Codex skill. |
 | `engulf-clab-lab-parser` and `engulf-clab-lab-writer` | Immutable source-topology session and temporary derived-topology collector. |
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
 | `engulf-clab-ensure-containerlab` | Containerlab executable discovery, managed checkout, update, and build. |

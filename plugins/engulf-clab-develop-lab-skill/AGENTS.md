@@ -2,8 +2,9 @@
 
 - Derive from `SchemaBackedPlugin` so the edition-expanded install command and
   configuration-root path are completed directly from `PLUGIN_SCHEMA`.
-- The distribution name and plugin ID are product-neutral. Installed skill and
-  command names derive only from callback-bound `short_product_name`.
+- Keep the public distribution name `engulf-clab-develop-eclab-lab`; it is the
+  stable package identity even though the plugin ID is product-neutral. Installed
+  skill and command names derive only from callback-bound `short_product_name`.
 - A valid explicit install request must enter the schema generator before the
   wrapped goal is preempted. The consumer installs only a compiled context value.
 - Never overwrite an unrecognized or symlinked target. Stage beside the target,
