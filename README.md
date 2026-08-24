@@ -36,7 +36,6 @@ meta-package to enable the complete maintained set.
 | `plugins/*/README.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
 | `mcp-server/README.md` | Privileged local MCP architecture, configuration, tools, security boundary, and operations |
 | `CONTRIBUTING.md` | Development setup, Engulf contracts, documentation standards, validation, commits, and releases |
-| `skills/README.md` | Skill architecture, source synchronization, installation, hooks, packaging, and release workflow |
 | `skills/README.md` | Runtime-generated lab-skill architecture, installation, and contributor contract |
 
 The nearest `AGENTS.md` adds non-user-facing invariants for agents changing a
@@ -68,6 +67,7 @@ python -m pip install engulf-clab engulf-clab-all-plugins
 
 eclab deploy -t lab.clab.yml
 eclab destroy -t lab.clab.yml
+eclab install-completion  # Detect Bash, Zsh, or Fish from SHELL.
 
 # Create a portable, sanitized copy for sharing.
 eclab freeze
@@ -127,6 +127,16 @@ that environment. For an edition, run the edition launcher's commands instead;
 an installation of base eclab does not prove that the edition declares the same
 plugins.
 
+`install-completion [bash|zsh|fish] [--output PATH]` installs completion for the
+selected launcher. It prefers any registered native Containerlab completer; when
+none exists, it sources the configured Containerlab executable's trusted
+`completion <shell>` output once. Native and schema-declared plugin candidates are
+then merged, while schema candidates remain available if native completion cannot be
+loaded. Schema-backed wrapper flags provide per-invocation forms for most
+process-level configuration variables. The environment variables remain supported
+for persistent defaults, and CLI values win when both are present. Node `env` values
+in topology YAML are unaffected.
+
 Direct `containerlab` remains valid for labs that do not need wrapper features.
 It cannot interpret eclab-managed WAN labels, allocate pooled licenses, prepare
 packaged container recipes, build declared images, or create frozen archives.
@@ -138,6 +148,7 @@ plugins around one call:
 
 ```text
 CLI arguments
+  -> schema-backed wrapper options are consumed into the invocation environment
   -> every plugin analyzes without side effects
   -> accepted plugins prepare resources and deferred topology mutations
   -> the writer materializes one temporary topology beside the source file

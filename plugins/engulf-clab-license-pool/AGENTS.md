@@ -4,6 +4,9 @@ License allocation is user-scoped shared state. Hold all affected pool leases
 while claiming or releasing licenses; source topologies are modified only
 through the shared topology editor.
 
+- Derive from `SchemaBackedPlugin`. Bind global `--eclab-license` to persistent
+  `ECLAB_LICENSE`, read only the normalized event environment, and preserve
+  arbitrary pool variables plus node-specific `ECLAB_LICENSE_*` inputs.
 - Keep plugin ID `engulf_clab.license_pool`, parser/writer dependencies, and
   workspace-plus-UUID claim identity stable.
 - Use the fixed `ECLAB` prefix (`plugin.LABEL_PREFIX`) for clamp keys, frozen
@@ -20,6 +23,13 @@ through the shared topology editor.
   contents in user state.
 - Preserve allocation preference, history, clamp exclusion, retry stability,
   pool-local regular-file selection, and deterministic lab-copy paths.
+- Keep `sticky` as the compatibility default. Round-robin owns a pool-local
+  sorted-file cursor; least-recently-used owns a monotonic pool-local use
+  sequence. Every strategy reuses an active claim, excludes historical clamps
+  while an ordinary choice remains, and records explicit clamp use.
+- Keep `--eclab-license-pool-strategy` bound to the fixed-prefix
+  `ECLAB_LICENSE_POOL_STRATEGY` runtime default. Strategy values are exactly
+  `sticky`, `round-robin`, and `least-recently-used`.
 - Use the shared topology editor to point only the derived topology at a copy.
   Never edit the selected YAML or consume a pool license in place.
 - Release one workspace only after successful destroy. Preserve destroy-all
@@ -27,6 +37,9 @@ through the shared topology editor.
 - Freeze prompts must accept one file, directory pool, or `$VARIABLE`, with
   node-specific noninteractive values before the global value. Never log the
   resolved path or content as a diagnostic secret.
+- Log one info-level selected-license diagnostic per node only after its
+  lab-local copy succeeds. Include the node and source basename through `%r`
+  logger arguments; never include the resolved source or generated-copy path.
 - Keep runtime help, README, freeze redaction, MCP profile restrictions, and
   state tests synchronized.
 - Run frozen-prompt tests plus parser/writer/freeze tests after behavior changes.

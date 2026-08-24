@@ -24,6 +24,7 @@ from engulf_clab_schema_api import (
     SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PluginSchema,
+    SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
 )
@@ -31,7 +32,6 @@ from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
     CallMode,
-    ExecutableWrapperPlugin,
     HelpAPI,
     PreparedCallEvent,
 )
@@ -84,8 +84,9 @@ PLUGIN_SCHEMA = (
 )
 
 
-class ContainersPlugin(ExecutableWrapperPlugin):
+class ContainersPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.containers"
+    schema = PLUGIN_SCHEMA
     priority = 85
     plugin_dependencies = (
         PluginDependency(

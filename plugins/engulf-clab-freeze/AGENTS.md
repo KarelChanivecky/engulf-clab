@@ -5,6 +5,10 @@ Never place license files, license pool paths, allocations, or clamps in a froze
 artifact. Keep the archive build staged and atomic so a failed freeze cannot leave
 a partial output at its requested destination.
 
+- Derive from `SchemaBackedPlugin` so the command, scoped flags, and paths come
+  from `PLUGIN_SCHEMA`. Thread the immutable invocation environment through
+  provenance, source resolution, and offline bundling so normalized wrapper
+  options survive before-goal preemption.
 - Keep `freeze` as a before-goal control command that preempts Containerlab.
   Acquire the workspace freeze lease; offline mode also leases the managed
   Containerlab and vrnetlab repositories.

@@ -1,5 +1,6 @@
 """Runtime Containerlab and Engulf plugin schema generator."""
 
+from .cache import bundle_directory_complete
 from .compiler import FORMAT_VERSION, SchemaCompilationError, compile_schema_bundle
 from .plugin import SchemaGeneratorPlugin, plugin
 from .source import BaseSchema, SchemaSourceError, resolve_base_schema, source_hint_from_environment
@@ -10,6 +11,7 @@ __all__ = [
     "SchemaCompilationError",
     "SchemaGeneratorPlugin",
     "SchemaSourceError",
+    "bundle_directory_complete",
     "compile_schema_bundle",
     "plugin",
     "resolve_base_schema",

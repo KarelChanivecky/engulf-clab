@@ -6,6 +6,8 @@ accept only typed fields from `engulf-clab-containers-api`, and never mutate the
 source topology. It must run after collections and the lab parser, and before
 the Dockerfile builder and lab writer.
 
+- Derive from `SchemaBackedPlugin` so discovery controls and advertised values
+  participate in completion without parsing generated schema artifacts.
 - Keep plugin ID `engulf_clab.containers`, collection context
   `engulf_clab.containers.collections`, and topology context declarations stable.
 - Validate the complete catalog and proposed merge during `analyze_call()`;

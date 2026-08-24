@@ -124,11 +124,7 @@ def compile_schema_bundle(
         )
         for provider in providers
         for reference in provider.references
-    ) + (
-        ()
-        if node_kinds is None
-        else _compiled_node_kind_references(node_kinds, providers)
-    )
+    ) + (() if node_kinds is None else _compiled_node_kind_references(node_kinds, providers))
     if sum(len(item.content) for item in references) > 32 * 1024 * 1024:
         raise SchemaCompilationError("compiled references exceed 32 MiB")
     return CompiledSchemaBundle(
@@ -259,6 +255,7 @@ def _option_manifest(
         "repeatable": option.repeatable,
         "deprecated": option.deprecated,
         "replacement": option.replacement,
+        "environment_default": option.environment,
     }
     if option.has_default:
         result["default"] = json.loads(option.default_json or "null")
@@ -447,6 +444,8 @@ def _agent_control(
         result["deprecated"] = True
     if option.replacement is not None:
         result["replacement"] = option.replacement
+    if option.environment is not None:
+        result["environment_default"] = option.environment
     if annotation is not None:
         _put(result, "commands", list(annotation.commands))
         _put(result, "lifecycle", [item.value for item in annotation.lifecycle])

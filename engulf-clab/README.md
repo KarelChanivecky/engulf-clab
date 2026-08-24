@@ -9,6 +9,7 @@ after the wrapped call.
 ## Contents
 
 - [Install and run](#install-and-run)
+- [Shell completion](#shell-completion)
 - [Containerlab compatibility](#containerlab-compatibility)
 - [Wrapper lifecycle](#wrapper-lifecycle)
 - [Diagnostics and workspace identity](#diagnostics-and-workspace-identity)
@@ -34,6 +35,35 @@ The application itself does not require a fixed Containerlab installation path.
 Install `engulf-clab-ensure-containerlab` to resolve an executable from an
 explicit binary, a checkout, `PATH`, or a managed clone.
 
+## Shell completion
+
+Install schema-backed wrapper completion through eclab. The generated wrapper
+prefers an already registered native Containerlab completer. If none is available,
+eclab invokes its configured Containerlab executable as `completion <shell>`, sources
+that trusted output once, and then merges the native and plugin candidates:
+
+```bash
+eclab install-completion bash
+eclab install-completion zsh
+eclab install-completion fish
+```
+
+Omit the shell to detect it from `SHELL`, or add `--output PATH`. Bash defaults
+to `$XDG_DATA_HOME/bash-completion/completions/eclab`, Zsh to
+`$XDG_DATA_HOME/zsh/site-functions/_eclab`, and Fish to
+`$XDG_CONFIG_HOME/fish/completions/eclab.fish`. Ensure the Zsh directory is on
+`fpath` before `compinit`; Bash and Fish use their conventional autoload paths.
+Installation atomically refreshes Engulf-generated files and refuses symlinks
+or unrelated existing content.
+
+Completion combines the wrapped Containerlab completer with every active plugin's
+schema declarations. It ignores Bash's generic `_minimal` fallback when deciding
+whether native completion exists, and schema candidates still work if Containerlab
+cannot provide a completion script. They include wrapper commands, global and
+command-scoped flags, positional/literal values, and filesystem paths without loading
+the compiled topology schema. Completion-script output executes in the interactive
+shell, so eclab enables sourcing only for its trusted Containerlab executable.
+
 ## Containerlab compatibility
 
 eclab accepts ordinary Containerlab command names, flags, topology selection,
@@ -45,6 +75,9 @@ Plugin features are conventions expressed through valid `env`, `labels`,
 
 Arguments that belong to Engulf diagnostics or an active plugin are consumed by
 the wrapper. The remaining effective argument vector is passed to Containerlab.
+Schema-declared wrapper flags paired with runtime environment variables are
+normalized before workspace resolution and plugin callbacks. Environment
+variables provide persistent defaults; CLI values win when both are present.
 Use `--` when a downstream argument could otherwise be interpreted as a wrapper
 control. Wrapper help includes Containerlab help plus active plugin help; this
 means it reflects the launcher environment in which it runs.
@@ -69,15 +102,17 @@ this order:
 
 1. Engulf discovers and activates package entry points declared for the
    `engulf_clab` application.
-2. Every adapter analyzes the immutable call. Analysis contributes arguments,
-   environment, removals, or preemption but performs no external work.
-3. If all analysis succeeds, plugins prepare in dependency order. They may
+2. Registered environment-backed CLI options are consumed and overlaid on the
+   immutable invocation environment.
+3. Every adapter analyzes the immutable call. Analysis contributes arguments,
+   removals, or preemption but performs no external work.
+4. If all analysis succeeds, plugins prepare in dependency order. They may
    acquire leases, prepare tools/images/host resources, and record deferred
    topology mutations.
-4. The topology writer materializes mutations to a temporary file beside the
+5. The topology writer materializes mutations to a temporary file beside the
    original and substitutes its `-t` argument.
-5. Containerlab runs and produces the wrapped outcome.
-6. Postprocessing runs with the outcome so plugins can release or retain state
+6. Containerlab runs and produces the wrapped outcome.
+7. Postprocessing runs with the outcome so plugins can release or retain state
    safely. The writer attempts to remove its temporary topology in every case.
 
 The source topology is not changed. A failed analyzer prevents preparation; a
@@ -222,7 +257,9 @@ app = ContainerlabApp()
 
 The default `binary` is `containerlab`. Without an explicit customization, the
 application resolver also honors `CONTAINERLAB_DIR/containerlab` when selecting
-the initial executable; the ensure-containerlab plugin can subsequently make a
-resolved binary available during preparation. Keep custom completion,
+the initial executable; the ensure-containerlab plugin can subsequently
+make a CLI-selected resolved binary available during preparation. Set
+`source_completion=False` only when a custom application must not source the trusted
+binary's `completion <shell>` output. Keep custom completion,
 diagnostics, state, policy, workspace, and wrapper-goal objects stable for the
 life of the created application and close the application after use.

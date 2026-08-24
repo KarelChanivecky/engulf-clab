@@ -25,14 +25,19 @@ topology:
         ECLAB_VRNETLAB_TYPE: vendor/router
 ```
 
-## Invocation environment
+## Wrapper options
 
-| Variable | Meaning |
+| CLI option | Meaning |
 | --- | --- |
-| `VRNETLAB_DIR` | Existing valid vrnetlab checkout. |
-| `VRNETLAB_REPO` | Managed clone source; default `https://github.com/KarelChanivecky/vrnetlab/tree/ft_faster_reads`. GitHub `/tree/<branch>` URLs are cloned at that branch. |
-| `VRNETLAB_UPDATE=1` | Check a Git checkout for updates, at most once daily. |
-| `VRNETLAB_VERSION` | Clamp to a tag, commit, or Git revision; also enables checking. |
+| `--eclab-vrnetlab-dir DIR` | Existing valid vrnetlab checkout. |
+| `--eclab-vrnetlab-repo URL` | Managed clone source; default `https://github.com/KarelChanivecky/vrnetlab/tree/ft_faster_reads`. GitHub `/tree/<branch>` URLs are cloned at that branch. |
+| `--eclab-vrnetlab-update` | Check a Git checkout for updates, at most once daily. |
+| `--eclab-vrnetlab-version REV` | Clamp to a tag, commit, or Git revision; also enables checking. |
+
+`VRNETLAB_DIR`, `VRNETLAB_REPO`, `VRNETLAB_UPDATE`, and `VRNETLAB_VERSION` are
+supported environment defaults suitable for persistent configuration. A
+matching CLI option is consumed by eclab and wins before analysis, workspace
+selection, or preparation.
 
 Resolution order is `VRNETLAB_DIR`, a managed user-state checkout, then a new
 managed clone. Invalid configured paths are ignored with a diagnostic; an
@@ -77,7 +82,8 @@ Docker/Make work.
 
 - Confirm the active launcher's help shows both ensure-vrnetlab and
   vrnetlab-build, and confirm the node uses `ECLAB_VRNETLAB_TYPE`.
-- Validate `VRNETLAB_DIR/common/vrnetlab.py` when supplying a checkout.
+- Validate `<DIR>/common/vrnetlab.py` when using
+  `--eclab-vrnetlab-dir DIR`.
 - Install Docker and QEMU commands in the same `PATH` visible to the local CLI
   or MCP service; local shell availability does not prove service availability.
 - For dirty/update failures, inspect Git state and resolve it manually. Do not

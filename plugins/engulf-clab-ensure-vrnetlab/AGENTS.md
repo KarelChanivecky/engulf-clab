@@ -16,12 +16,14 @@ not build vendor images itself.
 - Plugin ID: `engulf_clab.ensure_vrnetlab`
 - Published context ID: `engulf_clab.vrnetlab.path`
 
-Plugin code imports `engulf_api`, not `engulf`.
-It derives from `ExecutableWrapperPlugin` supplied by
-`engulf_executable_wrapper_api`.
+Plugin code imports `engulf_api`, not `engulf`. It derives from
+`SchemaBackedPlugin`, which remains an executable-wrapper plugin adapter.
 
 ## Development Notes
 
+- Canonical `--eclab-vrnetlab-*` controls bind supported persistent
+  `VRNETLAB_*` defaults in `PLUGIN_SCHEMA`. Read only normalized invocation/event
+  environments so CLI precedence reaches source hints and preparation.
 - Use the fixed `ECLAB` environment prefix (`contract.LABEL_PREFIX`). Do not
   derive it from `api.application.short_product_name`/`product` — labels must
   stay portable across editions. Analyze `deploy` calls without side effects,

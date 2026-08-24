@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from engulf_api import (
     BeforeGoalAPI,
     DependencyPosition,
@@ -20,6 +18,7 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     Privilege,
+    SchemaBackedPlugin,
     ValueType,
     publish_vrnetlab_source,
     record_plugin_schema,
@@ -28,7 +27,6 @@ from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
     CallMode,
-    ExecutableWrapperPlugin,
     HelpAPI,
     PreparedCallEvent,
 )
@@ -58,19 +56,48 @@ PLUGIN_SCHEMA = (
         values=ValueType.STRING,
     )
     .add_runtime_var(
-        "VRNETLAB_DIR", "Use an existing vrnetlab checkout.", values=ValueType.DIRECTORY_PATH
+        "VRNETLAB_DIR",
+        "Select an existing vrnetlab checkout; the matching CLI flag takes precedence.",
+        values=ValueType.DIRECTORY_PATH,
     )
-    .add_runtime_var("VRNETLAB_REPO", "Override the vrnetlab Git repository.", values=ValueType.URI)
+    .add_cli_flag(
+        "--eclab-vrnetlab-dir",
+        "Use an existing vrnetlab checkout.",
+        values=ValueType.DIRECTORY_PATH,
+        environment="VRNETLAB_DIR",
+    )
+    .add_runtime_var(
+        "VRNETLAB_REPO",
+        "Override the vrnetlab Git repository; the matching CLI flag takes precedence.",
+        values=ValueType.URI,
+    )
+    .add_cli_flag(
+        "--eclab-vrnetlab-repo",
+        "Override the vrnetlab Git repository.",
+        values=ValueType.URI,
+        environment="VRNETLAB_REPO",
+    )
     .add_runtime_var(
         "VRNETLAB_UPDATE",
-        "Enable the daily checkout update check.",
+        "Enable the daily checkout update check; the matching CLI flag takes precedence.",
         values=ValueType.BOOLEAN,
         default=False,
     )
+    .add_cli_flag(
+        "--eclab-vrnetlab-update",
+        "Enable the daily checkout update check.",
+        environment="VRNETLAB_UPDATE",
+    )
     .add_runtime_var(
         "VRNETLAB_VERSION",
+        "Clamp vrnetlab to a Git revision; the matching CLI flag takes precedence.",
+        values=ValueType.STRING,
+    )
+    .add_cli_flag(
+        "--eclab-vrnetlab-version",
         "Clamp the checkout to a Git tag, commit, or revision.",
         values=ValueType.STRING,
+        environment="VRNETLAB_VERSION",
     )
     .annotate(
         "ECLAB_VRNETLAB_TYPE",
@@ -89,6 +116,22 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "VRNETLAB_VERSION",
+        commands=("deploy",),
+        implies=("enable revision checking and clamp the checkout",),
+    )
+    .annotate(
+        "--eclab-vrnetlab-dir",
+        commands=("deploy",),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+    )
+    .annotate("--eclab-vrnetlab-repo", commands=("deploy",))
+    .annotate(
+        "--eclab-vrnetlab-update",
+        commands=("deploy",),
+        implies=("perform at most one update check per day",),
+    )
+    .annotate(
+        "--eclab-vrnetlab-version",
         commands=("deploy",),
         implies=("enable revision checking and clamp the checkout",),
     )
@@ -129,8 +172,9 @@ PLUGIN_SCHEMA = (
 )
 
 
-class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
+class EnsureVrnetlabPlugin(SchemaBackedPlugin):
     plugin_id = ENSURE_VRNETLAB_PLUGIN_ID
+    schema = PLUGIN_SCHEMA
     priority = 80
     plugin_dependencies = (
         PluginDependency(
@@ -141,8 +185,7 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
         SCHEMA_PLUGIN_DEPENDENCY,
     )
     context_writes = (
-        frozenset({VRNETLAB_PATH_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT})
-        | SCHEMA_CONTEXTS
+        frozenset({VRNETLAB_PATH_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
     )
     context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
 
@@ -158,11 +201,13 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering vrnetlab checkout help")
         return (
-            "  VRNETLAB_DIR   Use an existing vrnetlab checkout\n"
-            "  VRNETLAB_REPO  Override clone source (default: "
+            "  --eclab-vrnetlab-dir DIR      Use an existing vrnetlab checkout\n"
+            "  --eclab-vrnetlab-repo URL     Override clone source (default: "
             "KarelChanivecky/vrnetlab ft_faster_reads)\n"
-            "  VRNETLAB_UPDATE=1  Check a Git checkout for updates (daily)\n"
-            "  VRNETLAB_VERSION   Clamp to a Git tag, commit, or revision\n"
+            "  --eclab-vrnetlab-update       Check a Git checkout for updates (daily)\n"
+            "  --eclab-vrnetlab-version REV  Clamp to a Git tag, commit, or revision\n"
+            "  VRNETLAB_{DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
+            "matching CLI options override them.\n"
             "  Provisioning runs only for opted-in deploys and requires Docker, qemu-img, "
             "and qemu-system-x86_64."
         )
@@ -211,8 +256,8 @@ class EnsureVrnetlabPlugin(ExecutableWrapperPlugin):
             require_vrnetlab_dependencies()
             with use_logger(api.logger), api.lease(VRNETLAB_REPOSITORY_LEASE):
                 state = api.state(StateScope.USER)
-                checkout = ensure_checkout(state, os.environ)
-                update_vrnetlab(state, checkout, os.environ)
+                checkout = ensure_checkout(state, event.environment)
+                update_vrnetlab(state, checkout, event.environment)
             api.set_context(VRNETLAB_PATH_CONTEXT, str(checkout))
             publish_vrnetlab_source(api, resolved_vrnetlab_source(checkout))
             api.logger.info("published checkout %s", checkout)

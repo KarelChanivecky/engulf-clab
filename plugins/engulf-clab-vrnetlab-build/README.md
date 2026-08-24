@@ -33,15 +33,37 @@ topology:
 | --- | --- |
 | `ECLAB_VRNETLAB_TYPE` | Required opt-in builder path beneath the vrnetlab checkout, for example `vendor/router`. |
 
-Set the optional qcow2 or supported archive source in the runtime environment:
+Set the optional qcow2 or supported archive source on the eclab invocation:
 
 ```bash
-ECLAB_VRNETLAB_IMG_PATH=/images/router.qcow2 eclab deploy -t lab.clab.yml
+eclab deploy -t lab.clab.yml \
+  --eclab-vrnetlab-image default=/images/router.qcow2 \
+  --eclab-vrnetlab-build-jobs 2
 ```
 
-`ECLAB_VRNETLAB_BUILD_JOBS` controls concurrent image builds and defaults to
-`2`. This is a fixed prefix, the same across every edition. Set it to `1` for
-serial builds or when builds compete for host memory or disk bandwidth.
+The image option is repeatable. Its selector is either an exact opted-in
+topology node name or the reserved `default` fallback:
+
+```bash
+eclab deploy -t lab.clab.yml \
+  --eclab-vrnetlab-image default=/images/router-base.qcow2 \
+  --eclab-vrnetlab-image router-2=/images/router-2.qcow2
+```
+
+Shell completion reads the topology selected by `-t`, `--topo`, or `--topology`,
+falling back to the sole recognized topology file in the current directory. It
+offers `default=` plus nodes that declare `ECLAB_VRNETLAB_TYPE`, and completes the
+path after `=` relative to the topology directory. Each selector may appear once.
+A bare path remains accepted as a compatibility spelling of `default=PATH`, but
+completion emits only the normalized selector form. The option itself is suggested
+without a trailing `=`, producing `--eclab-vrnetlab-image default=PATH` as two shell
+words.
+Place image selectors after the `deploy` command; they are plugin-owned deploy
+options rather than Containerlab root flags.
+
+`--eclab-vrnetlab-build-jobs` controls concurrent image builds and defaults to
+`2`. Set it to `1` for serial builds or when builds compete for host memory or
+disk bandwidth.
 
 The node `image` may differ from the native tag emitted by the builder. After a
 successful build, the plugin retains the native tag and adds the requested node
@@ -51,16 +73,26 @@ independently launched labs. Docker tags and build-fingerprint state are shared
 across workspaces, so lab-unique values avoid cross-lab tag contention and allow
 multiple labs to launch concurrently.
 
-`ECLAB_VM_IMG` is also accepted as a compatibility alias;
-`ECLAB_VM_SRC` remains accepted as an older alias. Both aliases are unrelated
-to the fixed `ECLAB` prefix above.
+`ECLAB_VRNETLAB_IMG_PATH` remains the persistent image fallback.
+`ECLAB_VRNETLAB_BUILD_JOBS` is the persistent concurrency default and its CLI
+option wins. `ECLAB_VM_IMG` and `ECLAB_VM_SRC` remain legacy image-source
+aliases.
 
 ## Source selection
 
-The runtime `ECLAB_VRNETLAB_IMG_PATH` value may be a literal path, `$VARIABLE`,
-or `${VARIABLE}`. A node `env` value of the same name is also accepted and takes
-precedence over the runtime value. If the canonical runtime variable is unset,
-the plugin checks `ECLAB_VM_IMG` and then `ECLAB_VM_SRC`.
+The path portion of `--eclab-vrnetlab-image NODE=PATH` may be a literal path,
+`$VARIABLE`, or `${VARIABLE}`. A node `env.ECLAB_VRNETLAB_IMG_PATH` value is
+also accepted. Source precedence for each opted-in node is:
+
+1. its exact CLI node selector;
+2. its topology `env.ECLAB_VRNETLAB_IMG_PATH` value;
+3. the CLI `default` selector;
+4. the `ECLAB_VRNETLAB_IMG_PATH` environment fallback;
+5. deprecated `ECLAB_VM_IMG`, then `ECLAB_VM_SRC` aliases.
+
+An exact CLI selector must name a topology node that declares
+`ECLAB_VRNETLAB_TYPE`. `default` is a reserved pseudo-node and supplies only
+the fallback for nodes without a more specific source.
 Relative paths resolve from the topology directory. For `$IMAGE_SOURCE` on node
 `router-1` in lab `my-lab`, the invocation environment is checked in this order:
 
@@ -138,17 +170,21 @@ offline mode.
 The MCP service treats every variable referenced by a node image-source field as
 profile-owned because the root daemon can read that path. Configure the selected
 candidate variable in the root-owned profile; callers cannot provide it as an
-override.
+override. MCP lifecycle jobs use a fixed argument vector and do not accept image
+selectors from callers; configure their sources through the selected profile or
+the topology contract.
 
 ## Troubleshooting
 
 - Confirm ensure-vrnetlab and vrnetlab-build appear in the same launcher's help
   and plugin list.
+- Confirm each exact CLI selector matches an opted-in topology node and that no
+  selector is repeated; use `default=PATH` for the fallback.
 - Confirm `<checkout>/<vendor>/<type>/Makefile` exists and the source format
   contains exactly one qcow2.
 - Trace variable selection in node -> lab -> global order and remember that
   relative literal paths use the topology directory.
-- Set `ECLAB_VRNETLAB_BUILD_JOBS=1` to isolate resource pressure or simplify
+- Use `--eclab-vrnetlab-build-jobs 1` to isolate resource pressure or simplify
   output; builders sharing one directory are serialized regardless.
 - If an existing Docker tag is unexpectedly rebuilt, compare source checksum,
   checkout revision, builder type, requested tag, and fingerprint state.

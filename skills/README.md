@@ -8,10 +8,12 @@ through `engulf-clab-schema-api`.
 `engulf-clab-schema` runs after schema contributors. It combines those
 declarations with the exact Containerlab schema selected for the invocation:
 
-1. `CONTAINERLAB_DIR/schemas/clab.schema.json` or another selected checkout;
+1. the checkout selected by `--eclab-containerlab-dir` or the
+   `CONTAINERLAB_DIR` environment default;
 2. the schema at the selected checkout's Git revision;
 3. the repository and revision reported by the selected Containerlab binary;
-4. `CONTAINERLAB_SCHEMA` for an exact private or offline binary build.
+4. `--eclab-containerlab-schema` or the `CONTAINERLAB_SCHEMA` environment
+   default for an exact private or offline binary build.
 
 The result is fingerprinted from the exact Containerlab and vrnetlab source
 identities, application metadata, active plugin distributions and versions,
@@ -53,9 +55,14 @@ conversation can keep using the snapshot it started with.
 
 Explicit installation requests a strict schema compile and preempts normal
 Containerlab execution. Thereafter the plugin tracks the installation in user
-state. Normal wrapper lifecycle points compile the active runtime schema and
-refresh tracked targets when the fingerprint changes. A deleted target is
-untracked; an unsafe or manually replaced target is reported and left alone.
+state. Help, shell completion, and invocations with no tracked target request no
+schema work.
+Other wrapper lifecycle points compare a persisted fingerprint of the active
+plugin declarations, package versions, compiler format, and selected local or
+repository sources. They compile only after an input change or missing cache
+artifact, and refresh only stale or incomplete tracked targets. A deleted
+target or one that no longer has its ownership marker is untracked; an unsafe or
+manually replaced target is reported and left alone.
 
 Newly discovered plugins participate automatically when they depend on
 `engulf_clab.schema` and call `record_plugin_schema()` during `before_goal`.
@@ -83,7 +90,8 @@ explanation must be one line and at most 240 characters.
 The API signatures and validation rules are documented in
 `plugins/engulf-clab-schema-api/README.md`. Contributors must declare
 `SCHEMA_PLUGIN_DEPENDENCY`, include `SCHEMA_CONTEXTS` in their context contract,
-and call `record_plugin_schema(api, PLUGIN_SCHEMA)` from `before_goal`.
+derive their executable-wrapper adapter from `SchemaBackedPlugin`, and call
+`record_plugin_schema(api, PLUGIN_SCHEMA)` from `before_goal`.
 
 ## Validation
 

@@ -12,13 +12,11 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PathBase,
     PluginSchema,
+    SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
 )
-from engulf_executable_wrapper_api import (
-    ExecutableWrapperPlugin,
-    HelpAPI,
-)
+from engulf_executable_wrapper_api import HelpAPI
 
 from .command import main as run_freeze_command
 
@@ -80,10 +78,11 @@ PLUGIN_SCHEMA = (
 )
 
 
-class FreezePlugin(ExecutableWrapperPlugin):
+class FreezePlugin(SchemaBackedPlugin):
     """Own the freeze control command before the Containerlab goal runs."""
 
     plugin_id = "engulf_clab.freeze"
+    schema = PLUGIN_SCHEMA
     priority = 200
     plugin_dependencies = (SCHEMA_PLUGIN_DEPENDENCY,)
     context_reads = SCHEMA_CONTEXTS
@@ -114,6 +113,7 @@ class FreezePlugin(ExecutableWrapperPlugin):
                 program=f"{application_name} freeze",
                 application_name=application_name,
                 logger=api.logger,
+                environment=invocation.environment,
             )
         return GoalResult.completed(exit_code=exit_code)
 

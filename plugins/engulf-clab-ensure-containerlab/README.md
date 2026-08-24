@@ -15,19 +15,25 @@ the exact resolved checkout or binary source for the schema generator.
 
 ## Resolution order
 
-1. Executable path in `CONTAINERLAB_BIN`.
-2. Valid source checkout in `CONTAINERLAB_DIR`; builds `bin/containerlab` when
+1. Executable path from `--eclab-containerlab-bin`.
+2. Valid source checkout from `--eclab-containerlab-dir`; builds `bin/containerlab` when
    needed (requires Go).
 3. `containerlab` found on `PATH`.
-4. A managed user-state checkout cloned from `CONTAINERLAB_REPO`, then built.
+4. A managed user-state checkout cloned from the selected repository, then built.
 
-| Environment variable | Meaning |
+| CLI option | Meaning |
 | --- | --- |
-| `CONTAINERLAB_BIN` | Explicit executable. It is never updated or rebuilt. |
-| `CONTAINERLAB_DIR` | Existing source checkout. |
-| `CONTAINERLAB_REPO` | Clone source for a managed checkout; default is `https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support`. GitHub `/tree/<branch>` URLs are cloned at that branch. |
-| `CONTAINERLAB_UPDATE=1` | Opt into a Git update check, at most daily per checkout. |
-| `CONTAINERLAB_VERSION` | Pin to a tag, commit, or Git revision; also enables checking. |
+| `--eclab-containerlab-bin PATH` | Explicit executable. It is never updated or rebuilt. |
+| `--eclab-containerlab-dir DIR` | Existing source checkout. |
+| `--eclab-containerlab-repo URL` | Clone source for a managed checkout; default is `https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support`. GitHub `/tree/<branch>` URLs are cloned at that branch. |
+| `--eclab-containerlab-update` | Opt into a Git update check, at most daily per checkout. |
+| `--eclab-containerlab-version REV` | Pin to a tag, commit, or Git revision; also enables checking. |
+
+`CONTAINERLAB_BIN`, `CONTAINERLAB_DIR`, `CONTAINERLAB_REPO`,
+`CONTAINERLAB_UPDATE`, and `CONTAINERLAB_VERSION` are supported environment
+defaults suitable for shell profiles or service configuration. A matching CLI
+option wins before source discovery, workspace resolution, and plugin
+preparation.
 
 On an update, the highest version-style release tag reachable from the branch is
 preferred. A branch with no release tags fast-forwards by commit. Changed source
@@ -76,8 +82,8 @@ plugin does not install Docker, Go, Git, or operating-system packages.
 
 - Run `eclab --help` in the target environment and confirm
   `engulf_clab.ensure_containerlab` is active.
-- Check `CONTAINERLAB_BIN` with `test -x`; check `CONTAINERLAB_DIR/go.mod` and
-  its built executable when selecting a checkout.
+- Check `--eclab-containerlab-bin PATH` with `test -x`; check the selected
+  checkout's `go.mod` and built executable when using the directory option.
 - If a checkout update is rejected, inspect `git status`; the plugin will not
   discard local changes.
 - If a build fails, run the reported Go build from the checkout and verify the

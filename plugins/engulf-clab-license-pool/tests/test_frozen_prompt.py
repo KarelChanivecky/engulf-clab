@@ -7,8 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from engulf_api import ApplicationMetadata
-from engulf_executable_wrapper_api import HelpAPI
-
 from engulf_clab_license_pool.plugin import (
     LicenseContract,
     LicensePoolPlugin,
@@ -16,6 +14,7 @@ from engulf_clab_license_pool.plugin import (
     _prompt_requests,
     license_contract,
 )
+from engulf_executable_wrapper_api import HelpAPI
 
 
 class FrozenLicensePromptTestCase(unittest.TestCase):
@@ -32,7 +31,12 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
         rendered = LicensePoolPlugin().help(api)
         self.assertIn("ECLAB_LIC_CLAMP", rendered)
         self.assertIn("__ECLAB_LICENSE_PROMPT__", rendered)
-        self.assertIn("ECLAB_LICENSE[_NODE]", rendered)
+        self.assertIn("ECLAB_LICENSE is the persistent environment default", rendered)
+        self.assertIn("ECLAB_LICENSE_<NODE>", rendered)
+        self.assertIn("--eclab-license-pool-strategy", rendered)
+        self.assertIn("sticky (default), round-robin, or least-recently-used", rendered)
+        self.assertIn("ECLAB_LICENSE_POOL_STRATEGY", rendered)
+        self.assertIn("selected license basename", rendered)
         self.assertNotIn("VENDOR_CLAB_LICENSE", rendered)
 
     def test_contract_splits_fixed_labels_from_dynamic_state_namespace(self) -> None:
@@ -52,7 +56,11 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
             license_file = Path(directory) / "router.lic"
             license_file.write_text("license", encoding="utf-8")
             pools, direct = _prompt_requests(
-                {"topology": {"nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}}},
+                {
+                    "topology": {
+                        "nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}
+                    }
+                },
                 {"ECLAB_LICENSE_ROUTER_1": str(license_file)},
                 Path(directory),
                 LicenseContract("ECLAB"),
@@ -72,9 +80,7 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
             pools, direct = _prompt_requests(
                 {
                     "topology": {
-                        "nodes": {
-                            "router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}
-                        }
+                        "nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}
                     }
                 },
                 {"ECLAB_LICENSE_ROUTER_1": str(license_file)},
@@ -89,8 +95,6 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
             root = Path(directory)
             source = root / "router.lic"
             source.write_text("license", encoding="utf-8")
-            copied = _copy_to_lab(
-                source, root, "claim", LicenseContract("VENDOR_CLAB")
-            )
+            copied = _copy_to_lab(source, root, "claim", LicenseContract("VENDOR_CLAB"))
             self.assertEqual(copied.parts[-4], ".vendor_clab")
             self.assertTrue(copied.is_file())

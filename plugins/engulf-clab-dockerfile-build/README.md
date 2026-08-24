@@ -13,7 +13,7 @@ analysis do not build images.
 
 - [Use](#use)
 - [Node environment fields](#node-environment-fields)
-- [Runtime environment](#runtime-environment)
+- [Wrapper option](#wrapper-option)
 - [Behavior](#behavior)
 - [Troubleshooting](#troubleshooting)
 
@@ -67,12 +67,13 @@ arguments and build arguments as build inputs; do not place secrets in topology
 YAML. Use Docker-supported secret mechanisms provisioned outside a shareable lab
 when sensitive build material is unavoidable.
 
-## Runtime environment
+## Wrapper option
 
-`ECLAB_DOCKER_BUILD_JOBS` controls how many distinct image tags may build at
-once and defaults to `2`. Editions use their application-specific prefix. Set it
-to `1` for serial builds or lower it when Docker builds compete for host memory
-or disk bandwidth.
+`--eclab-docker-build-jobs COUNT` controls how many distinct image tags may
+build at once and defaults to `2`. Set it to `1` for serial builds or lower it
+when Docker builds compete for host memory or disk bandwidth.
+`ECLAB_DOCKER_BUILD_JOBS` is the supported persistent environment default; the
+CLI option wins when both are present. Node `env` build fields are unchanged.
 
 ## Behavior
 
@@ -108,7 +109,7 @@ labs must not overwrite one another's local image.
   `engulf_clab.dockerfile_build` block.
 - Confirm paths from the topology directory and inspect `.dockerignore` when
   expected files are absent from the context.
-- Set `ECLAB_DOCKER_BUILD_JOBS=1` to make resource-heavy or
+- Use `--eclab-docker-build-jobs 1` to make resource-heavy or
   ordering-sensitive build output easier to read.
 - Enable targeted plugin diagnostics and reproduce the equivalent `docker build`
   argument vector without adding plugin-owned `--file`/`--tag` overrides.

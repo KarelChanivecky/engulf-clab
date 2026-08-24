@@ -7,6 +7,8 @@ import importlib.resources
 import json
 import math
 import re
+from collections.abc import Mapping
+from functools import cache
 from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import Self, cast
@@ -281,6 +283,7 @@ class PluginSchema:
         default: JsonValue | UnsetType = UNSET,
         deprecated: bool = False,
         replacement: str | None = None,
+        environment: str | None = None,
     ) -> Self:
         normalized_names = (names,) if isinstance(names, str) else names
         if type(normalized_names) is not tuple or not normalized_names:
@@ -296,6 +299,18 @@ class PluginSchema:
             raise ValueError("CLI flag aliases must be unique")
         if command is not None:
             self._require_command(command)
+        if environment is not None:
+            if command is not None:
+                raise ValueError("environment-backed CLI flags must be wrapper-global")
+            if _ENV_NAME.fullmatch(environment) is None or "*" in environment:
+                raise ValueError("environment must name one exact runtime variable")
+            if not any(
+                option.kind is OptionKind.RUNTIME_VAR and option.name == environment
+                for option in self._options
+            ):
+                raise ValueError(
+                    f"environment-backed CLI flag requires runtime variable first: {environment}"
+                )
         requested_names = set(normalized_names)
         for option in self._options:
             if option.kind is not OptionKind.CLI_FLAG or option.command != command:
@@ -328,6 +343,7 @@ class PluginSchema:
                 default_json=default_json,
                 deprecated=deprecated,
                 replacement=replacement,
+                environment=environment,
             ),
             (OptionKind.CLI_FLAG, command, *normalized_names),
         )
@@ -771,6 +787,18 @@ class PluginSchema:
             tuple(self._node_kinds),
         )
 
+    def options(self, application: ApplicationMetadata) -> tuple[OptionDeclaration, ...]:
+        """Return edition-expanded declarations without loading packaged references."""
+        short_product = normalized_short_product(application)
+        return tuple(self._expanded_option(option, short_product) for option in self._options)
+
+    def annotations(self, application: ApplicationMetadata) -> tuple[SemanticAnnotation, ...]:
+        """Return edition-expanded semantics without loading packaged references."""
+        short_product = normalized_short_product(application)
+        return tuple(
+            self._expanded_annotation(annotation, short_product) for annotation in self._annotations
+        )
+
     def _expanded_option(self, option: OptionDeclaration, short_product: str) -> OptionDeclaration:
         return OptionDeclaration(
             option.kind,
@@ -790,6 +818,7 @@ class PluginSchema:
             replacement=(
                 None if option.replacement is None else _expand(option.replacement, short_product)
             ),
+            environment=option.environment,
         )
 
     @staticmethod
@@ -868,15 +897,27 @@ def _read_resource(module: ModuleType, path: str) -> bytes:
     raise FileNotFoundError(f"packaged schema reference is missing: {path}")
 
 
+@cache
 def _distribution(package: str) -> tuple[str, str]:
-    candidates = importlib.metadata.packages_distributions().get(package, [])
+    conventional = package.replace("_", "-")
+    try:
+        return conventional, importlib.metadata.version(conventional)
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    candidates = _package_distributions().get(package, [])
     if len(candidates) == 1:
         distribution = candidates[0]
         try:
             return distribution, importlib.metadata.version(distribution)
         except importlib.metadata.PackageNotFoundError:
             pass
-    return package.replace("_", "-"), "source"
+    return conventional, "source"
+
+
+@cache
+def _package_distributions() -> Mapping[str, list[str]]:
+    """Build the expensive import-package index at most once per process."""
+    return importlib.metadata.packages_distributions()
 
 
 def _tokens(values: tuple[str, ...], *, label: str, pattern: re.Pattern[str]) -> tuple[str, ...]:

@@ -9,7 +9,10 @@ description = "Typed runtime schema contribution contract for engulf-clab plugin
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
-dependencies = ["engulf-api>=1.0,<2"]
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0.1,<2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_schema_api"]

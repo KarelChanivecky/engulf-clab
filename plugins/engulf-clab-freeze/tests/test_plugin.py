@@ -12,12 +12,13 @@ from engulf_api import (
     StateScope,
     WorkspaceState,
 )
-
 from engulf_clab_freeze.plugin import FreezePlugin
 
 
 class FreezePluginTest(unittest.TestCase):
-    def test_freeze_runs_before_the_wrapped_goal_and_returns_its_exit_code(self) -> None:
+    def test_freeze_runs_before_the_wrapped_goal_and_returns_its_exit_code(
+        self,
+    ) -> None:
         workspace = MagicMock(spec=WorkspaceState)
         workspace.root = Path("/labs/demo")
         api = MagicMock(spec=BeforeGoalAPI)
@@ -50,6 +51,7 @@ class FreezePluginTest(unittest.TestCase):
             program="fclab freeze",
             application_name="fclab",
             logger=api.logger,
+            environment=invocation.environment,
         )
 
     def test_offline_freeze_receives_user_state_for_managed_tools(self) -> None:
@@ -65,9 +67,7 @@ class FreezePluginTest(unittest.TestCase):
         api.leases.return_value.__enter__.return_value = None
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "fclab"
-        invocation = Invocation(
-            ("freeze", "--offline"), Path("/labs/demo"), {}
-        )
+        invocation = Invocation(("freeze", "--offline"), Path("/labs/demo"), {})
 
         with patch(
             "engulf_clab_freeze.plugin.run_freeze_command", return_value=0
@@ -81,6 +81,7 @@ class FreezePluginTest(unittest.TestCase):
             program="fclab freeze",
             application_name="fclab",
             logger=api.logger,
+            environment=invocation.environment,
         )
         self.assertEqual(
             api.state.call_args_list,

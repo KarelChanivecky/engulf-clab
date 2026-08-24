@@ -58,6 +58,7 @@ class EngulfStateIntegrationTest(unittest.TestCase):
                 workspace_state: WorkspaceState,
                 _user_state: StateStore,
                 _contract: object,
+                _environment: object,
             ) -> None:
                 workspace_state.write_text(METADATA_FILENAME, "[]\n")
 

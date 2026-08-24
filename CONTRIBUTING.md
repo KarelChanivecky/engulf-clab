@@ -177,6 +177,12 @@ Each feature plugin owns an import-time `PluginSchema` builder and records its
 immutable snapshot during `before_goal`. The generator runs last and composes
 those snapshots with the exact selected Containerlab schema. Detailed references
 come from packaged `README.md` and `AGENTS.md` resources, not repository mirrors.
+Executable-wrapper contributors should derive from `SchemaBackedPlugin`; it
+turns command/flag/value declarations into Bash, Zsh, and Fish completion and
+normalizes explicitly environment-backed global flags before outer callbacks.
+Keep node `env` declarations distinct from wrapper-consumed runtime defaults.
+Environment values support persistent configuration; matching CLI flags are
+per-invocation overrides and take precedence.
 
 After changing a declaration, referenced document, compiler, or skill template,
 run `make check-skill`. Keep every option explanation to one line and at most

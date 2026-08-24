@@ -83,6 +83,21 @@ def _provider() -> RecordedPluginSchema:
         "1.2.3",
         (
             OptionDeclaration(
+                OptionKind.RUNTIME_VAR,
+                "EXAMPLE_SOURCE",
+                "Persistent source default.",
+                value_mode=ValueMode.TYPE,
+                values=(ValueType.FILE_PATH.value,),
+            ),
+            OptionDeclaration(
+                OptionKind.CLI_FLAG,
+                "--example-source",
+                "Select a source.",
+                value_mode=ValueMode.TYPE,
+                values=(ValueType.FILE_PATH.value,),
+                environment="EXAMPLE_SOURCE",
+            ),
+            OptionDeclaration(
                 OptionKind.NODE_VAR,
                 "ECLAB_MODE_*",
                 "Select a mode.",
@@ -149,6 +164,9 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
     manifest = json.loads(first.manifest)
     schema = json.loads(first.topology_schema)
     assert manifest["paths"]["node"]["env.ECLAB_MODE_*"][0]["plugin_id"] == "example.plugin"
+    manifest_flag = manifest["plugins"][0]["options"][1]
+    assert manifest["plugins"][0]["options"][0]["deprecated"] is False
+    assert manifest_flag["environment_default"] == "EXAMPLE_SOURCE"
     node = schema["definitions"]["eclab-explicit-node-config"]
     assert "^ECLAB_MODE_.+$" in node["properties"]["env"]["patternProperties"]
     assert (
@@ -170,6 +188,9 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
     }
     capabilities = yaml.safe_load(plugin_schema.content)
     assert capabilities["plugin"]["id"] == "example.plugin"
+    assert capabilities["global_flags"]["--example-source"]["environment_default"] == (
+        "EXAMPLE_SOURCE"
+    )
     assert capabilities["topology"]["node"]["env"]["ECLAB_MODE_*"]["type"] == "string"
     assert capabilities["topology"]["node"]["properties"]["labels.example"]["requires"] == [
         "node.kind is linux"

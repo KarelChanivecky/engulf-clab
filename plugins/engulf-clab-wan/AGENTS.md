@@ -22,12 +22,14 @@ It watches Containerlab calls for:
 - Plugin import package: `engulf_clab_wan`
 - Plugin ID: `engulf_clab.wan`
 
-Plugin code imports `engulf_api`, not `engulf`.
-It derives from `ExecutableWrapperPlugin` supplied by
-`engulf_executable_wrapper_api`.
+Plugin code imports `engulf_api`, not `engulf`. It derives from
+`SchemaBackedPlugin`, which remains an executable-wrapper plugin adapter.
 
 ## Development Notes
 
+- Keep `--eclab-uplink-interface` bound to persistent `ECLAB_UPLINK_IF` and
+  thread the normalized event environment into uplink detection. WAN node
+  labels remain topology controls, not wrapper options.
 - Use the fixed `ECLAB` label prefix (`networks.LABEL_PREFIX`) for every DHCP
   WAN label and for `ECLAB_UPLINK_IF`. Do not derive it from
   `api.application.short_product_name`/`product` — labels must stay portable

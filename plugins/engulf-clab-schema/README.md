@@ -21,6 +21,9 @@ references. The agent does not need to open the much larger validation schema
 for capability discovery. Base Containerlab CLI syntax is intentionally not
 frozen into plugin declarations: the catalog names the selected launcher's
 `--help` as the runtime authority.
+Each canonical wrapper flag also names its `environment_default` when one
+exists, so agents know which supported environment variable persists the
+setting and that the CLI form overrides it for one invocation.
 
 The composed validation schema remains self-contained. A shared Containerlab
 definition is cloned at most once for each plugin-owned mutation location and
@@ -29,8 +32,9 @@ then reused, so repeated controls do not create historical definition chains.
 For a source checkout, `schemas/clab.schema.json` in that checkout is always the
 first choice. If it is unavailable, the plugin reads the same Git commit and may
 fetch only that exact repository revision. For a binary, it uses
-`containerlab version --json`. `CONTAINERLAB_SCHEMA` supplies a local schema for
-private or offline binary builds.
+`containerlab version --json`. `--eclab-containerlab-schema FILE` supplies a
+local schema for private or offline binary builds. `CONTAINERLAB_SCHEMA` is the
+supported persistent environment default, and the CLI option wins.
 
 Node kinds come from the selected Containerlab schema. The generator maps them
 to `docs/manual/kinds/` in that same checkout or exact fetched commit and, where
@@ -53,7 +57,16 @@ sources after preparation. Direct environment and state inference here is only
 a compatibility fallback when an owning ensure plugin is absent.
 
 Normal calls refresh lazily after executable preparation and never fail solely
-because documentation generation failed. Explicit consumers request a strict
-build and receive a nonzero result when an exact current bundle cannot be made.
-Artifacts are fingerprinted and cached in plugin user state. Repository URLs are
-sanitized before entering manifests or diagnostics.
+because documentation generation failed. When no generated skill is tracked,
+they do not request schema work at all. Otherwise the generator first compares a
+persisted input fingerprint covering the application, active plugin
+distributions and declarations, packaged-reference hashes, compiler format, and
+the selected Containerlab/vrnetlab sources. A matching complete artifact is
+reused without resolving repositories, harvesting node kinds, or compiling the
+full schema. Local checkout fingerprints include the exact Git revision and
+cheap stamps for the schema and relevant upstream documentation.
+
+Explicit consumers request a strict build and receive a nonzero result when an
+exact current bundle cannot be made. Missing or incomplete cached artifacts are
+regenerated. Artifacts are fingerprinted and cached in plugin user state.
+Repository URLs are sanitized before entering manifests or diagnostics.

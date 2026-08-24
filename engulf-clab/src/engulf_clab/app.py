@@ -43,7 +43,7 @@ def binary_path(binary: str = CONTAINERLAB_BINARY) -> str:
 
 def _containerlab_goal() -> ExecutableWrapperGoal:
     """Create the standard Containerlab goal when an application is launched."""
-    return ExecutableWrapperGoal(binary_path())
+    return ExecutableWrapperGoal(binary_path(), source_completion=True)
 
 
 # This definition is deliberately import-safe: editions can depend on this package
@@ -85,6 +85,7 @@ class ContainerlabApp(Application[CallOutcome]):
         plugin_dir: str | PathLike[str] | None = None,
         discover_installed: bool = True,
         completion_provider: CompletionCallable | CompletionProvider | None = None,
+        source_completion: bool = True,
         workspace_root_resolver: WorkspaceRootResolver = workspace_root,
         state_home_resolver: StateHomeResolver | None = None,
     ) -> None:
@@ -97,6 +98,7 @@ class ContainerlabApp(Application[CallOutcome]):
         executable_goal = ExecutableWrapperGoal(
             executable,
             completion_provider=completion_provider,
+            source_completion=source_completion,
         )
         super().__init__(
             application_id,

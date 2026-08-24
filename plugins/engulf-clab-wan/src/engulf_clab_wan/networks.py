@@ -136,9 +136,7 @@ def parse_bridge(
         label_value(labels, contract.label("DHCP_DNS"), DEFAULT_DNS)
     )
     lease_time = int(
-        label_value(
-            labels, contract.label("DHCP_LEASE_TIME"), str(DEFAULT_LEASE_TIME)
-        )
+        label_value(labels, contract.label("DHCP_LEASE_TIME"), str(DEFAULT_LEASE_TIME))
     )
 
     if gateway not in subnet:
@@ -627,6 +625,7 @@ def setup_dhcp_wan_bridges(
     workspace: WorkspaceState,
     user_state: StateStore,
     contract: WanContract,
+    environ: Mapping[str, str] | None = None,
 ) -> None:
     bridges = dhcp_wan_bridges(topology_data, contract)
     require_root(bridges, contract.marker_label)
@@ -638,7 +637,7 @@ def setup_dhcp_wan_bridges(
     require_commands(["ip", "iptables", "sysctl", "sh"])
 
     info(f"using Engulf user registry {user_state.directory}")
-    uplink = detect_uplink_interface(contract)
+    uplink = detect_uplink_interface(contract, environ)
     ensure_ip_forwarding(user_state)
     workspace_name = os.fspath(workspace.root)
     claims: list[str] = []

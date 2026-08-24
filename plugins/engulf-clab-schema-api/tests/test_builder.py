@@ -11,6 +11,7 @@ from engulf_clab_schema_api import (
     Privilege,
     ValueMode,
     ValueType,
+    builder,
 )
 
 APPLICATION = ApplicationMetadata(
@@ -21,6 +22,26 @@ APPLICATION = ApplicationMetadata(
     short_product_name="eclab",
     version="1.0",
 )
+
+
+def test_distribution_lookup_uses_conventional_name_without_global_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builder._distribution.cache_clear()
+    builder._package_distributions.cache_clear()
+    monkeypatch.setattr(builder.importlib.metadata, "version", lambda name: "7.4")
+
+    def unexpected_index() -> dict[str, list[str]]:
+        raise AssertionError("the global package index should not be built")
+
+    monkeypatch.setattr(builder.importlib.metadata, "packages_distributions", unexpected_index)
+
+    assert builder._distribution("unique_example_package") == (
+        "unique-example-package",
+        "7.4",
+    )
+    builder._distribution.cache_clear()
+    builder._package_distributions.cache_clear()
 
 
 def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
@@ -126,6 +147,32 @@ def test_command_scope_and_duplicates_are_validated() -> None:
         schema.add_cli_flag("--flag", "Enable it again.", command="run")
     with pytest.raises(ValueError, match="collide"):
         schema.add_cli_flag(("-f", "--flag"), "Collide through an alias.", command="run")
+
+
+def test_cli_flag_can_override_one_declared_runtime_variable() -> None:
+    schema = (
+        PluginSchema("example.plugin", package="example")
+        .add_runtime_var(
+            "EXAMPLE_SOURCE",
+            "Persistent source default.",
+            values=ValueType.FILE_PATH,
+        )
+        .add_cli_flag(
+            "--example-source",
+            "Select the source.",
+            values=ValueType.FILE_PATH,
+            environment="EXAMPLE_SOURCE",
+        )
+    )
+
+    assert schema.options(APPLICATION)[1].environment == "EXAMPLE_SOURCE"
+    with pytest.raises(ValueError, match="requires runtime variable first"):
+        PluginSchema("example.other", package="example").add_cli_flag(
+            "--source",
+            "Select it.",
+            values=ValueType.STRING,
+            environment="EXAMPLE_SOURCE",
+        )
 
 
 def test_environment_names_are_validated() -> None:

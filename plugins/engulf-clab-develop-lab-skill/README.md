@@ -32,5 +32,13 @@ loaded instructions to the current fingerprint's small provider YAML files.
 
 Only recognized generated installations are replaced. Symlinks and unrelated
 directories are refused. Explicitly installed configuration roots are tracked
-for best-effort refresh after later launcher calls; deleting a generated target
-removes that root from automatic refresh.
+for best-effort refresh after later launcher calls. No automatic schema build is
+requested when that tracking list is empty. A complete target reports its
+installed fingerprint to the generator, so an unchanged cached bundle requires
+neither compilation nor a rewrite. An incomplete recognized target is repaired
+from the cached bundle; deleting the whole generated target removes that root
+from automatic refresh. Help-only invocations do not inspect tracking state or
+request an automatic refresh; neither does the latency-sensitive internal shell
+completion protocol.
+An existing symlink or target without the ownership marker is left untouched and
+removed from automatic tracking.

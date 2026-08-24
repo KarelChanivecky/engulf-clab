@@ -37,7 +37,13 @@ environment may differ from the local shell.
 - Follow the selected node kind, image, and helper contracts. Keep addressing,
   routing, policy, and credentials in the lab rather than generic helpers.
 - Never assign, rename, or use `eth0` as a topology or data-plane link
-  endpoint. Containerlab reserves it for the node's management interface.
+  endpoint. Containerlab reserves it for the node's management interface — as
+  do virtual appliances for their first port (FortiGate `port1`).
+- Runtime environment variables are prefixed with the edition's short product
+  name (`@@SHORT_PRODUCT@@`, uppercased); the active runtime's help and
+  provider schemas show the exact form.
+- Use environment variables for persistent defaults and CLI flags for
+  per-invocation overrides; flags win.
 - Ensure every deployed container provides basic network diagnostics: `ping`,
   `traceroute`, DNS lookup (`nslookup` or equivalent), `nc`, `tcpdump`, or the
   platform's corresponding commands.
@@ -45,6 +51,20 @@ environment may differ from the local shell.
   repositories, or service secrets.
 - Treat plugin-produced topology files as temporary derived output; preserve
   the source topology.
+
+### Virtual-appliance kinds
+
+Kinds such as `fortinet_fortigate` run a VM under vrnetlab, not a container:
+
+- Boot from a versioned startup config named by the node's `startup-config:`
+  and enforce it, so each deploy starts from that config rather than stale
+  runtime state.
+- Build disk images with the runtime's vrnetlab pipeline; never commit the
+  resulting images to source control.
+- Draw licenses from the license-pool plugin and keep node identities stable.
+- Give the lab a data-plane default route through a managed DHCP-WAN bridge on
+  the appliance's first data interface (in DHCP mode), which installs the
+  default route from the lease.
 
 ## Choose WAN access deliberately
 
@@ -54,7 +74,7 @@ Use the least invasive method that exercises the behavior the lab needs:
    test does not care about a data-plane default route. Do not author `eth0`
    into the topology; no WAN node is needed.
 2. Use a packaged WAN-access node with static data-plane addressing when the
-   client must route through a WAN node but does not need DHCP.
+   client must route through a WAN node without DHCP.
 3. Enable DHCP on the packaged WAN-access node when the test needs an explicit
    DHCP-served data-plane WAN.
 4. Use a host-managed bridge WAN only when the test must exercise a real
@@ -67,6 +87,16 @@ plugins and lifecycles.
 
 For shared segments, verify endpoint cardinality, bridge ownership, parent
 naming, and helper interface constraints in the selected provider references.
+
+## Capture and health
+
+Where provider schemas advertise them:
+
+- Gate deploys on appliance readiness (a `--<product>-wait-healthy` flag)
+  before driving a fresh lab programmatically or reporting a repro result.
+- Capture a node's live, re-deployable config (for example `get-config`),
+  which merges redacted or secret-placeholder fields back from the startup
+  config.
 
 ## Validate and operate safely
 
@@ -88,11 +118,11 @@ naming, and helper interface constraints in the selected provider references.
 
 ## Troubleshooting
 
-1. When expected `eth*` interfaces disappear from one or more nodes, first
-   check every container attached to those links. A container that failed to
-   start can cause Containerlab to remove or never retain the peer interfaces
-   on otherwise running nodes. Fix the first failed container and redeploy
-   before changing link or interface configuration.
+1. When expected `eth*` interfaces disappear from one or more nodes, check
+   every container attached to those links: one that failed to start can cause
+   Containerlab to drop or never create the peer interfaces on otherwise
+   running nodes. Fix the first failed container and redeploy before changing
+   link or interface configuration.
 
 ## Diagnose in layers
 

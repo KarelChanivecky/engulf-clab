@@ -17,7 +17,7 @@ from engulf_clab_ensure_vrnetlab import (
 )
 
 from .errors import VrnetlabError
-from .topology import topology_name, topology_nodes
+from .topology import TopologyNode, topology_name, topology_nodes
 
 VRNETLAB_TYPE = VRNETLAB_TYPE_ENV
 VRNETLAB_IMAGE_PATH = VRNETLAB_IMAGE_PATH_ENV
@@ -140,11 +140,19 @@ def _source_setting(
     node_env: Mapping[str, Any],
     environ: Mapping[str, str],
     *,
+    node_name: str,
     image_path_environment: str,
+    image_selectors: Mapping[str, str],
 ) -> str | None:
+    node_selector = image_selectors.get(node_name)
+    if node_selector is not None:
+        return node_selector
     node_value = _optional_string(node_env, image_path_environment, owner="node environment")
     if node_value is not None:
         return node_value
+    default_selector = image_selectors.get("default")
+    if default_selector is not None:
+        return default_selector
     if value := environ.get(image_path_environment):
         return value
     return (
@@ -158,18 +166,46 @@ def build_requests_from_topology(
     topology_path: Path,
     topology_data: dict[str, Any],
     environ: Mapping[str, str] | None = None,
+    *,
+    image_selectors: Mapping[str, str] | None = None,
 ) -> list[BuildRequest]:
     current_env = environ if environ is not None else os.environ
+    selectors = {} if image_selectors is None else dict(image_selectors)
+    if any(
+        not isinstance(target, str)
+        or not target
+        or not isinstance(source, str)
+        or not source.strip()
+        for target, source in selectors.items()
+    ):
+        raise VrnetlabError("vrnetlab image selectors must map nonempty node names to sources")
     type_environment = vrnetlab_type_env()
     image_path_environment = vrnetlab_image_path_env()
     requests: list[BuildRequest] = []
     lab_name: str | None = None
+    nodes = topology_nodes(topology_data)
+    configured_nodes: list[tuple[TopologyNode, dict[str, Any], str]] = []
 
-    for node in topology_nodes(topology_data):
+    for node in nodes:
         node_env = _node_environment(node.name, node.data)
         builder_type = _optional_string(node_env, type_environment, owner=f"node {node.name}")
         if builder_type is None:
             continue
+        configured_nodes.append((node, node_env, builder_type))
+
+    configured_names = {node.name for node, _environment, _builder in configured_nodes}
+    declared_names = {node.name for node in nodes}
+    for target in selectors:
+        if target == "default":
+            continue
+        if target not in declared_names:
+            raise VrnetlabError(f"vrnetlab image selector {target!r} is not a topology node")
+        if target not in configured_names:
+            raise VrnetlabError(
+                f"vrnetlab image selector {target!r} targets a node without {type_environment}"
+            )
+
+    for node, node_env, builder_type in configured_nodes:
         if lab_name is None:
             lab_name = topology_name(topology_data)
 
@@ -183,7 +219,9 @@ def build_requests_from_topology(
         source_value = _source_setting(
             node_env,
             current_env,
+            node_name=node.name,
             image_path_environment=image_path_environment,
+            image_selectors=selectors,
         )
         source = None
         if source_value is not None:

@@ -26,6 +26,9 @@ wrapper and separately publishable Engulf plugin packages.
   selected topology, or the current directory when no filesystem topology is
   selected. Keep this identity stable for persisted workspace state.
 - The wrapper uses `ExecutableWrapperGoal` and `PluginPolicy.declared()`.
+- The standard Containerlab goal opts into trusted native completion sourcing. Keep
+  that application-level choice explicit; generic executable wrappers must not source
+  arbitrary child output, and custom `ContainerlabApp` callers may disable it.
 - Plugins for this wrapper must publish a goal catalog declaration and an
   application declaration, both with the exact plugin ID as their entry-point
   name:

@@ -1,6 +1,11 @@
 """Stable runtime schema contribution contract for engulf-clab plugins."""
 
 from .builder import PluginSchema, normalized_short_product, split_property_path
+from .completion import (
+    SchemaBackedPlugin,
+    register_schema_arguments,
+    register_schema_completions,
+)
 from .context import (
     SCHEMA_COMPILED_CONTEXT,
     SCHEMA_CONTEXTS,
@@ -82,6 +87,7 @@ __all__ = [
     "ReferenceSnapshot",
     "RequirementKind",
     "RuntimeRequirement",
+    "SchemaBackedPlugin",
     "SchemaBuildRequest",
     "SchemaDeclarationFailure",
     "SchemaRegistryEntry",
@@ -98,6 +104,8 @@ __all__ = [
     "publish_containerlab_source",
     "publish_vrnetlab_source",
     "record_plugin_schema",
+    "register_schema_arguments",
+    "register_schema_completions",
     "request_schema_build",
     "split_property_path",
 ]

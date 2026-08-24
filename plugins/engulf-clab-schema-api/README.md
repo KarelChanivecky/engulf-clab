@@ -2,14 +2,23 @@
 
 `engulf-clab-schema-api` is the stable typed contract used by Engulf plugins to
 describe their installed commands, environment variables, topology controls,
-use cases, rejection guidance, and packaged references. It performs no plugin
-discovery, schema compilation, network access, or installation.
+use cases, rejection guidance, and packaged references. It also adapts those
+declarations into executable-wrapper completion and environment-backed CLI
+options. It performs no plugin discovery, schema compilation, network access,
+or installation.
 
 Create one module-level `PluginSchema`, declare the schema generator as an
 Engulf dependency positioned after the contributor, union `SCHEMA_CONTEXTS`
 into both context declarations, and call `record_plugin_schema()` at the start
 of `before_goal()`. The helper stores an immutable snapshot in invocation
 context; callback API objects are never retained.
+
+Derive an executable-wrapper contributor from `SchemaBackedPlugin`, set its
+class-level `schema` to that builder, and keep the ordinary schema recording
+call. The base registers global options, commands, scoped flags, positional
+values, explained literals, and path values for shell completion. A plugin
+that needs custom registration may override either registration callback and
+call `register_schema_arguments()` or `register_schema_completions()` directly.
 
 Every option has a short one-line explanation. Put detailed behavior in
 package resources and add them with `refer()`. Resource paths are relative to
@@ -67,12 +76,19 @@ add_cli_flag(
     default: JsonValue | UnsetType = UNSET,
     deprecated: bool = False,
     replacement: str | None = None,
+    environment: str | None = None,
 ) -> PluginSchema
 ```
 
 Declares one flag or an alias tuple whose first item is canonical. With
 `command=None` it is wrapper-global; otherwise it is scoped to a previously
-declared command. `values=None` describes a boolean switch.
+declared command. `values=None` describes a boolean switch. `environment`
+binds a global flag to one exact, previously declared runtime variable. The
+wrapper consumes the flag before outer callbacks, overlays the invocation
+environment, and gives the CLI value precedence over the inherited environment
+default; a switch writes `"1"`. The variable remains a supported way to persist
+configuration across invocations. Command-scoped and wildcard environment
+bindings are rejected.
 
 ```python
 add_runtime_var(
@@ -213,6 +229,13 @@ the owning ensure plugin has selected the concrete checkout or binary. The
 generator still resolves repository revisions to exact commits before writing
 the manifest.
 
+`SchemaBuildRequest(requester_plugin_id, request_id, required=True,
+current_fingerprint=None)` requests composition. `required=True` is a strict
+explicit build. A best-effort consumer may set `required=False` and report the
+single `current_fingerprint` already present at every target it owns. On an
+exact cache hit, that tells the generator it need not emit or reinstall the
+bundle; `None` asks it to return the cached bundle when one is available.
+
 `ValueSpec` is either one `ValueType` or a nonempty tuple containing accepted
 types, literal JSON scalars, or `ExplainedValue(value, explanation)` entries.
 Literal and explained literal entries form a closed set when no `ValueType` is
@@ -231,7 +254,7 @@ For example, a container collection can advertise packaged choices while
 continuing to accept every valid Containerlab image reference:
 
 ```python
-values=(
+values = (
     ValueType.IMAGE_REFERENCE,
     ExplainedValue("example/helper", "Use the packaged helper container."),
 )
@@ -245,3 +268,6 @@ resources.
 
 The API is intentionally declarative. Runtime analyzers remain authoritative
 for conditional validation, cross-field rules, host work, and side effects.
+Schema-generated completion does not make the schema parser or compiler part
+of the interactive completion path: import-time options and annotations are
+edition-expanded without reading packaged references.

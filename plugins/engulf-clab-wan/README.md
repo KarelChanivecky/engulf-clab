@@ -55,9 +55,12 @@ node's data-plane interface, default route, or security policy.
 | `ECLAB_DHCP_DNS` | DHCP DNS server; default `1.1.1.1`. |
 | `ECLAB_DHCP_LEASE_TIME` | DHCP lease seconds; default `43200`. |
 
-| Invocation environment | Meaning |
+| Wrapper option | Meaning |
 | --- | --- |
-| `ECLAB_UPLINK_IF` | Optional host uplink interface, bypassing automatic detection. |
+| `--eclab-uplink-interface IFACE` | Optional host uplink interface, bypassing automatic detection. |
+
+`ECLAB_UPLINK_IF` is the supported persistent environment default. The CLI
+option wins when both are present; node labels remain unchanged.
 
 `ECLAB` is a fixed label prefix, the same across every edition. It does not
 vary with the active application's product name, so labels written for one
@@ -111,7 +114,8 @@ For each bridge the plugin:
    and log files; and
 6. records the workspace claim and completed configuration.
 
-The uplink comes from `ECLAB_UPLINK_IF` or the `dev` returned by
+The uplink comes from `--eclab-uplink-interface`, the `ECLAB_UPLINK_IF`
+environment default, or the `dev` returned by
 `ip route get 1.1.1.1`. Set it explicitly on multihomed hosts where that probe
 does not select the intended egress.
 
@@ -135,7 +139,7 @@ managed bridges remain. A pre-existing bridge is preserved.
   privileged local launcher; do not grant a general shell to an untrusted agent.
 - For prefix errors, remove stale keys from another edition and use only the
   active prefix shown by that launcher.
-- For uplink failures, set `ECLAB_UPLINK_IF` to an existing egress interface
+- For uplink failures, pass `--eclab-uplink-interface` with an existing egress interface
   and verify its route/NAT policy.
 - For DHCP failures, inspect the managed DHCP log through eclab diagnostics and
   verify the bridge is up, the client link uses the expected interface, and the

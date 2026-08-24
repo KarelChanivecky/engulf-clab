@@ -11,6 +11,7 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     Privilege,
+    SchemaBackedPlugin,
     ValueType,
     publish_containerlab_source,
     record_plugin_schema,
@@ -19,7 +20,6 @@ from engulf_executable_wrapper_api import (
     AfterCallEvent,
     BeforeCallEvent,
     CallContribution,
-    ExecutableWrapperPlugin,
     HelpAPI,
     PreparedCallEvent,
 )
@@ -37,28 +37,59 @@ from .logging import use_logger
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.ensure_containerlab", package="engulf_clab_ensure_containerlab")
     .add_runtime_var(
-        "CONTAINERLAB_BIN", "Use this executable Containerlab binary.", values=ValueType.FILE_PATH
+        "CONTAINERLAB_BIN",
+        "Select a Containerlab executable; the matching CLI flag takes precedence.",
+        values=ValueType.FILE_PATH,
+    )
+    .add_cli_flag(
+        "--eclab-containerlab-bin",
+        "Use this executable Containerlab binary.",
+        values=ValueType.FILE_PATH,
+        environment="CONTAINERLAB_BIN",
     )
     .add_runtime_var(
         "CONTAINERLAB_DIR",
+        "Select a Containerlab source checkout; the matching CLI flag takes precedence.",
+        values=ValueType.DIRECTORY_PATH,
+    )
+    .add_cli_flag(
+        "--eclab-containerlab-dir",
         "Use or build this Containerlab source checkout.",
         values=ValueType.DIRECTORY_PATH,
+        environment="CONTAINERLAB_DIR",
     )
     .add_runtime_var(
         "CONTAINERLAB_REPO",
+        "Override the managed Containerlab Git repository; the matching CLI flag wins.",
+        values=ValueType.URI,
+    )
+    .add_cli_flag(
+        "--eclab-containerlab-repo",
         "Override the managed Containerlab Git repository.",
         values=ValueType.URI,
+        environment="CONTAINERLAB_REPO",
     )
     .add_runtime_var(
         "CONTAINERLAB_UPDATE",
-        "Enable the daily managed-checkout update check.",
+        "Enable the daily managed-checkout update check; the matching CLI flag wins.",
         values=ValueType.BOOLEAN,
         default=False,
     )
+    .add_cli_flag(
+        "--eclab-containerlab-update",
+        "Enable the daily managed-checkout update check.",
+        environment="CONTAINERLAB_UPDATE",
+    )
     .add_runtime_var(
         "CONTAINERLAB_VERSION",
+        "Clamp Containerlab to a Git revision; the matching CLI flag takes precedence.",
+        values=ValueType.STRING,
+    )
+    .add_cli_flag(
+        "--eclab-containerlab-version",
         "Clamp Containerlab to a Git tag, commit, or revision.",
         values=ValueType.STRING,
+        environment="CONTAINERLAB_VERSION",
     )
     .use_case("Resolve Containerlab from BIN, DIR, PATH, or a managed checkout in that order.")
     .annotate(
@@ -84,6 +115,32 @@ PLUGIN_SCHEMA = (
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         implies=("enable revision checking and clamp the checkout",),
     )
+    .annotate(
+        "--eclab-containerlab-bin",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+        implies=("takes precedence over every Containerlab environment default",),
+    )
+    .annotate(
+        "--eclab-containerlab-dir",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+        requires=("a valid Containerlab checkout containing go.mod",),
+    )
+    .annotate(
+        "--eclab-containerlab-repo",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+    )
+    .annotate(
+        "--eclab-containerlab-update",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+        implies=("perform at most one update check per day",),
+    )
+    .annotate(
+        "--eclab-containerlab-version",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+        implies=("enable revision checking and clamp the checkout",),
+    )
     .require_host_tool("docker", "Containerlab execution requires an available container runtime.")
     .require_host_tool("git", "Managed source checkout resolution uses Git.")
     .require_host_tool("go", "Building a missing Containerlab binary from source requires Go.")
@@ -106,10 +163,11 @@ PLUGIN_SCHEMA = (
 )
 
 
-class EnsureContainerlabPlugin(ExecutableWrapperPlugin):
+class EnsureContainerlabPlugin(SchemaBackedPlugin):
     """Provision a binary only when the standard wrapper executable needs it."""
 
     plugin_id = ENSURE_CONTAINERLAB_PLUGIN_ID
+    schema = PLUGIN_SCHEMA
     # Resolve the executable before every other plugin prepares host resources.
     priority = 110
     plugin_dependencies = (SCHEMA_PLUGIN_DEPENDENCY,)
@@ -131,12 +189,14 @@ class EnsureContainerlabPlugin(ExecutableWrapperPlugin):
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering Containerlab provisioning help")
         return (
-            "  CONTAINERLAB_BIN   Use an executable Containerlab binary\n"
-            "  CONTAINERLAB_DIR   Use or build a Containerlab source checkout\n"
-            "  CONTAINERLAB_REPO  Override clone source (default: "
+            "  --eclab-containerlab-bin PATH     Use an executable binary\n"
+            "  --eclab-containerlab-dir DIR      Use or build a source checkout\n"
+            "  --eclab-containerlab-repo URL     Override clone source (default: "
             "KarelChanivecky/containerlab ft_fgt_license_support)\n"
-            "  CONTAINERLAB_UPDATE=1  Check a Git checkout for updates (daily)\n"
-            "  CONTAINERLAB_VERSION   Clamp to a Git tag, commit, or revision\n"
+            "  --eclab-containerlab-update       Check a Git checkout for updates (daily)\n"
+            "  --eclab-containerlab-version REV  Clamp to a Git tag, commit, or revision\n"
+            "  CONTAINERLAB_{BIN,DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
+            "matching CLI options override them.\n"
             "  Resolution: BIN, DIR, PATH, then managed checkout; Docker is required, "
             "and source builds require Go."
         )
@@ -154,7 +214,7 @@ class EnsureContainerlabPlugin(ExecutableWrapperPlugin):
         try:
             require_containerlab_dependencies()
             with use_logger(api.logger), api.lease(CONTAINERLAB_REPOSITORY_LEASE):
-                binary = ensure_binary(api.state(StateScope.USER), os.environ)
+                binary = ensure_binary(api.state(StateScope.USER), event.environment)
             publish_containerlab_source(api, resolved_containerlab_source(binary))
             self._original_path = os.environ.get("PATH", "")
             os.environ["PATH"] = f"{binary.parent}{os.pathsep}{self._original_path}"

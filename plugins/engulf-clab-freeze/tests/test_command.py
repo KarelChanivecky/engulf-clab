@@ -27,13 +27,17 @@ from engulf_clab_freeze.command import (
 
 
 class FreezeCommandTestCase(unittest.TestCase):
-    def test_main_returns_argparse_exit_codes_instead_of_exiting_the_plugin(self) -> None:
+    def test_main_returns_argparse_exit_codes_instead_of_exiting_the_plugin(
+        self,
+    ) -> None:
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(main(["--help"], program="fclab freeze"), 0)
         self.assertIn("usage: fclab freeze", output.getvalue())
 
-    def test_main_detects_the_single_current_directory_topology_and_default_archive(self) -> None:
+    def test_main_detects_the_single_current_directory_topology_and_default_archive(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             topology = root / "lab.clab.yml"
@@ -53,6 +57,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 offline=False,
                 user_state=None,
                 application_name="eclab",
+                environment=None,
             )
 
     def test_main_accepts_an_explicit_topology(self) -> None:
@@ -63,7 +68,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             archive = root / "share.tar.gz"
 
             with patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
-                self.assertEqual(main(["--topology", str(topology), "--output", str(archive)]), 0)
+                self.assertEqual(
+                    main(["--topology", str(topology), "--output", str(archive)]), 0
+                )
 
             mocked_freeze.assert_called_once_with(
                 topology.resolve(),
@@ -73,6 +80,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 offline=False,
                 user_state=None,
                 application_name="eclab",
+                environment=None,
             )
 
     def test_main_forwards_offline_mode_and_user_state(self) -> None:
@@ -106,6 +114,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 offline=True,
                 user_state=user_state,
                 application_name="eclab",
+                environment=None,
             )
 
     def test_freeze_sanitizes_a_copy_without_changing_source(self) -> None:
@@ -129,7 +138,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             archive = Path(directory) / "share.tar.gz"
             with patch("engulf_clab_freeze.command._download_wheels"):
                 freeze(topology, archive)
-            self.assertEqual(yaml.safe_load(topology.read_text(encoding="utf-8")), original)
+            self.assertEqual(
+                yaml.safe_load(topology.read_text(encoding="utf-8")), original
+            )
             with tarfile.open(archive, "r:gz") as tar:
                 names = tar.getnames()
                 self.assertFalse(any(name.endswith("private.lic") for name in names))
@@ -148,7 +159,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             with self.assertRaisesRegex(FreezeError, "destroy the lab"):
                 freeze(topology, Path(directory) / "share.tar.gz")
 
-    def test_edition_freeze_uses_edition_state_dir_but_fixed_license_marker(self) -> None:
+    def test_edition_freeze_uses_edition_state_dir_but_fixed_license_marker(
+        self,
+    ) -> None:
         # The state directory/freezeignore filename stay namespaced by the
         # active application (so every edition's state converges once they
         # share a short_product_name), but the license prompt marker is
@@ -184,7 +197,11 @@ class FreezeCommandTestCase(unittest.TestCase):
 
             (root / ".vendor_clab" / "licenses").mkdir(parents=True)
             with self.assertRaisesRegex(FreezeError, "destroy the lab"):
-                freeze(topology, Path(directory) / "other.tar.gz", application_name="vendor clab")
+                freeze(
+                    topology,
+                    Path(directory) / "other.tar.gz",
+                    application_name="vendor clab",
+                )
 
     def test_freeze_rewrites_external_vrnetlab_input_with_fixed_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -224,7 +241,9 @@ class FreezeCommandTestCase(unittest.TestCase):
                 "assets/images/router/router.qcow2",
             )
 
-    def test_existing_archive_is_left_unchanged_when_overwrite_is_declined(self) -> None:
+    def test_existing_archive_is_left_unchanged_when_overwrite_is_declined(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
             root.mkdir()
@@ -233,7 +252,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             archive = root / "share.tar.gz"
             archive.write_bytes(b"previous archive")
 
-            self.assertFalse(freeze(topology, archive, confirm_overwrite=lambda _path: False))
+            self.assertFalse(
+                freeze(topology, archive, confirm_overwrite=lambda _path: False)
+            )
             self.assertEqual(archive.read_bytes(), b"previous archive")
 
     def test_existing_archive_is_excluded_when_overwrite_is_confirmed(self) -> None:
@@ -246,10 +267,14 @@ class FreezeCommandTestCase(unittest.TestCase):
             archive.write_bytes(b"previous archive")
 
             with patch("engulf_clab_freeze.command._download_wheels"):
-                self.assertTrue(freeze(topology, archive, confirm_overwrite=lambda _path: True))
+                self.assertTrue(
+                    freeze(topology, archive, confirm_overwrite=lambda _path: True)
+                )
 
             with tarfile.open(archive, "r:gz") as tar:
-                self.assertFalse(any(name.endswith("/share.tar.gz") for name in tar.getnames()))
+                self.assertFalse(
+                    any(name.endswith("/share.tar.gz") for name in tar.getnames())
+                )
 
     def test_interactive_overwrite_prompt_accepts_yes(self) -> None:
         archive = Path("/tmp/share.tar.gz")
@@ -264,7 +289,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             "A file already exists at the output path: /tmp/share.tar.gz. Overwrite it (y/n)? "
         )
 
-    def test_freeze_excludes_runtime_directory_and_prunes_empty_directories(self) -> None:
+    def test_freeze_excludes_runtime_directory_and_prunes_empty_directories(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
             root.mkdir()
@@ -291,7 +318,10 @@ class FreezeCommandTestCase(unittest.TestCase):
                 names = tar.getnames()
 
             def archived(path: str) -> bool:
-                return any(name == f"share/{path}" or name.startswith(f"share/{path}/") for name in names)
+                return any(
+                    name == f"share/{path}" or name.startswith(f"share/{path}/")
+                    for name in names
+                )
 
             self.assertFalse(archived("clab-demo"))
             self.assertFalse(archived("empty"))
@@ -309,7 +339,9 @@ class FreezeCommandTestCase(unittest.TestCase):
             with (
                 patch("engulf_clab_freeze.command._download_wheels"),
                 patch("engulf_clab_freeze.command._bundle_offline_runtime") as runtime,
-                patch("engulf_clab_freeze.command._bundle_offline_containerlab") as clab,
+                patch(
+                    "engulf_clab_freeze.command._bundle_offline_containerlab"
+                ) as clab,
                 patch(
                     "engulf_clab_freeze.command._bundle_offline_vrnetlab",
                     return_value=False,
@@ -373,22 +405,27 @@ class OfflineBundleTestCase(unittest.TestCase):
                 }
             }
         }
-        with patch.dict("engulf_clab_freeze.command.os.environ", {"ROUTER_IMAGE": "router:1"}):
+        with patch.dict(
+            "engulf_clab_freeze.command.os.environ", {"ROUTER_IMAGE": "router:1"}
+        ):
             self.assertEqual(_offline_image_references(topology), ("router:1",))
         self.assertEqual(topology["topology"]["nodes"]["one"]["image"], "router:1")
 
     def test_missing_local_image_makes_offline_freeze_fail(self) -> None:
         topology = {"topology": {"nodes": {"router": {"image": "router:1"}}}}
         with (
-            patch("engulf_clab_freeze.command.shutil.which", return_value="/usr/bin/docker"),
+            patch(
+                "engulf_clab_freeze.command.shutil.which",
+                return_value="/usr/bin/docker",
+            ),
             patch(
                 "engulf_clab_freeze.command.subprocess.run",
                 return_value=SimpleNamespace(returncode=1),
             ),
             tempfile.TemporaryDirectory() as directory,
+            self.assertRaisesRegex(FreezeError, "deploy or pull first"),
         ):
-            with self.assertRaisesRegex(FreezeError, "deploy or pull first"):
-                _bundle_offline_images(topology, Path(directory))
+            _bundle_offline_images(topology, Path(directory))
 
     def test_offline_freeze_excludes_vendor_image_but_keeps_vrnetlab_type(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -422,7 +459,9 @@ class OfflineBundleTestCase(unittest.TestCase):
                 {"ECLAB_VRNETLAB_TYPE": "vendor/router", "KEEP": "yes"},
             )
             self.assertFalse(source.exists())
-            self.assertIn("excluded recipient-selected vrnetlab image input", warnings[0])
+            self.assertIn(
+                "excluded recipient-selected vrnetlab image input", warnings[0]
+            )
 
     def test_offline_launcher_forces_bundled_tools_and_loads_images(self) -> None:
         launcher = _launcher("lab.clab.yml", offline=True)
@@ -433,15 +472,19 @@ class OfflineBundleTestCase(unittest.TestCase):
 
 
 class WheelhouseTestCase(unittest.TestCase):
-    def test_wheelhouse_seeds_local_wheels_before_downloading_dependencies(self) -> None:
+    def test_wheelhouse_seeds_local_wheels_before_downloading_dependencies(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             staging = Path(directory)
             source = staging / "engulf_clab-0.1.0-py3-none-any.whl"
             source.write_bytes(b"locally-built wheel")
             distribution = SimpleNamespace(
-                read_text=lambda name: json.dumps({"url": source.as_uri()})
-                if name == "direct_url.json"
-                else None
+                read_text=lambda name: (
+                    json.dumps({"url": source.as_uri()})
+                    if name == "direct_url.json"
+                    else None
+                )
             )
             warnings: list[str] = []
             with (
@@ -457,7 +500,9 @@ class WheelhouseTestCase(unittest.TestCase):
                 _download_wheels(staging, [("engulf-clab", "0.1.0")], warnings)
 
             wheelhouse = staging / "wheelhouse"
-            self.assertEqual((wheelhouse / source.name).read_bytes(), source.read_bytes())
+            self.assertEqual(
+                (wheelhouse / source.name).read_bytes(), source.read_bytes()
+            )
             self.assertEqual(warnings, [])
             command = run.call_args.args[0]
             self.assertIn("--find-links", command)
@@ -492,7 +537,9 @@ class WheelhouseTestCase(unittest.TestCase):
                 ],
             )
 
-    def test_empty_incomplete_wheelhouse_is_removed_and_launcher_allows_that(self) -> None:
+    def test_empty_incomplete_wheelhouse_is_removed_and_launcher_allows_that(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             staging = Path(directory)
             distribution = SimpleNamespace(read_text=lambda _name: None)

@@ -14,13 +14,14 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from engulf_api import PluginLogger, StateStore
+from engulf_clab_ensure_vrnetlab import vrnetlab_image_path_env
 from engulf_clab_lab_parser.session import (
     TopologyError,
     load_topology,
@@ -29,7 +30,6 @@ from engulf_clab_lab_parser.session import (
 from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
     resolve_image_expression,
-    vrnetlab_image_path_env,
 )
 
 from .state import FreezeStateError, track_archive, tracked_archives
@@ -66,6 +66,7 @@ def main(
     program: str = "eclab freeze",
     application_name: str = "eclab",
     logger: PluginLogger | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> int:
     """Run the optional freeze command with an injected workspace state."""
     parser = argparse.ArgumentParser(prog=program)
@@ -107,8 +108,15 @@ def main(
             offline=arguments.offline,
             user_state=user_state,
             application_name=application_name,
+            environment=environment,
         )
-    except (FreezeError, FreezeStateError, TopologyError, OSError, yaml.YAMLError) as error:
+    except (
+        FreezeError,
+        FreezeStateError,
+        TopologyError,
+        OSError,
+        yaml.YAMLError,
+    ) as error:
         if logger is None:
             print(f"{program}: {error}", file=sys.stderr)
         else:
@@ -126,11 +134,13 @@ def freeze(
     offline: bool = False,
     user_state: StateStore | None = None,
     application_name: str = "eclab",
+    environment: Mapping[str, str] | None = None,
 ) -> bool:
     """Create an atomic, sanitized ``.tar.gz`` archive from one topology."""
     topology_path = topology_path.expanduser().resolve()
     archive = archive.expanduser().resolve()
     source_root = topology_path.parent.resolve()
+    current_environment = os.environ if environment is None else environment
     ignored_archives = tracked_archives(workspace, source_root)
     if not archive.name.endswith((".tar.gz", ".tgz")):
         raise FreezeError("--output must end in .tar.gz or .tgz")
@@ -150,7 +160,9 @@ def freeze(
         source_root / ".engulf-clab" / "licenses",
     )
     if any(path.exists() for path in generated_license_directories):
-        raise FreezeError("destroy the lab before freezing; generated license copies exist")
+        raise FreezeError(
+            "destroy the lab before freezing; generated license copies exist"
+        )
 
     source = load_topology(topology_path)
     patterns = _ignore_patterns(source_root, application_name)
@@ -161,7 +173,9 @@ def freeze(
     excluded_paths.add(_containerlab_runtime_directory(source, topology_path))
     _reject_external_symlinks(source_root, patterns, frozenset(excluded_paths))
     root_name = _archive_root_name(archive)
-    with tempfile.TemporaryDirectory(prefix=".eclab-freeze-", dir=archive.parent) as work:
+    with tempfile.TemporaryDirectory(
+        prefix=".eclab-freeze-", dir=archive.parent
+    ) as work:
         temporary_root = Path(work)
         staging = Path(work) / root_name
         ignored_paths = set(excluded_paths)
@@ -169,7 +183,9 @@ def freeze(
             ignored_paths.add(temporary_root.relative_to(source_root))
         except ValueError:
             pass
-        warnings = _copy_source(source_root, staging, patterns, frozenset(ignored_paths))
+        warnings = _copy_source(
+            source_root, staging, patterns, frozenset(ignored_paths)
+        )
         copied_topology = staging / topology_path.name
         if not copied_topology.is_file():
             raise FreezeError("topology was excluded by the freeze ignore rules")
@@ -181,6 +197,7 @@ def freeze(
             packages,
             warnings,
             offline=offline,
+            environment=current_environment,
         )
         (staging / ".eclab-freeze.env").write_text(
             _frozen_environment(frozen["tools"]), encoding="utf-8"
@@ -191,19 +208,22 @@ def freeze(
         )
         _download_wheels(staging, packages, warnings)
         if offline:
-            offline_topology = yaml.safe_load(copied_topology.read_text(encoding="utf-8"))
+            offline_topology = yaml.safe_load(
+                copied_topology.read_text(encoding="utf-8")
+            )
             if not isinstance(offline_topology, dict):
                 raise FreezeError("frozen topology must contain a YAML mapping")
             _bundle_offline_runtime(staging)
-            _bundle_offline_containerlab(staging, user_state)
-            _bundle_offline_vrnetlab(staging, user_state)
-            _bundle_offline_images(offline_topology, staging)
+            _bundle_offline_containerlab(staging, user_state, current_environment)
+            _bundle_offline_vrnetlab(staging, user_state, current_environment)
+            _bundle_offline_images(offline_topology, staging, current_environment)
             copied_topology.write_text(
                 yaml.safe_dump(offline_topology, sort_keys=False), encoding="utf-8"
             )
         _prune_empty_directories(staging)
         (staging / "FREEZE-WARNINGS.txt").write_text(
-            "\n".join(f"- {warning}" for warning in warnings) + ("\n" if warnings else ""),
+            "\n".join(f"- {warning}" for warning in warnings)
+            + ("\n" if warnings else ""),
             encoding="utf-8",
         )
         (staging / "run-eclab.sh").write_text(
@@ -257,7 +277,9 @@ def _confirm_overwrite(archive: Path) -> bool:
             return False
 
 
-def _containerlab_runtime_directory(topology: dict[str, Any], topology_path: Path) -> Path:
+def _containerlab_runtime_directory(
+    topology: dict[str, Any], topology_path: Path
+) -> Path:
     """Return Containerlab's topology-local runtime directory name."""
     name = topology.get("name")
     if isinstance(name, str) and name.strip():
@@ -294,16 +316,23 @@ def _ignore_patterns(root: Path, application_name: str = "eclab") -> tuple[str, 
     if not ignore.is_file():
         return ()
     return tuple(
-        line.strip() for line in ignore.read_text(encoding="utf-8").splitlines()
+        line.strip()
+        for line in ignore.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
 
 
-def _ignored(relative: Path, patterns: Iterable[str], excluded: frozenset[Path]) -> bool:
+def _ignored(
+    relative: Path, patterns: Iterable[str], excluded: frozenset[Path]
+) -> bool:
     text = relative.as_posix()
-    return relative in excluded or relative.name in _BUILTIN_IGNORES or any(
-        fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(relative.name, pattern)
-        for pattern in patterns
+    return (
+        relative in excluded
+        or relative.name in _BUILTIN_IGNORES
+        or any(
+            fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(relative.name, pattern)
+            for pattern in patterns
+        )
     )
 
 
@@ -359,7 +388,9 @@ def _copy_source(
 
 def _prune_empty_directories(root: Path) -> None:
     """Remove empty source directories left after exclusions from staging."""
-    for candidate in sorted(root.rglob("*"), key=lambda path: len(path.parts), reverse=True):
+    for candidate in sorted(
+        root.rglob("*"), key=lambda path: len(path.parts), reverse=True
+    ):
         if candidate.is_dir() and not candidate.is_symlink():
             try:
                 candidate.rmdir()
@@ -375,7 +406,9 @@ def _freeze_topology(
     warnings: list[str],
     *,
     offline: bool = False,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    current_environment = os.environ if environment is None else environment
     copied = yaml.safe_load(copied_path.read_text(encoding="utf-8"))
     if not isinstance(copied, dict):
         raise FreezeError("topology must contain a YAML mapping")
@@ -394,7 +427,9 @@ def _freeze_topology(
                 if isinstance(key, str) and key.endswith("_LIC_CLAMP"):
                     environment.pop(key)
     if offline:
-        _remove_offline_vrnetlab_inputs(copied, copied_path, staging_root, warnings)
+        _remove_offline_vrnetlab_inputs(
+            copied, copied_path, staging_root, warnings, current_environment
+        )
     else:
         _copy_external_vrnetlab_inputs(
             copied,
@@ -402,17 +437,19 @@ def _freeze_topology(
             source_root,
             staging_root,
             warnings,
+            current_environment,
         )
-    copied[_FREEZE_KEY] = {
+    freeze_metadata: dict[str, Any] = {
         "format": 1,
         "application": "engulf-clab",
         "packages": [{"name": name, "version": version} for name, version in packages],
-        "tools": _tool_provenance(),
+        "tools": _tool_provenance(current_environment),
         "licenses": "prompt",
         "offline": offline,
     }
+    copied[_FREEZE_KEY] = freeze_metadata
     copied_path.write_text(yaml.safe_dump(copied, sort_keys=False), encoding="utf-8")
-    return copied[_FREEZE_KEY]
+    return freeze_metadata
 
 
 def _bundle_offline_runtime(staging: Path) -> None:
@@ -429,10 +466,13 @@ def _bundle_offline_runtime(staging: Path) -> None:
         symlinks=False,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
-    if not (destination / "bin" / "python").is_file() or not (
-        destination / "bin" / "eclab"
-    ).is_file():
-        raise FreezeError("could not create a complete offline eclab virtual environment")
+    if (
+        not (destination / "bin" / "python").is_file()
+        or not (destination / "bin" / "eclab").is_file()
+    ):
+        raise FreezeError(
+            "could not create a complete offline eclab virtual environment"
+        )
 
 
 def _executable(path: Path) -> bool:
@@ -448,13 +488,19 @@ def _managed_tool_path(state: StateStore | None, name: str) -> Path | None:
         return None
 
 
-def _containerlab_binary(user_state: StateStore | None = None) -> Path:
+def _containerlab_binary(
+    user_state: StateStore | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> Path:
+    current_environment = os.environ if environment is None else environment
     candidates: list[Path] = []
-    if configured := os.environ.get("CONTAINERLAB_BIN", "").strip():
+    if configured := current_environment.get("CONTAINERLAB_BIN", "").strip():
         candidates.append(Path(configured).expanduser())
-    if configured := os.environ.get("CONTAINERLAB_DIR", "").strip():
+    if configured := current_environment.get("CONTAINERLAB_DIR", "").strip():
         checkout = Path(configured).expanduser()
-        candidates.extend((checkout / "bin" / "containerlab", checkout / "containerlab"))
+        candidates.extend(
+            (checkout / "bin" / "containerlab", checkout / "containerlab")
+        )
     if discovered := shutil.which("containerlab"):
         candidates.append(Path(discovered))
     if managed := _managed_tool_path(user_state, "containerlab"):
@@ -470,9 +516,11 @@ def _containerlab_binary(user_state: StateStore | None = None) -> Path:
 
 
 def _bundle_offline_containerlab(
-    staging: Path, user_state: StateStore | None = None
+    staging: Path,
+    user_state: StateStore | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> None:
-    source = _containerlab_binary(user_state)
+    source = _containerlab_binary(user_state, environment)
     destination = staging / "tools" / "containerlab" / "bin" / "containerlab"
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
@@ -484,11 +532,13 @@ def _remove_offline_vrnetlab_inputs(
     topology_path: Path,
     staging: Path,
     warnings: list[str],
+    environment: Mapping[str, str] | None = None,
 ) -> None:
+    current_environment = os.environ if environment is None else environment
     """Exclude vendor VM inputs while retaining vrnetlab builder selections."""
     try:
         requests = list(
-            build_requests_from_topology(topology_path, topology, os.environ)
+            build_requests_from_topology(topology_path, topology, current_environment)
         )
     except Exception:  # noqa: BLE001 - unresolved recipient-owned inputs are expected.
         requests = []
@@ -498,7 +548,9 @@ def _remove_offline_vrnetlab_inputs(
             continue
         if source.is_file() or source.is_symlink():
             source.unlink()
-            warnings.append(f"excluded recipient-selected vrnetlab image input: {source.name}")
+            warnings.append(
+                f"excluded recipient-selected vrnetlab image input: {source.name}"
+            )
 
     document = topology.get("topology")
     nodes = document.get("nodes") if isinstance(document, dict) else None
@@ -513,8 +565,12 @@ def _remove_offline_vrnetlab_inputs(
                 environment.pop(name)
 
 
-def _vrnetlab_checkout(user_state: StateStore | None = None) -> Path:
-    configured = os.environ.get("VRNETLAB_DIR", "").strip()
+def _vrnetlab_checkout(
+    user_state: StateStore | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> Path:
+    current_environment = os.environ if environment is None else environment
+    configured = current_environment.get("VRNETLAB_DIR", "").strip()
     candidates = [Path(configured).expanduser()] if configured else []
     if managed := _managed_tool_path(user_state, "vrnetlab"):
         candidates.append(managed)
@@ -531,8 +587,9 @@ def _vrnetlab_checkout(user_state: StateStore | None = None) -> Path:
 def _bundle_offline_vrnetlab(
     staging: Path,
     user_state: StateStore | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> None:
-    source = _vrnetlab_checkout(user_state)
+    source = _vrnetlab_checkout(user_state, environment)
     destination = staging / "tools" / "vrnetlab"
     shutil.copytree(
         source,
@@ -544,7 +601,10 @@ def _bundle_offline_vrnetlab(
         raise FreezeError("could not create a complete offline vrnetlab checkout")
 
 
-def _offline_image_references(topology: dict[str, Any]) -> tuple[str, ...]:
+def _offline_image_references(
+    topology: dict[str, Any], environment: Mapping[str, str] | None = None
+) -> tuple[str, ...]:
+    current_environment = os.environ if environment is None else environment
     document = topology.get("topology")
     nodes = document.get("nodes") if isinstance(document, dict) else None
     if not isinstance(nodes, dict):
@@ -565,8 +625,8 @@ def _offline_image_references(topology: dict[str, Any]) -> tuple[str, ...]:
         if not isinstance(image, str) or not image.strip():
             raise FreezeError(f"node {name} has an invalid image reference")
         try:
-            resolved = resolve_image_expression(image.strip(), os.environ)
-        except Exception as error:  # noqa: BLE001 - normalize plugin-specific errors.
+            resolved = resolve_image_expression(image.strip(), current_environment)
+        except Exception as error:
             raise FreezeError(
                 f"node {name} image cannot be resolved for offline use: {image}"
             ) from error
@@ -575,8 +635,12 @@ def _offline_image_references(topology: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(references))
 
 
-def _bundle_offline_images(topology: dict[str, Any], staging: Path) -> None:
-    references = _offline_image_references(topology)
+def _bundle_offline_images(
+    topology: dict[str, Any],
+    staging: Path,
+    environment: Mapping[str, str] | None = None,
+) -> None:
+    references = _offline_image_references(topology, environment)
     if not references:
         return
     if shutil.which("docker") is None:
@@ -606,7 +670,9 @@ def _bundle_offline_images(topology: dict[str, Any], staging: Path) -> None:
         )
     except subprocess.CalledProcessError as error:
         raise FreezeError("docker could not export the topology images") from error
-    (image_dir / "images.txt").write_text("\n".join(references) + "\n", encoding="utf-8")
+    (image_dir / "images.txt").write_text(
+        "\n".join(references) + "\n", encoding="utf-8"
+    )
 
 
 def _copy_external_vrnetlab_inputs(
@@ -615,9 +681,11 @@ def _copy_external_vrnetlab_inputs(
     source_root: Path,
     staging: Path,
     warnings: list[str],
+    environment: Mapping[str, str] | None = None,
 ) -> None:
+    current_environment = os.environ if environment is None else environment
     try:
-        requests = build_requests_from_topology(path, topology, os.environ)
+        requests = build_requests_from_topology(path, topology, current_environment)
     except Exception as error:  # noqa: BLE001 - a best-effort freeze retains an unresolved source.
         warnings.append(f"could not resolve vrnetlab image inputs: {error}")
         return
@@ -640,14 +708,18 @@ def _copy_external_vrnetlab_inputs(
         if isinstance(node, dict):
             environment = node.setdefault("env", {})
             if isinstance(environment, dict):
-                environment[vrnetlab_image_path_env()] = str(target.relative_to(staging))
-        warnings.append(f"copied external vrnetlab input for {request.node_name}: sha256={_sha256(target)}")
+                environment[vrnetlab_image_path_env()] = str(
+                    target.relative_to(staging)
+                )
+        warnings.append(
+            f"copied external vrnetlab input for {request.node_name}: sha256={_sha256(target)}"
+        )
 
 
-def _tool_provenance() -> dict[str, object]:
+def _tool_provenance(environment: Mapping[str, str]) -> dict[str, object]:
     return {
-        "containerlab": _git_provenance(os.environ.get("CONTAINERLAB_DIR")),
-        "vrnetlab": _git_provenance(os.environ.get("VRNETLAB_DIR")),
+        "containerlab": _git_provenance(environment.get("CONTAINERLAB_DIR")),
+        "vrnetlab": _git_provenance(environment.get("VRNETLAB_DIR")),
     }
 
 
@@ -685,7 +757,9 @@ def _git_provenance(value: str | None) -> dict[str, str] | None:
 
 
 def _run_git(root: Path, *args: str) -> str:
-    result = subprocess.run(["git", "-C", str(root), *args], text=True, capture_output=True, check=False)
+    result = subprocess.run(
+        ["git", "-C", str(root), *args], text=True, capture_output=True, check=False
+    )
     if result.returncode:
         raise FreezeError(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result.stdout.strip()
@@ -804,7 +878,7 @@ def _sha256(path: Path) -> str:
 
 def _launcher(topology_name: str, *, offline: bool = False) -> str:
     if offline:
-        return f'''#!/usr/bin/env bash
+        return f"""#!/usr/bin/env bash
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd)"
 runtime="$root/.eclab-venv"
@@ -842,8 +916,8 @@ if [[ -f "$image_list" ]]; then
 fi
 if [[ $# -eq 0 ]]; then set -- deploy -t {topology_name!s}; fi
 exec "$runtime/bin/python" "$runtime/bin/eclab" "$@"
-'''
-    return f'''#!/usr/bin/env bash
+"""
+    return f"""#!/usr/bin/env bash
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd)"
 requirements="$root/requirements.freeze.txt"
@@ -878,4 +952,4 @@ if [[ -z "$runner" ]]; then
 fi
 if [[ $# -eq 0 ]]; then set -- deploy -t {topology_name!s}; fi
 exec "$runner" "$@"
-'''
+"""

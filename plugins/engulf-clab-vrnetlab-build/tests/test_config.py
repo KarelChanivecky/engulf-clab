@@ -190,6 +190,76 @@ class SourceConfigurationTest(unittest.TestCase):
             with self.assertRaisesRegex(VrnetlabError, "MY_LAB_EDGE_1_IMAGE_SOURCE"):
                 build_requests_from_topology(Path(directory) / "lab.clab.yml", data, {})
 
+    def test_cli_selector_precedence_is_specific_yaml_default_then_environment(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = {
+                "name": "my-lab",
+                "topology": {
+                    "nodes": {
+                        "specific": {
+                            "image": "vrnetlab/specific:1",
+                            "env": {
+                                VRNETLAB_TYPE: "vendor/router",
+                                VRNETLAB_IMAGE_PATH: "/images/specific-yaml.qcow2",
+                            },
+                        },
+                        "yaml": {
+                            "image": "vrnetlab/yaml:1",
+                            "env": {
+                                VRNETLAB_TYPE: "vendor/router",
+                                VRNETLAB_IMAGE_PATH: "/images/yaml.qcow2",
+                            },
+                        },
+                        "fallback": {
+                            "image": "vrnetlab/fallback:1",
+                            "env": {VRNETLAB_TYPE: "vendor/router"},
+                        },
+                    }
+                },
+            }
+
+            requests = build_requests_from_topology(
+                root / "lab.clab.yml",
+                data,
+                {VRNETLAB_IMAGE_PATH: "/images/environment.qcow2"},
+                image_selectors={
+                    "specific": "/images/specific-cli.qcow2",
+                    "default": "/images/default.qcow2",
+                },
+            )
+
+        self.assertEqual(
+            {request.node_name: request.source for request in requests},
+            {
+                "specific": Path("/images/specific-cli.qcow2"),
+                "yaml": Path("/images/yaml.qcow2"),
+                "fallback": Path("/images/default.qcow2"),
+            },
+        )
+
+    def test_specific_selector_must_name_an_opted_in_topology_node(self) -> None:
+        data = {
+            "name": "my-lab",
+            "topology": {
+                "nodes": {
+                    "router": {
+                        "image": "vrnetlab/router:1",
+                        "env": {VRNETLAB_TYPE: "vendor/router"},
+                    },
+                    "client": {"image": "alpine:latest"},
+                }
+            },
+        }
+        for target, message in (("missing", "not a topology node"), ("client", VRNETLAB_TYPE)):
+            with self.subTest(target=target), self.assertRaisesRegex(VrnetlabError, message):
+                build_requests_from_topology(
+                    Path("lab.clab.yml"),
+                    data,
+                    {},
+                    image_selectors={target: "/images/source.qcow2"},
+                )
+
     def test_nodes_without_type_are_ignored(self) -> None:
         data = topology({"image": "alpine:latest", "env": {VRNETLAB_IMAGE_PATH: "x"}})
         self.assertEqual(build_requests_from_topology(Path("lab.clab.yml"), data, {}), [])

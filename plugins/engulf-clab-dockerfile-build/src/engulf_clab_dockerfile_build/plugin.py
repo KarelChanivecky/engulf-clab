@@ -18,6 +18,7 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     Privilege,
+    SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
 )
@@ -25,7 +26,6 @@ from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
     CallMode,
-    ExecutableWrapperPlugin,
     HelpAPI,
     PreparedCallEvent,
 )
@@ -62,9 +62,15 @@ PLUGIN_SCHEMA = (
     )
     .add_runtime_var(
         "ECLAB_DOCKER_BUILD_JOBS",
-        "Limit concurrent Docker image builds.",
+        "Limit concurrent Docker image builds; the matching CLI flag takes precedence.",
         values=ValueType.POSITIVE_INTEGER,
         default=2,
+    )
+    .add_cli_flag(
+        "--eclab-docker-build-jobs",
+        "Limit concurrent Docker image builds.",
+        values=ValueType.POSITIVE_INTEGER,
+        environment="ECLAB_DOCKER_BUILD_JOBS",
     )
     .annotate(
         "ECLAB_DOCKERFILE",
@@ -99,6 +105,11 @@ PLUGIN_SCHEMA = (
         commands=("deploy",),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
     )
+    .annotate(
+        "--eclab-docker-build-jobs",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
+    )
     .require_host_tool(
         "docker", "Build node images before Containerlab deploys them.", commands=("deploy",)
     )
@@ -123,8 +134,9 @@ PLUGIN_SCHEMA = (
 )
 
 
-class DockerfilePlugin(ExecutableWrapperPlugin):
+class DockerfilePlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.dockerfile_build"
+    schema = PLUGIN_SCHEMA
     priority = 70
     plugin_dependencies = (
         PluginDependency(
@@ -151,9 +163,11 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
             f"    {prefix}_DOCKER_CTX       Docker build-context directory\n"
             f"    {prefix}_DOCKER_VAR_name  Pass Docker --build-arg name=value\n"
             f"    {prefix}_DOCKER_ARGS      Additional docker build arguments\n"
-            "  Runtime environment:\n"
-            f"    {prefix}_DOCKER_BUILD_JOBS  Concurrent image builds "
+            "  Wrapper option:\n"
+            "    --eclab-docker-build-jobs COUNT  Concurrent image builds "
             f"(default: {DEFAULT_DOCKER_BUILD_JOBS})\n"
+            f"  {prefix}_DOCKER_BUILD_JOBS is the persistent environment default; "
+            "the CLI option wins.\n"
             "  The node image field is the literal built tag; variables are unsupported; "
             "--file and --tag are reserved."
         )
@@ -171,7 +185,7 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
         try:
             topology_path = topology_path_from_args(tuple(rest))
             build_requests_from_topology(topology_path, load_topology(topology_path))
-            docker_build_jobs()
+            docker_build_jobs(event.environment)
         except (DockerfileError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
@@ -190,7 +204,7 @@ class DockerfilePlugin(ExecutableWrapperPlugin):
             build_images(
                 requests,
                 api=api,
-                max_workers=docker_build_jobs(),
+                max_workers=docker_build_jobs(event.environment),
             )
         except (DockerfileError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("%s", error)

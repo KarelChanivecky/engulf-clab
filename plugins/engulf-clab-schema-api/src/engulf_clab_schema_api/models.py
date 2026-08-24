@@ -38,9 +38,7 @@ class ExplainedValue:
 
 
 type ValueSpec = (
-    tuple[JsonScalar | ExplainedValue, ...]
-    | ValueType
-    | tuple[ValueType | ExplainedValue, ...]
+    tuple[JsonScalar | ExplainedValue, ...] | ValueType | tuple[ValueType | ExplainedValue, ...]
 )
 
 
@@ -116,6 +114,7 @@ class OptionDeclaration:
     default_json: str | None = None
     deprecated: bool = False
     replacement: str | None = None
+    environment: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +230,7 @@ class SchemaBuildRequest:
     requester_plugin_id: str
     request_id: str
     required: bool = True
+    current_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

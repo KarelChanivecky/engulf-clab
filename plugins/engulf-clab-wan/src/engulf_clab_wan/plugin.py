@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from engulf_api import (
     BeforeGoalAPI,
@@ -20,6 +20,7 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PluginSchema,
     Privilege,
+    SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
 )
@@ -28,7 +29,6 @@ from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
     CallMode,
-    ExecutableWrapperPlugin,
     HelpAPI,
     OutcomeKind,
     PreparedCallEvent,
@@ -96,8 +96,14 @@ PLUGIN_SCHEMA = (
     )
     .add_runtime_var(
         "ECLAB_UPLINK_IF",
+        "Override the host WAN uplink interface; the matching CLI flag takes precedence.",
+        values=ValueType.STRING,
+    )
+    .add_cli_flag(
+        "--eclab-uplink-interface",
         "Override the host uplink interface used for WAN NAT.",
         values=ValueType.STRING,
+        environment="ECLAB_UPLINK_IF",
     )
     .annotate(
         "labels.ECLAB_DHCP_WAN",
@@ -145,6 +151,11 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_UPLINK_IF",
+        commands=("deploy",),
+        requires=("an existing host egress interface",),
+    )
+    .annotate(
+        "--eclab-uplink-interface",
         commands=("deploy",),
         requires=("an existing host egress interface",),
     )
@@ -204,8 +215,9 @@ def destroy_all_requested(args: tuple[str, ...]) -> bool:
     return False
 
 
-class WanPlugin(ExecutableWrapperPlugin):
+class WanPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.wan"
+    schema = PLUGIN_SCHEMA
     priority = 50
     plugin_dependencies = (
         PluginDependency(
@@ -243,8 +255,10 @@ class WanPlugin(ExecutableWrapperPlugin):
             f"    {contract.label('DHCP_DNS')}               DNS (default: {DEFAULT_DNS})\n"
             f"    {contract.label('DHCP_LEASE_TIME')}        Seconds "
             f"(default: {DEFAULT_LEASE_TIME})\n"
-            "  Runtime environment:\n"
-            f"    {contract.uplink_environment}              Optional host uplink override\n"
+            "  Wrapper option:\n"
+            "    --eclab-uplink-interface IFACE  Optional host uplink override\n"
+            f"  {contract.uplink_environment} is the persistent environment default; "
+            "the CLI option wins.\n"
             "  Marked deploys require root; successful destroy releases managed resources."
         )
 
@@ -270,7 +284,7 @@ class WanPlugin(ExecutableWrapperPlugin):
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
         command, *_ = event.wrapper_args
         if command == "deploy":
-            self._setup_before_deploy(api)
+            self._setup_before_deploy(api, event.environment)
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         if event.mode is CallMode.HELP or not event.wrapper_args:
@@ -291,7 +305,11 @@ class WanPlugin(ExecutableWrapperPlugin):
                 workspace = api.state(StateScope.WORKSPACE)
                 self._cleanup_workspace(api, workspace)
 
-    def _setup_before_deploy(self, api: InvocationAPI) -> None:
+    def _setup_before_deploy(
+        self,
+        api: InvocationAPI,
+        environment: Mapping[str, str],
+    ) -> None:
         try:
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession):
@@ -312,6 +330,7 @@ class WanPlugin(ExecutableWrapperPlugin):
                     api.state(StateScope.WORKSPACE),
                     api.state(StateScope.USER),
                     contract,
+                    environment,
                 )
                 mutation = editor(api, self.plugin_id)
                 topology = topology_data.get("topology", {})

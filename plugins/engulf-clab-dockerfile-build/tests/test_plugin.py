@@ -36,8 +36,12 @@ class PluginHelpTest(unittest.TestCase):
         self.assertNotIn("FCLAB_DOCKERFILE", help_text)
         self.assertIn("literal built tag; variables are unsupported", help_text)
         self.assertIn(
-            "Runtime environment:\n"
-            "    ECLAB_DOCKER_BUILD_JOBS  Concurrent image builds (default: 2)",
+            "Wrapper option:\n"
+            "    --eclab-docker-build-jobs COUNT  Concurrent image builds (default: 2)",
+            help_text,
+        )
+        self.assertIn(
+            "ECLAB_DOCKER_BUILD_JOBS is the persistent environment default",
             help_text,
         )
 

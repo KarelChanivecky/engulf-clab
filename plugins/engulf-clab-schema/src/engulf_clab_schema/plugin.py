@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
-import os
 import shutil
 import tempfile
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -21,14 +20,22 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     RecordedPluginSchema,
+    SchemaBackedPlugin,
     SchemaBuildRequest,
     SchemaDeclarationFailure,
     ValueType,
     VrnetlabSourceHint,
     record_plugin_schema,
 )
-from engulf_executable_wrapper_api import ExecutableWrapperPlugin, HelpAPI, PreparedCallEvent
+from engulf_executable_wrapper_api import HelpAPI, PreparedCallEvent
 
+from .cache import (
+    bundle_directory_complete,
+    cache_record,
+    cached_bundle_fingerprint,
+    load_cached_bundle,
+    schema_input_fingerprint,
+)
 from .compiler import compile_schema_bundle
 from .node_kinds import resolve_node_kind_catalog
 from .source import resolve_base_schema, source_hint_from_environment
@@ -37,8 +44,14 @@ PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.schema", package="engulf_clab_schema")
     .add_runtime_var(
         "CONTAINERLAB_SCHEMA",
+        "Select an exact local Containerlab base schema; the matching CLI flag wins.",
+        values=ValueType.FILE_PATH,
+    )
+    .add_cli_flag(
+        "--eclab-containerlab-schema",
         "Use an exact local base schema for a binary-backed Containerlab build.",
         values=ValueType.FILE_PATH,
+        environment="CONTAINERLAB_SCHEMA",
     )
     .annotate(
         "CONTAINERLAB_SCHEMA",
@@ -46,6 +59,12 @@ PLUGIN_SCHEMA = (
         path_base=PathBase.INVOCATION_DIRECTORY,
         implies=("The supplied file is the complete base schema for the selected binary.",),
         examples=("CONTAINERLAB_SCHEMA=./schemas/clab.schema.json eclab deploy",),
+    )
+    .annotate(
+        "--eclab-containerlab-schema",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+        implies=("The supplied file is the complete base schema for the selected binary.",),
     )
     .use_case("Describe the exact Containerlab source and active Engulf plugin controls.")
     .reject("Do not substitute an unrelated latest Containerlab schema for the selected source.")
@@ -63,8 +82,9 @@ PLUGIN_SCHEMA = (
 )
 
 
-class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
+class SchemaGeneratorPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.schema"
+    schema = PLUGIN_SCHEMA
     priority = -1000
     context_reads = frozenset(
         {SCHEMA_REGISTRY_CONTEXT, SCHEMA_SOURCE_CONTEXT, SCHEMA_REQUEST_CONTEXT}
@@ -80,9 +100,17 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
         record_plugin_schema(api, PLUGIN_SCHEMA)
         requests = _requests(api)
         if not any(request.required for request in requests):
+            # Source producers publish early so a later strict consumer can use
+            # them. A non-strict invocation deliberately defers compilation to
+            # prepare_call; acknowledge those terminal inputs even when a
+            # wrapper-owned command preempts the inner call first.
+            api.get_context(SCHEMA_SOURCE_CONTEXT)
+            api.get_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT)
             return None
         try:
             bundle = self._build(api, invocation.environment, strict=True)
+            if bundle is None:
+                raise RuntimeError("strict schema generation returned no bundle")
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             api.logger.error("failed to generate runtime schema: %s", error)
             return GoalResult.failed(1, error=str(error))
@@ -90,23 +118,32 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
         return GoalResult.completed(bundle)
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not _requests(api):
+        requests = _requests(api)
+        if not requests:
             return
         try:
-            bundle = self._build(api, os.environ, binary=event.binary, strict=False)
+            bundle = self._build(
+                api,
+                event.environment,
+                binary=event.binary,
+                strict=False,
+                requests=requests,
+            )
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             api.logger.warning(
                 "runtime schema refresh failed; retaining the last valid artifact: %s",
                 error,
             )
             return
-        api.set_context(SCHEMA_COMPILED_CONTEXT, bundle)
+        if bundle is not None:
+            api.set_context(SCHEMA_COMPILED_CONTEXT, bundle)
 
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  CONTAINERLAB_SCHEMA  Exact local base schema for a binary-backed "
+            "  --eclab-containerlab-schema FILE  Exact local base schema for a binary-backed "
             "private/offline build\n"
+            "  CONTAINERLAB_SCHEMA is the persistent environment default; the CLI option wins.\n"
             "  Active plugin schemas are composed lazily and cached by runtime fingerprint."
         )
 
@@ -117,13 +154,21 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
         *,
         binary: str | Path | None = None,
         strict: bool,
-    ) -> CompiledSchemaBundle:
+        requests: tuple[SchemaBuildRequest, ...] = (),
+    ) -> CompiledSchemaBundle | None:
         current = api.get_context(SCHEMA_REGISTRY_CONTEXT, ())
         if type(current) is not tuple or any(
             not isinstance(item, (RecordedPluginSchema, SchemaDeclarationFailure))
             for item in current
         ):
             raise RuntimeError("invalid schema contribution registry")
+        failures = tuple(
+            f"{item.plugin_id}: {item.error}"
+            for item in current
+            if isinstance(item, SchemaDeclarationFailure)
+        )
+        if failures:
+            raise RuntimeError("incomplete plugin schema contributions: " + "; ".join(failures))
         source = api.get_context(SCHEMA_SOURCE_CONTEXT)
         if source is None:
             source = source_hint_from_environment(environment, binary=binary)
@@ -140,6 +185,26 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
                 vrnetlab_source = VrnetlabSourceHint(checkout=Path(prepared_vrnetlab))
         state = api.state(StateScope.USER)
         with api.lease("containerlab-runtime-schema"):
+            input_fingerprint = schema_input_fingerprint(
+                api.application,
+                current,
+                source,
+                vrnetlab_source,
+                environment,
+            )
+            if not strict:
+                cached = cached_bundle_fingerprint(state.directory, input_fingerprint)
+                if cached is not None:
+                    if requests and all(
+                        request.current_fingerprint == cached for request in requests
+                    ):
+                        api.logger.debug(
+                            "runtime schema cache is current at %s; skipping generation",
+                            cached,
+                        )
+                        return None
+                    api.logger.debug("reusing cached runtime schema bundle %s", cached)
+                    return load_cached_bundle(state.directory, cached)
             base = resolve_base_schema(state, environment, source, refresh=strict)
             node_kinds = resolve_node_kind_catalog(
                 state,
@@ -150,7 +215,7 @@ class SchemaGeneratorPlugin(ExecutableWrapperPlugin):
                 refresh=strict,
             )
             bundle = compile_schema_bundle(api.application, base, current, node_kinds)
-            _cache_bundle(state.directory, bundle)
+            _cache_bundle(state.directory, bundle, input_fingerprint)
         return bundle
 
 
@@ -161,12 +226,17 @@ def _requests(api: BeforeGoalAPI | InvocationAPI) -> tuple[SchemaBuildRequest, .
     return value
 
 
-def _cache_bundle(root: Path, bundle: CompiledSchemaBundle) -> None:
+def _cache_bundle(
+    root: Path,
+    bundle: CompiledSchemaBundle,
+    input_fingerprint: str,
+) -> None:
     artifacts = root / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     target = artifacts / bundle.fingerprint
-    if not target.is_dir():
+    if not bundle_directory_complete(target, bundle.fingerprint):
         staged = Path(tempfile.mkdtemp(prefix=".schema-", dir=artifacts))
+        displaced: Path | None = None
         try:
             (staged / "manifest.json").write_bytes(bundle.manifest)
             (staged / "clab.schema.json").write_bytes(bundle.topology_schema)
@@ -180,16 +250,23 @@ def _cache_bundle(root: Path, bundle: CompiledSchemaBundle) -> None:
                 destination = staged / "plugins" / reference.plugin_id / reference.path
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(reference.content)
+            if target.exists() or target.is_symlink():
+                displaced = artifacts / f".{bundle.fingerprint}.invalid-{time.time_ns()}"
+                target.replace(displaced)
             staged.replace(target)
         finally:
             if staged.exists():
                 shutil.rmtree(staged)
+            if displaced is not None and displaced.exists():
+                if not target.exists() and not target.is_symlink():
+                    displaced.replace(target)
+                elif displaced.is_dir() and not displaced.is_symlink():
+                    shutil.rmtree(displaced)
+                else:
+                    displaced.unlink()
     latest = root / "latest.json"
     temporary = root / ".latest.json.tmp"
-    temporary.write_text(
-        json.dumps({"fingerprint": bundle.fingerprint}, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    temporary.write_bytes(cache_record(input_fingerprint, bundle.fingerprint))
     temporary.replace(latest)
 
 

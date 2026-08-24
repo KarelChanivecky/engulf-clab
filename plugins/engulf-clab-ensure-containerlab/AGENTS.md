@@ -23,6 +23,10 @@ diagnostics and must restore the process `PATH` after each call.
 
 ## Development Notes
 
+- Derive from `SchemaBackedPlugin`. Keep provisioning flags in `PLUGIN_SCHEMA`,
+  bind canonical `--eclab-containerlab-*` options to supported persistent
+  `CONTAINERLAB_*` defaults, and read only normalized invocation/event
+  environments so CLI precedence reaches source discovery and preparation.
 - Apply only to calls whose wrapped binary is exactly `containerlab`. The
   read-only source selection published during `before_goal()` may inspect
   configured paths, `PATH`, and existing managed state. Keep provisioning, Git

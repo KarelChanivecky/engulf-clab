@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from engulf_api import (
     StateScope,
     StateStore,
 )
+from engulf_clab_schema import bundle_directory_complete
 from engulf_clab_schema_api import (
     SCHEMA_COMPILED_CONTEXT,
     SCHEMA_PLUGIN_ID,
@@ -29,13 +31,14 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PathBase,
     PluginSchema,
+    SchemaBackedPlugin,
     SchemaBuildRequest,
     ValueType,
     normalized_short_product,
     record_plugin_schema,
     request_schema_build,
 )
-from engulf_executable_wrapper_api import ExecutableWrapperPlugin, HelpAPI
+from engulf_executable_wrapper_api import HelpAPI
 
 PLUGIN_ID = "engulf_clab.develop_lab_skill"
 INSTALL_REQUEST_CONTEXT = "engulf_clab.develop_lab_skill.install_request"
@@ -92,8 +95,9 @@ class SkillInstallRequest:
     request_id: str
 
 
-class DevelopLabSkillPlugin(ExecutableWrapperPlugin):
+class DevelopLabSkillPlugin(SchemaBackedPlugin):
     plugin_id = PLUGIN_ID
+    schema = PLUGIN_SCHEMA
     priority = -900
     plugin_dependencies = (
         PluginDependency(
@@ -123,10 +127,19 @@ class DevelopLabSkillPlugin(ExecutableWrapperPlugin):
         short_product = normalized_short_product(api.application)
         command = install_command(short_product)
         if not invocation.arguments or invocation.arguments[0] != command:
-            request_schema_build(
-                api,
-                SchemaBuildRequest(self.plugin_id, uuid.uuid4().hex, required=False),
-            )
+            if _skip_automatic_refresh(invocation.arguments, invocation.environment):
+                return None
+            tracked, current_fingerprint = self._tracked_fingerprint(api)
+            if tracked:
+                request_schema_build(
+                    api,
+                    SchemaBuildRequest(
+                        self.plugin_id,
+                        uuid.uuid4().hex,
+                        required=False,
+                        current_fingerprint=current_fingerprint,
+                    ),
+                )
             return None
         if len(invocation.arguments) != 2:
             api.logger.error("usage: %s CONFIG_ROOT", command)
@@ -208,6 +221,32 @@ class DevelopLabSkillPlugin(ExecutableWrapperPlugin):
         if retained != _targets(state):
             _write_targets(state, retained)
 
+    def _tracked_fingerprint(self, api: BeforeGoalAPI) -> tuple[bool, str | None]:
+        state = api.state(StateScope.USER)
+        records = _targets(state)
+        retained: list[dict[str, str]] = []
+        fingerprints: list[str | None] = []
+        for record in records:
+            target = Path(record["config_root"]) / "skills" / record["skill_name"]
+            if not target.exists() and not target.is_symlink():
+                api.logger.info("stopped tracking deleted generated skill %s", target)
+                continue
+            if _marker(target) is None:
+                api.logger.warning("stopped tracking unrecognized generated skill %s", target)
+                continue
+            retained.append(record)
+            fingerprints.append(_installed_fingerprint(target))
+        if retained != records:
+            _write_targets(state, retained)
+        current = (
+            fingerprints[0]
+            if fingerprints
+            and fingerprints[0] is not None
+            and all(item == fingerprints[0] for item in fingerprints)
+            else None
+        )
+        return bool(retained), current
+
     def _install(
         self,
         api: AfterGoalAPI,
@@ -228,7 +267,7 @@ class DevelopLabSkillPlugin(ExecutableWrapperPlugin):
             if target.exists() or target.is_symlink():
                 if target.is_symlink() or marker is None:
                     raise ValueError(f"refusing to replace unrecognized path: {target}")
-                if marker.get("fingerprint") == bundle.fingerprint:
+                if _installed_fingerprint(target) == bundle.fingerprint:
                     return target
             staged = Path(tempfile.mkdtemp(prefix=f".{name}.", dir=skills))
             try:
@@ -300,6 +339,19 @@ def skill_name(short_product: str) -> str:
     if len(value) > 63:
         raise ValueError("normalized skill name exceeds 63 characters")
     return value
+
+
+def _skip_automatic_refresh(
+    arguments: tuple[str, ...],
+    environment: Mapping[str, str],
+) -> bool:
+    return (
+        environment.get("ENGULF_INTERNAL_PROTOCOL") == "1"
+        or not arguments
+        or arguments[0] == "help"
+        or "--help" in arguments
+        or "-h" in arguments
+    )
 
 
 def _write_static_skill(
@@ -374,6 +426,29 @@ def _marker(target: Path) -> dict[str, object] | None:
     if not isinstance(value, dict) or value.get("owner") != PLUGIN_ID:
         return None
     return value
+
+
+def _installed_fingerprint(target: Path) -> str | None:
+    marker = _marker(target)
+    if marker is None:
+        return None
+    fingerprint = marker.get("fingerprint")
+    if not isinstance(fingerprint, str):
+        return None
+    if not (target / "SKILL.md").is_file() or (target / "SKILL.md").is_symlink():
+        return None
+    agent = target / "agents" / "openai.yaml"
+    if not agent.is_file() or agent.is_symlink():
+        return None
+    current_path = target / "references" / "current.json"
+    try:
+        current = json.loads(current_path.read_text(encoding="utf-8"))
+    except OSError, json.JSONDecodeError:
+        return None
+    if not isinstance(current, dict) or current.get("fingerprint") != fingerprint:
+        return None
+    runtime = target / "references" / "runtimes" / fingerprint
+    return fingerprint if bundle_directory_complete(runtime, fingerprint) else None
 
 
 def _targets(state: StateStore) -> list[dict[str, str]]:

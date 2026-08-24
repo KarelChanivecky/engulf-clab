@@ -56,6 +56,7 @@ class ContainerlabAppTest(unittest.TestCase):
         self.assertIsInstance(app.goal, ExecutableWrapperGoal)
         self.assertEqual(app.application_id, APPLICATION_ID)
         self.assertEqual(app.display_name, DISPLAY_NAME)
+        self.assertTrue(app.goal.source_completion)
         self.assertIs(app._workspace_root_resolver, workspace_root)
 
     def test_accepts_extension_configuration(self) -> None:
@@ -63,10 +64,12 @@ class ContainerlabAppTest(unittest.TestCase):
             "/custom/containerlab",
             application_id="my-containerlab",
             discover_installed=False,
+            source_completion=False,
         )
 
         self.assertEqual(app.binary, "/custom/containerlab")
         self.assertEqual(app.application_id, "my-containerlab")
+        self.assertFalse(app.goal.source_completion)
 
 
 class CliTest(unittest.TestCase):
@@ -80,5 +83,7 @@ class CliTest(unittest.TestCase):
 
         definition.create.assert_called_once_with()
         application.run.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()

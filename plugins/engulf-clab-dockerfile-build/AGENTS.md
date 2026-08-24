@@ -23,6 +23,10 @@ launching parallel workers; callback-bound API lease contexts must not overlap.
 Read `TopologySession.materialize()` during preparation so earlier topology
 injectors can contribute packaged Dockerfile recipes.
 
+- Derive from `SchemaBackedPlugin`. Keep
+  `--eclab-docker-build-jobs` bound to its persistent runtime default and read
+  the normalized event environment. Node Docker fields remain topology `env`
+  values and must never be consumed as wrapper options.
 - Keep analysis limited to parsing, path/type validation, conflict prediction,
   and an immutable contribution. Never invoke or probe Docker from analysis or
   help.

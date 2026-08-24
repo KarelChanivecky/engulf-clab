@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 
 from engulf_api import (
@@ -10,6 +9,7 @@ from engulf_api import (
     Invocation,
     InvocationAPI,
     PluginDependency,
+    RegistrationAPI,
     StateScope,
 )
 from engulf_clab_ensure_vrnetlab import (
@@ -27,14 +27,17 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     Privilege,
+    SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
 )
 from engulf_executable_wrapper_api import (
+    ArgumentRegistry,
     BeforeCallEvent,
     CallContribution,
     CallMode,
-    ExecutableWrapperPlugin,
+    CompletionCandidate,
+    CompletionContext,
     HelpAPI,
     PreparedCallEvent,
 )
@@ -47,6 +50,7 @@ from .config import (
 from .errors import VrnetlabError
 from .images import ensure_images
 from .logging import use_logger
+from .options import IMAGE_OPTION, complete_image_option, parse_image_options
 from .topology import load_topology, topology_path_from_args
 
 PLUGIN_SCHEMA = (
@@ -63,8 +67,14 @@ PLUGIN_SCHEMA = (
     )
     .add_runtime_var(
         "ECLAB_VRNETLAB_IMG_PATH",
-        "Select a qcow2 file or supported image archive.",
+        "Select the persistent fallback vrnetlab image source.",
         values=ValueType.FILE_PATH,
+    )
+    .add_cli_flag(
+        "--eclab-vrnetlab-image",
+        "Select a repeatable NODE=PATH source; default=PATH supplies the fallback.",
+        values=ValueType.STRING,
+        repeatable=True,
     )
     .add_runtime_var(
         "ECLAB_VM_IMG",
@@ -82,9 +92,15 @@ PLUGIN_SCHEMA = (
     )
     .add_runtime_var(
         "ECLAB_VRNETLAB_BUILD_JOBS",
-        "Limit concurrent vrnetlab image builds.",
+        "Limit concurrent vrnetlab image builds; the matching CLI flag takes precedence.",
         values=ValueType.POSITIVE_INTEGER,
         default=2,
+    )
+    .add_cli_flag(
+        "--eclab-vrnetlab-build-jobs",
+        "Limit concurrent vrnetlab image builds.",
+        values=ValueType.POSITIVE_INTEGER,
+        environment="ECLAB_VRNETLAB_BUILD_JOBS",
     )
     .annotate(
         "image",
@@ -115,6 +131,19 @@ PLUGIN_SCHEMA = (
     .annotate(
         "ECLAB_VRNETLAB_BUILD_JOBS", commands=("deploy",), lifecycle=(LifecycleStage.PREPARE_CALL,)
     )
+    .annotate(
+        "--eclab-vrnetlab-image",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
+        path_base=PathBase.TOPOLOGY_DIRECTORY,
+        implies=("specific node, node YAML, default selector, then environment precedence",),
+        examples=("default=/images/router.qcow2", "router=/images/router.zip"),
+    )
+    .annotate(
+        "--eclab-vrnetlab-build-jobs",
+        commands=("deploy",),
+        lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
+    )
     .require_host_tool("docker", "Build the final vrnetlab container image.", commands=("deploy",))
     .require_host_tool(
         "qemu-img", "Inspect and convert the selected image source.", commands=("deploy",)
@@ -142,8 +171,9 @@ PLUGIN_SCHEMA = (
 )
 
 
-class VrnetlabPlugin(ExecutableWrapperPlugin):
+class VrnetlabPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.vrnetlab_build"
+    schema = PLUGIN_SCHEMA
     priority = 75
     plugin_dependencies = (
         PluginDependency(
@@ -161,6 +191,32 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
     context_reads = frozenset({VRNETLAB_PATH_CONTEXT, TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
     context_writes = SCHEMA_CONTEXTS
 
+    def register_arguments(
+        self,
+        registry: ArgumentRegistry,
+        api: RegistrationAPI,
+    ) -> None:
+        del api
+        registry.option(
+            IMAGE_OPTION,
+            takes_value=True,
+            metavar="NODE=FILE",
+            description="Select a per-node vrnetlab image source",
+            value_completer=complete_image_option,
+            suggest_assignment=False,
+            repeatable=True,
+            when=_after_deploy_completion,
+        )
+        registry.option(
+            "--eclab-vrnetlab-build-jobs",
+            takes_value=True,
+            metavar="POSITIVE_INTEGER",
+            description="Limit concurrent vrnetlab image builds",
+            value_completer=_complete_build_jobs,
+            when=_deploy_completion,
+            environment=f"{LABEL_PREFIX}_VRNETLAB_BUILD_JOBS",
+        )
+
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
@@ -173,12 +229,15 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
             "  Node YAML fields:\n"
             "    image                      Use a lab-unique requested Docker tag\n"
             f"    {prefix}_VRNETLAB_TYPE      Opt in and select the vrnetlab builder\n"
-            "  Runtime environment:\n"
-            f"    {prefix}_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source\n"
-            f"    {prefix}_VM_IMG              Compatibility image-source alias\n"
-            f"    {prefix}_VM_SRC              Older image-source alias\n"
-            f"    {prefix}_VRNETLAB_BUILD_JOBS Concurrent image builds "
-            f"(default: {DEFAULT_VRNETLAB_BUILD_JOBS})"
+            "  Wrapper options:\n"
+            "    --eclab-vrnetlab-image NODE=FILE  Select a repeatable node image source\n"
+            "      default=FILE                    Fallback when no node source is selected\n"
+            "    --eclab-vrnetlab-build-jobs COUNT Concurrent image builds "
+            f"(default: {DEFAULT_VRNETLAB_BUILD_JOBS})\n"
+            f"  {prefix}_VRNETLAB_IMG_PATH remains the persistent image fallback; "
+            "node selectors and node YAML win.\n"
+            f"  {prefix}_VRNETLAB_BUILD_JOBS is the persistent job default; its CLI option wins.\n"
+            f"  {prefix}_VM_IMG and {prefix}_VM_SRC remain legacy image-source aliases."
         )
 
     def analyze_call(
@@ -189,29 +248,41 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return None
 
-        command, *rest = event.wrapper_args
-        if command != "deploy":
-            return None
-
         try:
+            parsed = parse_image_options(event.wrapper_args)
+            if parsed.selectors and event.wrapper_args[0] != "deploy":
+                raise VrnetlabError(f"{IMAGE_OPTION} must follow the deploy command")
+            if not parsed.arguments:
+                return CallContribution(removals=parsed.removals) if parsed.removals else None
+            command, *rest = parsed.arguments
+            if command != "deploy":
+                return CallContribution(removals=parsed.removals) if parsed.removals else None
             topology_path = topology_path_from_args(tuple(rest))
             topology_data = load_topology(topology_path)
-            requests = build_requests_from_topology(topology_path, topology_data, os.environ)
-            vrnetlab_build_jobs()
+            requests = build_requests_from_topology(
+                topology_path,
+                topology_data,
+                event.environment,
+                image_selectors=parsed.selectors,
+            )
+            vrnetlab_build_jobs(event.environment)
             if not requests:
                 api.logger.debug(
                     "no nodes declare %s; no vrnetlab images to build",
                     vrnetlab_type_env(),
                 )
-                return None
+                return CallContribution(removals=parsed.removals) if parsed.removals else None
         except (VrnetlabError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
 
-        return None
+        return CallContribution(removals=parsed.removals) if parsed.removals else None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *_ = event.wrapper_args
+        parsed = parse_image_options(event.wrapper_args)
+        if not parsed.arguments:
+            return
+        command, *_ = parsed.arguments
         if command != "deploy":
             return
 
@@ -221,7 +292,12 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
                 raise VrnetlabError("invalid shared topology session")
             topology_path = session.path
             topology_data = session.original_document()
-            requests = build_requests_from_topology(topology_path, topology_data, os.environ)
+            requests = build_requests_from_topology(
+                topology_path,
+                topology_data,
+                event.environment,
+                image_selectors=parsed.selectors,
+            )
             if not requests:
                 api.logger.debug("no vrnetlab image-build requests in original topology")
                 return
@@ -236,11 +312,28 @@ class VrnetlabPlugin(ExecutableWrapperPlugin):
                     checkout_context=checkout_context,
                     state_store=state_store,
                     source_environment=vrnetlab_image_path_env(),
-                    max_workers=vrnetlab_build_jobs(),
+                    max_workers=vrnetlab_build_jobs(event.environment),
                 )
         except (VrnetlabError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)
             raise
+
+
+def _deploy_completion(context: CompletionContext) -> bool:
+    if context.cursor_index == 0:
+        return True
+    return "deploy" in context.words[: context.cursor_index]
+
+
+def _after_deploy_completion(context: CompletionContext) -> bool:
+    return "deploy" in context.words[: context.cursor_index]
+
+
+def _complete_build_jobs(context: CompletionContext) -> tuple[CompletionCandidate, ...]:
+    default = str(DEFAULT_VRNETLAB_BUILD_JOBS)
+    if default.startswith(context.current):
+        return (CompletionCandidate(default, "Default value"),)
+    return ()
 
 
 plugin = VrnetlabPlugin()

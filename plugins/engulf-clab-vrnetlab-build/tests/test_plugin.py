@@ -5,12 +5,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_api import InvocationAPI, StateScope
+from engulf_api import InvocationAPI, RegistrationAPI, StateScope
 from engulf_clab_ensure_vrnetlab import ENSURE_VRNETLAB_PLUGIN_ID
 from engulf_clab_lab_parser import TopologySession
-from engulf_executable_wrapper_api import BeforeCallEvent, CallMode, PreparedCallEvent
+from engulf_executable_wrapper_api import (
+    ArgumentRegistry,
+    BeforeCallEvent,
+    CallMode,
+    CompletionContext,
+    PreparedCallEvent,
+    Shell,
+)
 
 from engulf_clab_vrnetlab_build.errors import VrnetlabError
+from engulf_clab_vrnetlab_build.options import IMAGE_OPTION
 from engulf_clab_vrnetlab_build.plugin import VrnetlabPlugin
 from engulf_clab_vrnetlab_build.topology import load_topology
 
@@ -41,16 +49,39 @@ class PluginLifecycleTest(unittest.TestCase):
             help_text,
         )
         self.assertIn(
-            "Runtime environment:\n"
-            "    ECLAB_VRNETLAB_IMG_PATH  Select a qcow2 or supported archive source",
+            "Wrapper options:\n"
+            "    --eclab-vrnetlab-image NODE=FILE  Select a repeatable node image source",
             help_text,
         )
-        self.assertIn(
-            "ECLAB_VM_IMG              Compatibility image-source alias",
-            help_text,
+        self.assertIn("default=FILE", help_text)
+        self.assertIn("ECLAB_VRNETLAB_IMG_PATH", help_text)
+        self.assertIn("persistent image fallback", help_text)
+        self.assertIn("persistent job default", help_text)
+        self.assertIn("ECLAB_VM_IMG", help_text)
+        self.assertIn("ECLAB_VM_SRC", help_text)
+        self.assertIn("--eclab-vrnetlab-build-jobs COUNT", help_text)
+
+    def test_registers_repeatable_node_image_option(self) -> None:
+        registry = ArgumentRegistry()
+
+        VrnetlabPlugin().register_arguments(registry, Mock(spec=RegistrationAPI))
+
+        option = registry.find_exact(IMAGE_OPTION)
+        self.assertIsNotNone(option)
+        assert option is not None
+        self.assertTrue(option.repeatable)
+        self.assertFalse(option.suggest_assignment)
+        self.assertEqual(option.metavar, "NODE=FILE")
+        self.assertIsNone(option.environment)
+        self.assertIsNotNone(option.value_completer)
+        self.assertIsNotNone(option.when)
+        assert option.when is not None
+        self.assertFalse(
+            option.when(CompletionContext(Shell.BASH, "eclab", "containerlab", ("--",), 0))
         )
-        self.assertIn("ECLAB_VM_SRC              Older image-source alias", help_text)
-        self.assertIn("ECLAB_VRNETLAB_BUILD_JOBS Concurrent image builds", help_text)
+        self.assertTrue(
+            option.when(CompletionContext(Shell.BASH, "eclab", "containerlab", ("deploy", "--"), 1))
+        )
 
     def test_help_and_non_deploy_calls_do_nothing(self) -> None:
         plugin = VrnetlabPlugin()
@@ -127,14 +158,12 @@ topology:
             state_store = object()
             api.get_context.return_value = "/managed/vrnetlab"
             api.state.return_value = state_store
-            api.require_context.return_value = TopologySession(
-                topology, load_topology(topology)
-            )
+            api.require_context.return_value = TopologySession(topology, load_topology(topology))
 
             plugin.prepare_call(
                 PreparedCallEvent(
                     "containerlab",
-                    ("deploy",),
+                    ("deploy", IMAGE_OPTION, "r1=/images/r1.qcow2"),
                     ("deploy",),
                     CallMode.NORMAL,
                 ),
@@ -146,6 +175,60 @@ topology:
         self.assertEqual(ensure.call_args.kwargs["checkout_context"], "/managed/vrnetlab")
         self.assertIs(ensure.call_args.kwargs["state_store"], state_store)
         self.assertEqual(ensure.call_args.kwargs["max_workers"], 2)
+        self.assertEqual(ensure.call_args.args[0][0].source, Path("/images/r1.qcow2"))
+
+    def test_analyze_removes_all_image_selector_arguments(self) -> None:
+        with TemporaryDirectory() as directory:
+            topology = Path(directory) / "lab.clab.yml"
+            topology.write_text(
+                """
+name: router-lab
+topology:
+  nodes:
+    r1:
+      image: vrnetlab/vendor_router:1
+      env:
+        ECLAB_VRNETLAB_TYPE: vendor/router
+""",
+                encoding="utf-8",
+            )
+            contribution = VrnetlabPlugin().analyze_call(
+                BeforeCallEvent(
+                    "containerlab",
+                    (
+                        "deploy",
+                        "-t",
+                        str(topology),
+                        IMAGE_OPTION,
+                        "r1=/images/r1.qcow2",
+                        f"{IMAGE_OPTION}=default=/images/default.qcow2",
+                    ),
+                    CallMode.NORMAL,
+                ),
+                self.api(),
+            )
+
+        self.assertIsNotNone(contribution)
+        assert contribution is not None
+        self.assertEqual(contribution.removals, frozenset({3, 4, 5}))
+        self.assertIsNone(contribution.preempt_exit_code)
+
+    def test_image_selector_must_follow_deploy_command(self) -> None:
+        api = self.api()
+
+        contribution = VrnetlabPlugin().analyze_call(
+            BeforeCallEvent(
+                "containerlab",
+                (IMAGE_OPTION, "default=/images/default.qcow2", "deploy"),
+                CallMode.NORMAL,
+            ),
+            api,
+        )
+
+        self.assertIsNotNone(contribution)
+        assert contribution is not None
+        self.assertEqual(contribution.preempt_exit_code, 1)
+        api.logger.error.assert_called_once()
 
 
 if __name__ == "__main__":
