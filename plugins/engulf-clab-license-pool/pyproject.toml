@@ -8,7 +8,7 @@ description = "Shared license-pool allocation for engulf-clab labs"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
-dependencies = ["engulf-api>=1.0,<2", "engulf-executable-wrapper-api>=1.0.1,<2", "engulf-clab-schema-api>=1.2,<2", "engulf-clab-schema>=0.1,<0.2", "engulf-clab-lab-parser>=0.1,<0.2", "engulf-clab-lab-writer>=0.1,<0.2"]
+dependencies = ["engulf-api>=1.0,<2", "engulf-executable-wrapper-api>=1.0,<2", "engulf-clab-schema-api>=1.2,<2", "engulf-clab-schema>=0.1,<0.2", "engulf-clab-lab-parser>=0.1,<0.2", "engulf-clab-lab-writer>=0.1,<0.2"]
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
 "engulf_clab.license_pool" = "engulf_clab_license_pool:plugin"
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]

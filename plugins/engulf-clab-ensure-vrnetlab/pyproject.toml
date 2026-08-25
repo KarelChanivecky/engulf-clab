@@ -11,7 +11,7 @@ requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
-    "engulf-executable-wrapper-api>=1.0.1,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
     "engulf-clab-schema-api>=1.2,<2",
     "engulf-clab-schema>=0.1,<0.2",
     "engulf-clab-ensure-checkout>=0.1,<0.2",
