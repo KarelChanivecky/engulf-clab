@@ -81,7 +81,7 @@ def cached_bundle_fingerprint(
     pipeline_root = _pipeline_root(root, pipeline_id)
     try:
         value = json.loads((pipeline_root / "latest.json").read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(value, dict):
         return None
@@ -113,7 +113,7 @@ def bundle_directory_complete(
         return False
     try:
         manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return False
     if not isinstance(manifest, dict) or manifest.get("fingerprint") != fingerprint:
         return False
@@ -449,7 +449,7 @@ def _git(checkout: Path, *arguments: str) -> str | None:
             capture_output=True,
             timeout=5,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return None
     return process.stdout.decode("utf-8", errors="replace").strip() or None
 

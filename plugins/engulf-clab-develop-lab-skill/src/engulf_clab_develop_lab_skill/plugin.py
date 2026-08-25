@@ -465,7 +465,7 @@ def _marker(target: Path) -> dict[str, object] | None:
     path = target / MARKER_NAME
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
     if (
         not isinstance(value, dict)
@@ -492,7 +492,7 @@ def _installed_fingerprint(target: Path) -> str | None:
     current_path = target / "references" / "current.json"
     try:
         current = json.loads(current_path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
     if (
         not isinstance(current, dict)
@@ -517,7 +517,7 @@ def _targets(state: StateStore) -> list[dict[str, str]]:
         return []
     try:
         value = json.loads(state.read_text(TARGETS_NAME))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return []
     if not isinstance(value, list):
         return []

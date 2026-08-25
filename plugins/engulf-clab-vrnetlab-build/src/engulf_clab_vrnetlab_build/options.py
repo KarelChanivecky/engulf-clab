@@ -146,7 +146,7 @@ def _completion_topology(arguments: tuple[str, ...]) -> tuple[Path | None, tuple
             ):
                 names.append(node.name)
         return path, tuple(names)
-    except OSError, VrnetlabError:
+    except (OSError, VrnetlabError):
         return None, ()
 
 
@@ -158,7 +158,7 @@ def _path_candidates(current: str, *, base: Path) -> tuple[str, ...]:
         entered_parent = Path(shown_parent or ".").expanduser()
         directory = entered_parent if entered_parent.is_absolute() else base / entered_parent
         entries = sorted(directory.iterdir(), key=lambda item: item.name)
-    except OSError, RuntimeError:
+    except (OSError, RuntimeError):
         return ()
     result: list[str] = []
     for entry in entries:
