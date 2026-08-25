@@ -30,7 +30,9 @@ diagnostics and must restore the process `PATH` after each call.
 - Apply only to calls whose wrapped binary is exactly `containerlab`. The
   read-only source selection published during `before_goal()` may inspect
   configured paths, `PATH`, and existing managed state. Keep provisioning, Git
-  mutation, dependency probing, and Go builds in `prepare_call()`.
+  mutation, dependency probing, and Go builds in `prepare_call()`. The
+  preempting `sudoless` command may resolve and configure the binary during
+  `before_goal()` because it never enters the wrapped-call lifecycle.
 - Require Docker before resolution. Preserve explicit binary -> configured
   checkout -> `PATH` binary -> managed checkout order and invalid-value
   fallthrough.
@@ -43,7 +45,9 @@ diagnostics and must restore the process `PATH` after each call.
   value, and restore it during `after_call()` even after a wrapped failure. Do
   not leak state between invocations on the plugin singleton.
 - Never overwrite invalid managed state, reset dirty repositories, or mutate an
-  explicit binary. Keep generic checkout mechanics in ensure-checkout.
+  explicit binary during normal resolution. `sudoless` is an explicit mutation:
+  create/authorize `clab_admins` and `docker` first, reject root callers, then
+  root-own the resolved binary and set exact mode `4755`, always without a shell.
 - Keep dynamic help, `USAGE.md` resolution/update tables, defaults, and code
   synchronized.
 - Run containerlab resolution/plugin tests plus ensure-checkout tests. Mock Git,

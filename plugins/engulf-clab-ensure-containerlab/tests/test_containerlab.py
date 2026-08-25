@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import stat
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,10 +10,12 @@ from engulf_clab_schema_api import ContainerlabSourceKind
 
 from engulf_clab_ensure_containerlab.containerlab import (
     containerlab_source_hint,
+    enable_sudoless,
     ensure_binary,
     ensure_repo_binary,
     require_containerlab_dependencies,
     resolved_containerlab_source,
+    sudoless_user,
 )
 from engulf_clab_ensure_containerlab.errors import EnsureContainerlabError
 
@@ -45,6 +48,38 @@ class EnsureContainerlabTest(unittest.TestCase):
     def test_missing_docker_is_reported(self, _which: Mock) -> None:
         with self.assertRaisesRegex(EnsureContainerlabError, "missing required command: docker"):
             require_containerlab_dependencies()
+
+    @patch("engulf_clab_ensure_containerlab.containerlab.os.getuid", return_value=0)
+    def test_sudoless_rejects_running_the_wrapper_as_root(self, _getuid: Mock) -> None:
+        with self.assertRaisesRegex(EnsureContainerlabError, "not as root"):
+            sudoless_user()
+
+    @patch("engulf_clab_ensure_containerlab.containerlab.Path.stat")
+    @patch("engulf_clab_ensure_containerlab.containerlab._run")
+    @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which", return_value="/usr/bin/sudo")
+    @patch("engulf_clab_ensure_containerlab.containerlab.executable", return_value=True)
+    def test_sudoless_establishes_group_before_enabling_root_suid(
+        self,
+        _executable: Mock,
+        _which: Mock,
+        run: Mock,
+        path_stat: Mock,
+    ) -> None:
+        binary = Path("/opt/containerlab/bin/containerlab")
+        path_stat.return_value = Mock(st_uid=0, st_gid=0, st_mode=stat.S_IFREG | 0o4755)
+
+        enable_sudoless(binary, "alice")
+
+        self.assertEqual(
+            [item.args[0] for item in run.call_args_list],
+            [
+                ("sudo", "--", "groupadd", "-f", "-r", "clab_admins"),
+                ("sudo", "--", "groupadd", "-f", "-r", "docker"),
+                ("sudo", "--", "usermod", "-aG", "clab_admins,docker", "alice"),
+                ("sudo", "--", "chown", "root:root", str(binary)),
+                ("sudo", "--", "chmod", "4755", str(binary)),
+            ],
+        )
 
     def test_executable_environment_override_takes_precedence(self) -> None:
         with TemporaryDirectory() as directory:

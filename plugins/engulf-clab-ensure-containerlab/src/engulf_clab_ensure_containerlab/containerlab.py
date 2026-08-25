@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import pwd
 import shutil
+import stat
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -60,6 +62,48 @@ def require_containerlab_dependencies() -> None:
     """Fail before a wrapped call when the Containerlab Docker dependency is absent."""
     if shutil.which("docker") is None:
         raise EnsureContainerlabError("missing required command: docker")
+
+
+def sudoless_user() -> str:
+    """Return the unprivileged account that requested sudo-less operation."""
+    uid = os.getuid()
+    if uid == 0:
+        raise EnsureContainerlabError(
+            "run the sudoless command as the user who needs access, not as root; "
+            "the command invokes sudo when required"
+        )
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError as error:
+        raise EnsureContainerlabError(f"cannot resolve the current user for uid {uid}") from error
+
+
+def enable_sudoless(binary: Path, username: str) -> None:
+    """Root-own a safe executable mode and grant required group access."""
+    if not executable(binary):
+        raise EnsureContainerlabError(f"Containerlab binary is not executable: {binary}")
+    if shutil.which("sudo") is None:
+        raise EnsureContainerlabError("missing required command: sudo")
+
+    # Establish both authorization boundaries before enabling SUID. ``-f``
+    # makes group creation safe to repeat when package installation created it.
+    _run(("sudo", "--", "groupadd", "-f", "-r", "clab_admins"))
+    _run(("sudo", "--", "groupadd", "-f", "-r", "docker"))
+    _run(("sudo", "--", "usermod", "-aG", "clab_admins,docker", username))
+    # A user-owned SUID binary would not elevate Containerlab. Root ownership
+    # also makes an exact 4755 mode important: never retain group/world writes.
+    _run(("sudo", "--", "chown", "root:root", str(binary)))
+    _run(("sudo", "--", "chmod", "4755", str(binary)))
+
+    metadata = binary.stat()
+    if (
+        metadata.st_uid != 0
+        or metadata.st_gid != 0
+        or stat.S_IMODE(metadata.st_mode) != 0o4755
+    ):
+        raise EnsureContainerlabError(
+            f"sudo-less setup did not leave {binary} root-owned with mode 4755"
+        )
 
 
 def valid_containerlab_checkout(path: Path) -> bool:

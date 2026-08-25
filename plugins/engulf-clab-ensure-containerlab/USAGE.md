@@ -52,6 +52,33 @@ paths are never overwritten or repaired automatically.
 The resolved binary is selected only for the current invocation; the previous
 `PATH` is restored afterward.
 
+## Sudo-less operation
+
+Run `eclab sudoless` as the unprivileged user who needs Containerlab access.
+The command resolves or provisions Containerlab using the same precedence above,
+then uses `sudo` to:
+
+1. create the system `clab_admins` group if it does not exist;
+2. create the system `docker` group if it does not exist;
+3. add the current user to both groups;
+4. make the selected binary root-owned; and
+5. set its mode to `4755` (root SUID, without group or world write access).
+
+The command is safe to repeat. Do not run the wrapper itself with `sudo`; it
+must identify the unprivileged account that should be added. Log out and back in
+afterward so the login session obtains its new group membership. Confirm setup
+with `ls -hal "$(command -v containerlab)"` and `groups`: the binary should be
+root-owned with an `s` in the owner execute position, and the user should be in
+both `clab_admins` and `docker`.
+
+Membership in either `clab_admins` or `docker` grants effective root-level host
+access through the corresponding tool. The command changes the selected binary
+in place, including a binary in a configured or managed checkout. Rebuilding or
+replacing that binary can clear its ownership or SUID bit; rerun
+`eclab sudoless` after such a change. Package-managed Containerlab and Docker
+installations normally create their respective groups, but the command remains
+safe to repeat.
+
 ## Privileges and troubleshooting
 
 This plugin resolves the executable but does not grant the host privileges
@@ -68,6 +95,9 @@ fail for separate Docker or Containerlab privilege reasons.
   and verify the installed Go version and module dependencies.
 - Preserve an invalid managed checkout for diagnosis or remove it intentionally
   when safe; it is not overwritten.
+- If `eclab sudoless` fails, verify that `sudo`, `groupadd`, `usermod`, `chown`,
+  and `chmod` are available through the host's root environment. A partially
+  completed run is safe to repeat after correcting the reported failure.
 - Under MCP, configure executable and checkout controls in the service profile;
   callers cannot override protected host paths.
 

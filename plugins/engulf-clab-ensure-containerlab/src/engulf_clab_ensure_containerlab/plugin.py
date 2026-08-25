@@ -26,16 +26,26 @@ from engulf_executable_wrapper_api import (
 
 from .containerlab import (
     containerlab_source_hint,
+    enable_sudoless,
     ensure_binary,
     require_containerlab_dependencies,
     resolved_containerlab_source,
+    sudoless_user,
 )
-from .contract import CONTAINERLAB_REPOSITORY_LEASE, ENSURE_CONTAINERLAB_PLUGIN_ID
+from .contract import (
+    CONTAINERLAB_REPOSITORY_LEASE,
+    ENSURE_CONTAINERLAB_PLUGIN_ID,
+    SUDOLESS_COMMAND,
+)
 from .errors import EnsureContainerlabError
 from .logging import use_logger
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.ensure_containerlab", package="engulf_clab_ensure_containerlab")
+    .add_command(
+        SUDOLESS_COMMAND,
+        "Enable Containerlab SUID plus clab_admins and Docker group access.",
+    )
     .add_runtime_var(
         "CONTAINERLAB_BIN",
         "Select a Containerlab executable; the matching CLI flag takes precedence.",
@@ -92,6 +102,17 @@ PLUGIN_SCHEMA = (
         environment="CONTAINERLAB_VERSION",
     )
     .use_case("Resolve Containerlab from BIN, DIR, PATH, or a managed checkout in that order.")
+    .use_case("Enable sudo-less Containerlab and Docker operation for the current user.")
+    .annotate(
+        SUDOLESS_COMMAND,
+        lifecycle=(LifecycleStage.BEFORE_GOAL,),
+        requires=("Run as the unprivileged user who needs Containerlab access.",),
+        implies=(
+            "Preempt normal Containerlab execution and invoke sudo for host account changes.",
+            "Grant effective root-level access through clab_admins and docker membership.",
+        ),
+        examples=("eclab sudoless",),
+    )
     .annotate(
         "CONTAINERLAB_BIN",
         lifecycle=(LifecycleStage.PREPARE_CALL,),
@@ -144,9 +165,19 @@ PLUGIN_SCHEMA = (
     .require_host_tool("docker", "Containerlab execution requires an available container runtime.")
     .require_host_tool("git", "Managed source checkout resolution uses Git.")
     .require_host_tool("go", "Building a missing Containerlab binary from source requires Go.")
+    .require_host_tool(
+        "sudo",
+        "The sudoless command changes binary ownership, mode, and two host group memberships.",
+        commands=(SUDOLESS_COMMAND,),
+    )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
         "The caller must be authorized to use the configured container runtime.",
+    )
+    .require_privilege(
+        Privilege.ROOT,
+        "The sudoless command obtains root privileges through sudo for host setup.",
+        commands=(SUDOLESS_COMMAND,),
     )
     .order(
         LifecycleStage.PREPARE_CALL,
@@ -178,6 +209,22 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
+        if invocation.arguments and invocation.arguments[0] == SUDOLESS_COMMAND:
+            try:
+                username = sudoless_user()
+                with use_logger(api.logger), api.lease(CONTAINERLAB_REPOSITORY_LEASE):
+                    binary = ensure_binary(api.state(StateScope.USER), invocation.environment)
+                    enable_sudoless(binary, username)
+                publish_containerlab_source(api, resolved_containerlab_source(binary))
+                api.logger.warning(
+                    "user %s now has root-equivalent Containerlab and Docker access; "
+                    "log out and back in before using the new group memberships",
+                    username,
+                )
+                return GoalResult.completed()
+            except (EnsureContainerlabError, OSError) as error:
+                api.logger.error("%s", error)
+                return GoalResult.failed(1, error=str(error))
         source = containerlab_source_hint(
             api.state(StateScope.USER),
             invocation.environment,
@@ -188,6 +235,7 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering Containerlab provisioning help")
         return (
+            "  sudoless                          Enable SUID, clab_admins, and Docker access\n"
             "  --eclab-containerlab-bin PATH     Use an executable binary\n"
             "  --eclab-containerlab-dir DIR      Use or build a source checkout\n"
             "  --eclab-containerlab-repo URL     Override clone source (default: "

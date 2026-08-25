@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_api import BeforeGoalAPI, Invocation, InvocationAPI, StateScope
+from engulf_api import BeforeGoalAPI, GoalResultStatus, Invocation, InvocationAPI, StateScope
 from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKind
 from engulf_executable_wrapper_api import AfterCallEvent, CallMode, PreparedCallEvent
 
@@ -16,6 +16,37 @@ from engulf_clab_ensure_containerlab.plugin import EnsureContainerlabPlugin
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    @patch("engulf_clab_ensure_containerlab.plugin.record_plugin_schema")
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
+    @patch("engulf_clab_ensure_containerlab.plugin.enable_sudoless")
+    @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
+    @patch("engulf_clab_ensure_containerlab.plugin.sudoless_user", return_value="alice")
+    def test_sudoless_preempts_the_wrapped_goal(
+        self,
+        _user: Mock,
+        ensure: Mock,
+        enable: Mock,
+        publish: Mock,
+        _record: Mock,
+    ) -> None:
+        binary = Path("/usr/local/bin/containerlab")
+        ensure.return_value = binary
+        api = Mock(spec=BeforeGoalAPI)
+        api.lease.return_value = nullcontext()
+        state = object()
+        api.state.return_value = state
+        invocation = Invocation(("sudoless",), Path("/labs"), {})
+
+        result = EnsureContainerlabPlugin().before_goal(invocation, api)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIs(result.status, GoalResultStatus.COMPLETED)
+        ensure.assert_called_once_with(state, invocation.environment)
+        enable.assert_called_once_with(binary, "alice")
+        api.lease.assert_called_once_with("repository-cache:containerlab")
+        publish.assert_called_once()
+
     @patch("engulf_clab_ensure_containerlab.plugin.record_plugin_schema")
     @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
     @patch("engulf_clab_ensure_containerlab.plugin.containerlab_source_hint")
