@@ -65,11 +65,11 @@ PLUGIN_SCHEMA = (
         values=(
             ValueType.IMAGE_REFERENCE,
             ExplainedValue(
-                "eclab-containers/host-connector",
+                "eclab.containers/host-connector",
                 "Map lab-facing VIPs to external IPv4 or IPv6 hosts through management networking.",
             ),
             ExplainedValue(
-                "eclab-containers/wan-access",
+                "eclab.containers/wan-access",
                 "Provide outbound IPv4 NAT with optional DHCP on one lab-facing interface.",
             ),
         ),
@@ -114,40 +114,48 @@ PLUGIN_SCHEMA = (
         "ECLAB_CONNECT_HOST",
         commands=("deploy",),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
-        requires=("node image selects eclab-containers/host-connector",),
+        requires=("node image selects eclab.containers/host-connector",),
         examples=("10.10.10.50;192.0.2.50",),
     )
     .annotate(
         "ECLAB_CONNECT_HOST_*",
         commands=("deploy",),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
-        requires=("node image selects eclab-containers/host-connector",),
+        requires=("node image selects eclab.containers/host-connector",),
         examples=("ECLAB_CONNECT_HOST_2=2001:db8:10::50;2001:db8:20::50",),
     )
     .annotate(
         "ECLAB_DHCP_SUBNET",
         commands=("deploy",),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
-        requires=("node image selects eclab-containers/wan-access",),
+        requires=("node image selects eclab.containers/wan-access",),
         implies=("DHCP is enabled on the lab-facing interface",),
         examples=("198.19.0.0/24",),
     )
-    .annotate("ECLAB_DHCP_GATEWAY", commands=("deploy",), requires=("ECLAB_DHCP_SUBNET",))
+    .annotate(
+        "ECLAB_DHCP_GATEWAY",
+        commands=("deploy",),
+        requires=("node image selects eclab.containers/wan-access",),
+    )
     .annotate(
         "ECLAB_DHCP_POOL_START",
         commands=("deploy",),
-        requires=("ECLAB_DHCP_SUBNET", "ECLAB_DHCP_POOL_END"),
+        requires=("node image selects eclab.containers/wan-access",),
     )
     .annotate(
         "ECLAB_DHCP_POOL_END",
         commands=("deploy",),
-        requires=("ECLAB_DHCP_SUBNET", "ECLAB_DHCP_POOL_START"),
+        requires=("node image selects eclab.containers/wan-access",),
     )
-    .annotate("ECLAB_DHCP_DNS", commands=("deploy",), requires=("ECLAB_DHCP_SUBNET",))
+    .annotate(
+        "ECLAB_DHCP_DNS",
+        commands=("deploy",),
+        requires=("node image selects eclab.containers/wan-access",),
+    )
     .annotate(
         "ECLAB_DHCP_LEASE_TIME",
         commands=("deploy",),
-        requires=("ECLAB_DHCP_SUBNET",),
+        requires=("node image selects eclab.containers/wan-access",),
     )
     .use_case("Use host-connector for explicit VIP mappings or wan-access for outbound access.")
     .reject("Do not use helper-container variables on nodes that select another image.")

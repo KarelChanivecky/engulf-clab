@@ -68,15 +68,26 @@ class CollectionTest(unittest.TestCase):
             image.explained_values,
             (
                 ExplainedValue(
-                    "eclab-containers/host-connector",
+                    "eclab.containers/host-connector",
                     "Map lab-facing VIPs to external IPv4 or IPv6 hosts through management networking.",
                 ),
                 ExplainedValue(
-                    "eclab-containers/wan-access",
+                    "eclab.containers/wan-access",
                     "Provide outbound IPv4 NAT with optional DHCP on one lab-facing interface.",
                 ),
             ),
         )
+        annotations = {annotation.subject: annotation for annotation in snapshot.annotations}
+        wan_image = ("node image selects eclab.containers/wan-access",)
+        for variable in (
+            "ECLAB_DHCP_SUBNET",
+            "ECLAB_DHCP_GATEWAY",
+            "ECLAB_DHCP_POOL_START",
+            "ECLAB_DHCP_POOL_END",
+            "ECLAB_DHCP_DNS",
+            "ECLAB_DHCP_LEASE_TIME",
+        ):
+            self.assertEqual(annotations[variable].requires, wan_image)
         paths = {reference.path for reference in snapshot.references}
         self.assertIn("containers/host-connector/USAGE.md", paths)
         self.assertIn("containers/wan-access/USAGE.md", paths)

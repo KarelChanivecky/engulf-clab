@@ -59,7 +59,7 @@ PLUGIN_SCHEMA = (
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=("an active container collection advertises the selected namespace/name",),
         shared_with=("eclab.containers",),
-        examples=("eclab-containers/host-connector:latest",),
+        examples=("eclab.containers/host-connector:latest",),
     )
     .use_case("Use a packaged helper container and inject its required node recipe.")
     .reject("Do not invent collection names; inspect the installed container catalog first.")
