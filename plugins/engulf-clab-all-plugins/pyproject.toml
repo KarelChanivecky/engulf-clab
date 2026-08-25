@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-all-plugins"
-version = "0.1.4"
+version = "0.1.5"
 description = "Meta-package that installs all engulf-clab plugins"
 readme = "README.md"
 requires-python = ">=3.14"
