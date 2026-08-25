@@ -77,22 +77,22 @@ def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
             "Record before the terminal generator.",
             before=("engulf_clab.generator",),
         )
-        .route("install-runtime-data", "README.md", "Read installation behavior.")
+        .route("install-runtime-data", "USAGE.md", "Read installation behavior.")
         .add_node_kind(
             "linux",
             "Use the standard Containerlab Linux node kind.",
-            reference="README.md",
+            reference="USAGE.md",
         )
         .use_case("Generate exact runtime documentation.")
         .reject("Do not substitute controls from an inactive plugin.")
-        .refer("README.md")
+        .refer("USAGE.md")
     )
 
     snapshot = schema.snapshot(APPLICATION)
 
     assert snapshot.options[0].name == "install-eclab"
     assert snapshot.options[1].command == "install-eclab"
-    assert snapshot.references[0].path == "README.md"
+    assert snapshot.references[0].path == "USAGE.md"
     assert snapshot.references[0].content.startswith(b"# engulf-clab runtime schema")
     assert snapshot.annotations[0].commands == ("install-eclab",)
     assert snapshot.annotations[0].path_base is PathBase.INVOCATION_DIRECTORY
@@ -100,7 +100,7 @@ def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
     assert snapshot.ordering[0].before == ("engulf_clab.generator",)
     assert snapshot.routes[0].task == "install-runtime-data"
     assert snapshot.node_kinds[0].kind == "linux"
-    assert snapshot.node_kinds[0].reference == "README.md"
+    assert snapshot.node_kinds[0].reference == "USAGE.md"
 
 
 @pytest.mark.parametrize("explanation", ["", "two\nlines", "x" * 241])

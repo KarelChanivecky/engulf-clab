@@ -28,10 +28,12 @@ packages = ["src/engulf_clab_develop_lab_skill"]
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "engulf_clab_develop_lab_skill/README.md"
 "AGENTS.md" = "engulf_clab_develop_lab_skill/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_develop_lab_skill/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_develop_lab_skill/USAGE.md"
 "skill" = "engulf_clab_develop_lab_skill/skill"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/skill", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/build.sh", "/pyproject.toml"]
+include = ["/src", "/skill", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/build.sh", "/pyproject.toml"]
 
 [tool.ruff]
 target-version = "py314"

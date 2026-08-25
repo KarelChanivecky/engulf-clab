@@ -111,8 +111,10 @@ relationships, path bases, privilege, host tools, ownership, and safe examples
 with `annotate()`. Declare plugin-level requirements and ordering with
 `require_host_tool()`, `require_privilege()`, and `order()`. Add task routing
 with `route()`, concise applicability guidance with `use_case()` and `reject()`,
-and detailed installed-package material with repeatable `refer()` calls. Every
-explanation must be one line and at most 240 characters.
+and detailed installed-package usage material with repeatable `refer()` calls.
+Reference `USAGE.md`, not contributor-only `CONTRIBUTING.md` or `AGENTS.md`, so
+the generated skill contains operational guidance without implementation noise.
+Every explanation must be one line and at most 240 characters.
 
 The API signatures and validation rules are documented in
 `plugins/engulf-clab-schema-api/README.md`. Contributors must declare

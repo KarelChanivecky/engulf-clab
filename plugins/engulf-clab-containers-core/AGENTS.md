@@ -13,7 +13,7 @@ environment-driven, and reusable across labs. The fixed collection plugin ID is
   in wheels and source distributions.
 - Keep `eth0` management assumptions, required capabilities, sysctls, default
   environment, and exposed service contracts synchronized between recipe code,
-  Dockerfiles, startup scripts, top-level README, and image-specific README.
+  Dockerfiles, startup scripts, top-level `USAGE.md`, and image-specific `USAGE.md`.
 - Keep `wan-access` NAT independent from DHCP: forwarding and masquerade are
   unconditional, while gateway address assignment and `dnsmasq` require at
   least one supported `ECLAB_DHCP_*` variable.

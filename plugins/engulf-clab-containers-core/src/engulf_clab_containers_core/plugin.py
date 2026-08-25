@@ -158,18 +158,17 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "connect-lab-to-host",
-        "containers/host-connector/README.md",
+        "containers/host-connector/USAGE.md",
         "Read host-connector syntax and routing behavior.",
     )
     .route(
         "provide-lab-wan-access",
-        "containers/wan-access/README.md",
+        "containers/wan-access/USAGE.md",
         "Read wan-access DHCP and interface conventions.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
-    .refer("containers/host-connector/README.md", title="Host connector node")
-    .refer("containers/wan-access/README.md", title="WAN access node")
+    .refer("USAGE.md")
+    .refer("containers/host-connector/USAGE.md", title="Host connector node")
+    .refer("containers/wan-access/USAGE.md", title="WAN access node")
 )
 
 

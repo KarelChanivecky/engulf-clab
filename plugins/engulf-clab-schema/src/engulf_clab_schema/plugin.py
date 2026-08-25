@@ -80,10 +80,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "inspect-runtime-schema",
-        "README.md",
+        "USAGE.md",
         "Read source selection, artifact layout, cache, and refresh behavior.",
     )
-    .refer("README.md", title="Runtime schema generator guide")
+    .refer("USAGE.md", title="Runtime schema generator guide")
 )
 
 

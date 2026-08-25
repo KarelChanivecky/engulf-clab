@@ -30,9 +30,11 @@ packages = ["src/engulf_clab_dockerfile_build"]
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "engulf_clab_dockerfile_build/README.md"
 "AGENTS.md" = "engulf_clab_dockerfile_build/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_dockerfile_build/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_dockerfile_build/USAGE.md"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
 
 [tool.ruff]
 target-version = "py314"

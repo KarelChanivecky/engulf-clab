@@ -101,8 +101,7 @@ PLUGIN_SCHEMA = (
         before=("engulf_clab.lab_writer",),
     )
     .route(
-        "select-topology", "README.md", "Read topology selection and ambiguity rules."
+        "select-topology", "USAGE.md", "Read topology selection and ambiguity rules."
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )

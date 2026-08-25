@@ -164,11 +164,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "prepare-vrnetlab",
-        "README.md",
+        "USAGE.md",
         "Read checkout selection, prerequisites, and conditional lifecycle.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

@@ -31,14 +31,18 @@ packages = ["src/engulf_clab_ensure_vrnetlab"]
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "engulf_clab_ensure_vrnetlab/README.md"
 "AGENTS.md" = "engulf_clab_ensure_vrnetlab/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_ensure_vrnetlab/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_ensure_vrnetlab/USAGE.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
     "/tests",
     "/AGENTS.md",
+    "/CONTRIBUTING.md",
     "/LICENSE",
     "/README.md",
+    "/USAGE.md",
     "/pyproject.toml",
 ]
 

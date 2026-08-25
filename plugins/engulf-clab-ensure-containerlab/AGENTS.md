@@ -44,7 +44,7 @@ diagnostics and must restore the process `PATH` after each call.
   not leak state between invocations on the plugin singleton.
 - Never overwrite invalid managed state, reset dirty repositories, or mutate an
   explicit binary. Keep generic checkout mechanics in ensure-checkout.
-- Keep dynamic help, README resolution/update tables, defaults, and code
+- Keep dynamic help, `USAGE.md` resolution/update tables, defaults, and code
   synchronized.
 - Run containerlab resolution/plugin tests plus ensure-checkout tests. Mock Git,
   Go, and dependency lookup; do not clone or build Containerlab in unit tests.

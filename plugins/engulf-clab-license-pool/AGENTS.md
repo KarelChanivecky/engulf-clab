@@ -40,7 +40,7 @@ through the shared topology editor.
 - Log one info-level selected-license diagnostic per node only after its
   lab-local copy succeeds. Include the node and source basename through `%r`
   logger arguments; never include the resolved source or generated-copy path.
-- Keep runtime help, README, freeze redaction, MCP profile restrictions, and
+- Keep runtime help, `USAGE.md`, freeze redaction, MCP profile restrictions, and
   state tests synchronized.
 - Run frozen-prompt tests plus parser/writer/freeze tests after behavior changes.
   Use temporary dummy files; never use real licenses. Keep `PLUGIN_SCHEMA`

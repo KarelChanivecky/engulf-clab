@@ -87,10 +87,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "install-generated-skill",
-        "README.md",
+        "USAGE.md",
         "Read destination safety, atomic replacement, backups, and refresh triggers.",
     )
-    .refer("README.md", title="Generated skill installation guide")
+    .refer("USAGE.md", title="Generated skill installation guide")
 )
 
 

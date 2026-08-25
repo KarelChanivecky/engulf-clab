@@ -20,7 +20,9 @@ a partial output at its requested destination.
   files, and fail when generated lab-local license copies exist.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, and freeze lease name — never
-  derive these from application metadata; the freeze lease in particular must
+  derive these from application metadata. It must match license-pool's
+  `LicenseContract` label prefix and ensure-vrnetlab's `LABEL_PREFIX` exactly,
+  because freeze writes labels those plugins later read back; the freeze lease in particular must
   stay fixed so two differently-branded editions freezing the same workspace
   concurrently actually block each other. The workspace state directory and
   ignore-file name are the one thing that stays derived from callback-bound
@@ -36,7 +38,7 @@ a partial output at its requested destination.
   offline mode. Preserve entitled recipient selection and local rebuild.
 - Write the archive to a staged path and publish only after all work succeeds.
   Track it in workspace state without nesting previous outputs.
-- Keep README archive layout, exclusion, launcher, offline, and license behavior
+- Keep `USAGE.md` archive layout, exclusion, launcher, offline, and license behavior
   synchronized with implementation and tests.
 - Run command, plugin, and state tests. Mock pip, Docker, Git, and tool lookup;
   use temporary labs and never deploy during automated validation. Record the

@@ -78,14 +78,14 @@ class CollectionTest(unittest.TestCase):
             ),
         )
         paths = {reference.path for reference in snapshot.references}
-        self.assertIn("containers/host-connector/README.md", paths)
-        self.assertIn("containers/wan-access/README.md", paths)
+        self.assertIn("containers/host-connector/USAGE.md", paths)
+        self.assertIn("containers/wan-access/USAGE.md", paths)
         routes = {route.task: route.reference for route in snapshot.routes}
         self.assertEqual(
-            routes["connect-lab-to-host"], "containers/host-connector/README.md"
+            routes["connect-lab-to-host"], "containers/host-connector/USAGE.md"
         )
         self.assertEqual(
-            routes["provide-lab-wan-access"], "containers/wan-access/README.md"
+            routes["provide-lab-wan-access"], "containers/wan-access/USAGE.md"
         )
 
 if __name__ == "__main__":

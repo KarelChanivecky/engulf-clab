@@ -23,8 +23,10 @@ that needs custom registration may override either registration callback and
 call `register_schema_arguments()` or `register_schema_completions()` directly.
 
 Every option has a short one-line explanation. Put detailed behavior in
-package resources and add them with `refer()`. Resource paths are relative to
-the import package and must also be present in the built wheel.
+the package's runtime-facing `USAGE.md` and add it with `refer()`. Resource paths
+are relative to the import package and must also be present in the built wheel.
+Do not snapshot contributor-only `CONTRIBUTING.md` or `AGENTS.md` files into a
+generated lab skill.
 
 ## Builder signatures
 
@@ -220,7 +222,9 @@ Containerlab source does not advertise the kind.
 boundary or prohibited assumption. `refer()` is repeatable and snapshots a
 package-relative Markdown, text, JSON, or YAML resource when the invocation
 runs; absolute paths, traversal, case-colliding duplicates, and oversized
-resources are rejected.
+resources are rejected. Runtime plugins conventionally route to and snapshot
+`USAGE.md`; their concise package `README.md` and contributor documentation are
+not agent runtime references.
 
 ## Edition schema pipelines
 

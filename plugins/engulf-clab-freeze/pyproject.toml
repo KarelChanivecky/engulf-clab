@@ -31,6 +31,8 @@ packages = ["src/engulf_clab_freeze"]
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "engulf_clab_freeze/README.md"
 "AGENTS.md" = "engulf_clab_freeze/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_freeze/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_freeze/USAGE.md"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]

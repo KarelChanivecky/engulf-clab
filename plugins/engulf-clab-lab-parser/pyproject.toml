@@ -18,3 +18,5 @@ packages = ["src/engulf_clab_lab_parser"]
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "engulf_clab_lab_parser/README.md"
 "AGENTS.md" = "engulf_clab_lab_parser/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_lab_parser/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_lab_parser/USAGE.md"

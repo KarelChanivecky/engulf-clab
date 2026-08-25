@@ -52,11 +52,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "materialize-topology",
-        "README.md",
+        "USAGE.md",
         "Read temporary topology ownership, forwarding, and cleanup behavior.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

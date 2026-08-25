@@ -26,7 +26,7 @@ the Dockerfile builder and lab writer.
   directly, inspect undeclared fields, or retain state. The Dockerfile builder
   owns builds and the writer owns temporary-file cleanup.
 - Keep `--eclab-containers-help` side-effect free and based only on active
-  registered collections. Update runtime help and README together when catalog
+  registered collections. Update runtime help and `USAGE.md` together when catalog
   syntax changes.
 - Run manager tests, container API tests, and at least one installed core
   collection discovery/help check. Package-data behavior must be tested from a

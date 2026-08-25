@@ -71,7 +71,7 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   dependency edge and consume only the published context path.
 - Do not run real Docker builds in automated tests. Mock Docker and Make and
   use temporary builder directories.
-- Keep custom argument registration, `PLUGIN_SCHEMA`, dynamic help, README
+- Keep custom argument registration, `PLUGIN_SCHEMA`, dynamic help, `USAGE.md`
   selector precedence/formats, prefix derivation, fingerprint components,
   native/requested tag behavior, and cleanup guarantees synchronized.
 - Run option/completion, config, source, image, state/vrnetlab, and plugin tests plus the

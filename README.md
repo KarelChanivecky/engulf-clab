@@ -33,7 +33,8 @@ meta-package to enable the complete maintained set.
 | --- | --- |
 | This README | Installation choices, package map, common topology patterns, workspace/state, editions, and releases |
 | `engulf-clab/README.md` | Wrapper behavior, argument forwarding, plugin discovery, diagnostics, and library use |
-| `plugins/*/README.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
+| `plugins/*/USAGE.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
+| `plugins/*/CONTRIBUTING.md` | Per-package role, architecture, invariants, and validation commands |
 | `mcp-server/README.md` | Privileged local MCP architecture, configuration, tools, security boundary, and operations |
 | `CONTRIBUTING.md` | Development setup, Engulf contracts, documentation standards, validation, commits, and releases |
 | `skills/README.md` | Runtime-generated lab-skill architecture, installation, and contributor contract |
@@ -274,7 +275,7 @@ export ROUTER_LICENSES=$PWD/licenses
 eclab deploy -t demo.clab.yml
 ```
 
-See each plugin README for its exact YAML fields, environment variables,
+See each plugin `USAGE.md` for its exact YAML fields, environment variables,
 required host tools, and cleanup behavior.
 
 ## Packages
@@ -424,8 +425,9 @@ plugin lifecycle contract, package checklist, documentation requirements,
 validation matrix, commit policy, and release workflow.
 
 Each plugin under `plugins/` is a self-contained distribution. A new plugin
-needs its own `AGENTS.md`, MIT `LICENSE`, `pyproject.toml`, `src/` package, and
-`py.typed` marker when typed. Plugins import `engulf_api` and
+needs its own concise `README.md`, complete `USAGE.md`, contributor-oriented
+`CONTRIBUTING.md`, `AGENTS.md`, MIT `LICENSE`, `pyproject.toml`, `src/` package,
+and `py.typed` marker when typed. Plugins import `engulf_api` and
 `engulf_executable_wrapper_api`, never the `engulf` runtime. Implement
 side-effect-free `analyze_call()`; perform external work in `prepare_call()` or
 `after_call()`; report through the callback logger; and use leases/state

@@ -196,11 +196,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "add-managed-wan",
-        "README.md",
+        "USAGE.md",
         "Read bridge topology, addressing, privileges, ownership, and cleanup.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

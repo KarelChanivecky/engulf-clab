@@ -18,3 +18,5 @@ packages = ["src/engulf_clab_license_pool"]
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "engulf_clab_license_pool/README.md"
 "AGENTS.md" = "engulf_clab_license_pool/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_license_pool/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_license_pool/USAGE.md"

@@ -196,11 +196,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "assign-node-license",
-        "README.md",
+        "USAGE.md",
         "Read pool selection, stable identity, prompts, leases, and cleanup.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

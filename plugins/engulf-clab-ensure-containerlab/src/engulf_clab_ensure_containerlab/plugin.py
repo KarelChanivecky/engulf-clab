@@ -155,11 +155,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "select-containerlab-runtime",
-        "README.md",
+        "USAGE.md",
         "Read exact resolution precedence, checkout, and update rules.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

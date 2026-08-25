@@ -20,8 +20,8 @@ mutation API. Do not write topology files here.
 - Do not expose mutable internal source data or retain callback-bound API/session
   handles beyond an invocation.
 - Treat public imports, context IDs, path/operation semantics, and state-free
-  behavior as a shared compatibility contract. Update README API detail and
-  tests together.
+  behavior as a shared compatibility contract. Update `CONTRIBUTING.md` API
+  detail and tests together; keep `USAGE.md` lab-facing.
 - Run parser tests plus writer and every direct topology-mutator suite after a
   contract change. Use temporary YAML only; never deploy. Preserve schema
   registration before the generator's terminal preprocessing position.

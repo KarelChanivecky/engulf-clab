@@ -59,7 +59,7 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   checks.
 - Keep `analyze_call()` side-effect free. Host setup belongs in `prepare_call()`;
   post-destroy cleanup remains in `after_call()`.
-- Keep runtime help, README label/default tables, mismatched-prefix rejection,
+- Keep runtime help, `USAGE.md` label/default tables, mismatched-prefix rejection,
   uplink selection, resource ownership, and cleanup semantics synchronized.
 - Run topology, registry, state, plugin, and Engulf integration tests. Mock
   effective UID and every `ip`/`iptables`/`sysctl`/process operation; never

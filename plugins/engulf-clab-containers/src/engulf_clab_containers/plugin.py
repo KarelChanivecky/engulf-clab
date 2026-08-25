@@ -76,11 +76,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "use-packaged-container",
-        "README.md",
+        "USAGE.md",
         "Read collection naming and recipe injection behavior.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

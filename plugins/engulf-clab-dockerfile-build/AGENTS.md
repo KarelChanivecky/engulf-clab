@@ -45,7 +45,7 @@ injectors can contribute packaged Dockerfile recipes.
   Docker's output and do not configure logging or print operational messages.
 - Do not delete built images on destroy. Docker caching and tag lifecycle are
   outside this plugin's cleanup responsibility.
-- Keep dynamic help, README fields, prefix derivation, parser validation, and
+- Keep dynamic help, `USAGE.md` fields, prefix derivation, parser validation, and
   constructed Docker argv synchronized.
 - Run config, build, and plugin tests; include parser/manager/core tests when
   changing materialized-topology behavior. Mock Docker in automated tests.

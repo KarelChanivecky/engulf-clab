@@ -58,6 +58,9 @@ engulf.plugins.v1.application.engulf_clab
 Every new plugin added under `plugins/` must include:
 
 - Its own `AGENTS.md` with plugin-specific development notes.
+- Its own `USAGE.md` with the complete operator-facing contract.
+- Its own `CONTRIBUTING.md` with contributor-facing implementation guidance.
+- A concise `README.md` that links to both documents.
 - Its own MIT `LICENSE` file.
 - A `pyproject.toml` with a package name, entry point, and dependencies.
 - A `src/<import_package>/` package directory.
@@ -74,15 +77,16 @@ example `engulf_clab.example`.
 
 ## Documentation Requirements
 
-- Treat the nearest package `README.md`, nearest `AGENTS.md`, dynamic plugin
-  `help()`, source contract, and tests as one documentation set. Review all of
-  them when behavior changes.
-- A publishable package README documents installation, activation, exact
+- Treat the nearest package `README.md`, `USAGE.md`, `CONTRIBUTING.md`, nearest
+  `AGENTS.md`, dynamic plugin `help()`, source contract, and tests as one
+  documentation set. Review all of them when behavior changes.
+- A publishable package `USAGE.md` documents installation, activation, exact
   topology/CLI/environment syntax, edition-prefix behavior, prerequisites,
   lifecycle, state/leases, cleanup, security implications, and troubleshooting.
-- An `AGENTS.md` documents non-obvious code ownership, plugin/context ordering,
-  invariants, prohibited behavior, and the narrow validation commands for that
-  package. Do not merely repeat user-facing README prose.
+- A package `CONTRIBUTING.md` documents non-obvious code ownership,
+  plugin/context ordering, invariants, prohibited behavior, and narrow validation
+  commands. `AGENTS.md` keeps the repository instructions needed by coding agents
+  aligned with that contributor contract; neither repeats user-facing usage prose.
 - Containerlab YAML remains the base topology language. Link to the upstream
   `schemas/clab.schema.json` for base syntax and describe plugin controls as
   conventions layered onto valid Containerlab fields.
@@ -91,8 +95,9 @@ example `engulf_clab.example`.
   concise enough to scan while pointing to any secondary discovery option.
 - Keep examples generic and safe. Never commit credentials, license contents,
   private repository URLs, privileged profile paths, or service secrets.
-- Plugin README and `AGENTS.md` files referenced with `PluginSchema.refer()` are
+- Runtime-facing `USAGE.md` files referenced with `PluginSchema.refer()` are
   snapshotted from the installed distribution and embedded during compilation.
+  Do not embed `CONTRIBUTING.md` or `AGENTS.md` in generated lab skills.
 
 ## Skill Package Requirements
 

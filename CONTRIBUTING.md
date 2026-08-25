@@ -127,6 +127,12 @@ Every new directory under `plugins/` requires:
 
 - a self-contained `pyproject.toml` and `src/<import_package>/` tree;
 - its own `README.md`, `AGENTS.md`, MIT `LICENSE`, and build script;
+- for a runtime plugin distribution, a concise `README.md` that links to a
+  complete `USAGE.md` and a contributor-oriented `CONTRIBUTING.md`. Contract,
+  library, and meta distributions — `engulf-clab-schema-api`,
+  `engulf-clab-containers-api`, `engulf-clab-ensure-checkout`, and
+  `engulf-clab-all-plugins` — keep a single reference `README.md` instead,
+  because their README is the API reference rather than an operator guide;
 - `py.typed` when the package exposes typed Python interfaces;
 - compatible `engulf-api>=1.0,<2` and
   `engulf-executable-wrapper-api>=1.0,<2` dependencies for runtime plugins;
@@ -147,16 +153,19 @@ must run after every mutator.
 
 ## Documentation contract
 
-Documentation has four complementary authorities:
+Documentation has complementary authorities:
 
 | Surface | Audience | Required content |
 | --- | --- | --- |
-| Root and distribution `README.md` files | Users and operators | Installation, prerequisites, configuration, examples, lifecycle, cleanup, security, and troubleshooting |
-| Nearest `AGENTS.md` | Coding agents and contributors | Package role, invariants, ordering/context contracts, prohibited behavior, and validation commands |
+| Runtime plugin `README.md` | Package index readers | Concise purpose and links to usage and contribution guides |
+| Contract/library `README.md` | Plugin authors | Complete API reference for a non-runtime distribution |
+| Distribution `USAGE.md` | Users and operators | Installation, prerequisites, configuration, examples, lifecycle, cleanup, security, and troubleshooting |
+| Distribution `CONTRIBUTING.md` | Human contributors | Package role, architecture, invariants, ordering/context contracts, and validation commands |
+| Nearest `AGENTS.md` | Coding agents | Repository instructions, prohibited behavior, and contributor-contract pointers |
 | Plugin `help()` | Users of the installed runtime | Installed feature marker, exact active prefix, concise option syntax, and the next discovery command |
 | Source, types, and tests | Maintainers | Precise behavior and executable edge-case specification |
 
-For every behavior change, review all four surfaces. A plugin README should
+For every behavior change, review all surfaces. A plugin `USAGE.md` should
 state at least:
 
 - what installs and activates the feature;
@@ -178,7 +187,9 @@ example.
 Each feature plugin owns an import-time `PluginSchema` builder and records its
 immutable snapshot during `before_goal`. The generator runs last and composes
 those snapshots with the exact selected Containerlab schema. Detailed references
-come from packaged `README.md` and `AGENTS.md` resources, not repository mirrors.
+come from packaged `USAGE.md` resources, not repository mirrors. Contributor-only
+`CONTRIBUTING.md` and `AGENTS.md` resources must not be embedded in generated lab
+skills.
 Executable-wrapper contributors should derive from `SchemaBackedPlugin`; it
 turns command/flag/value declarations into Bash, Zsh, and Fish completion and
 normalizes explicitly environment-backed global flags before outer callbacks.

@@ -70,11 +70,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "freeze-lab",
-        "README.md",
+        "USAGE.md",
         "Read sanitization, archive selection, and offline guarantees.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

@@ -163,11 +163,10 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "build-vrnetlab-image",
-        "README.md",
+        "USAGE.md",
         "Read image-source precedence, builder layout, and fingerprint behavior.",
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 

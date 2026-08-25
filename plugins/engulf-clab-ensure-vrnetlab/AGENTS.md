@@ -42,14 +42,15 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   a filesystem path. Direct checkout operations therefore bypass managed-file
   atomic writes; clone into a temporary sibling and rename only after validating
   it.
-- Do not update, reset, clean, or otherwise mutate an existing valid checkout.
-  Users control external checkouts and can remove the managed checkout when they
-  explicitly want it recloned.
+- Mutate an existing clean Git checkout only for an explicit update/version
+  request. Reject dirty worktrees, leave non-Git checkouts unchanged, and never
+  reset, clean, or repair a checkout. Users may remove a managed checkout when
+  they intentionally want it recloned.
 - Keep validation vendor-neutral. Requested `vendor/type` builders are validated
   by the build plugin.
 - Do not perform real network clones in automated tests. Mock Git and create
   temporary checkout markers.
-- Keep runtime help, README opt-in/resolution/update behavior, context IDs, and
+- Keep runtime help, `USAGE.md` opt-in/resolution/update behavior, context IDs, and
   dependency lists synchronized.
 - Run topology, checkout, plugin, and build-pipeline tests plus
   ensure-checkout tests. Mock Docker/QEMU/Git lookup and never build vendor

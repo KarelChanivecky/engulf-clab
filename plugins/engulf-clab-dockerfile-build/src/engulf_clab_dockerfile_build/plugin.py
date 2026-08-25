@@ -120,7 +120,7 @@ PLUGIN_SCHEMA = (
     )
     .use_case("Build a node image from a topology-relative Dockerfile and context before deploy.")
     .route(
-        "build-node-image", "README.md", "Read Dockerfile pairing, path, tag, and argument rules."
+        "build-node-image", "USAGE.md", "Read Dockerfile pairing, path, tag, and argument rules."
     )
     .reject("Do not use --file or --tag in ECLAB_DOCKER_ARGS; the plugin owns them.")
     .order(
@@ -129,8 +129,7 @@ PLUGIN_SCHEMA = (
         after=("engulf_clab.containers", "engulf_clab.lab_parser"),
         before=("engulf_clab.lab_writer",),
     )
-    .refer("README.md")
-    .refer("AGENTS.md")
+    .refer("USAGE.md")
 )
 
 
