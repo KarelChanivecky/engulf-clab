@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,6 +20,19 @@ from engulf_clab import (
 )
 from engulf_clab.cli import main
 from engulf_clab.workspace import workspace_root
+
+
+class PackageMetadataTest(unittest.TestCase):
+    def test_requires_runtime_versions_with_source_completion_support(self) -> None:
+        metadata = tomllib.loads(
+            (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        )
+
+        self.assertIn("engulf>=0.1.2,<1", metadata["project"]["dependencies"])
+        self.assertIn(
+            "engulf-executable-wrapper>=0.1.1,<1",
+            metadata["project"]["dependencies"],
+        )
 
 
 class BinaryPathTest(unittest.TestCase):

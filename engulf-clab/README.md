@@ -31,6 +31,12 @@ eclab inspect -t lab.clab.yml
 eclab destroy -t lab.clab.yml
 ```
 
+The package requires Engulf runtime `0.1.2` and executable-wrapper `0.1.1` or
+newer. Those versions provide invocation normalization and trusted native
+completion sourcing used while constructing the eclab application. Package
+resolution rejects older releases instead of allowing an incompatible wrapper
+to fail during CLI startup.
+
 The application itself does not require a fixed Containerlab installation path.
 Install `engulf-clab-ensure-containerlab` to resolve an executable from an
 explicit binary, a checkout, `PATH`, or a managed clone.
