@@ -50,7 +50,9 @@ binaries, `PATH` binaries, non-Git directories, and invalid existing managed
 paths are never overwritten or repaired automatically.
 
 The resolved binary is selected only for the current invocation; the previous
-`PATH` is restored afterward.
+`PATH` is restored afterward. If another plugin stops preprocessing before the
+runtime schema generator, the original failure remains authoritative and this
+plugin suppresses the otherwise-secondary unused source-context warning.
 
 ## Sudo-less operation
 

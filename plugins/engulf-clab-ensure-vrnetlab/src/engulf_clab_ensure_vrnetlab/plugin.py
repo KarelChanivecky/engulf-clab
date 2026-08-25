@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from engulf_api import (
+    AfterGoalAPI,
     BeforeGoalAPI,
     DependencyPosition,
     GoalResult,
@@ -186,7 +187,9 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
     context_writes = (
         frozenset({VRNETLAB_PATH_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
     )
-    context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
+    context_reads = (
+        frozenset({TOPOLOGY_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
+    )
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
@@ -196,6 +199,19 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
         )
         publish_vrnetlab_source(api, source)
         return None
+
+    def after_goal(
+        self,
+        invocation: Invocation,
+        result: GoalResult[object],
+        api: AfterGoalAPI,
+    ) -> GoalResult[object]:
+        del invocation
+        if result.exit_code != 0:
+            # If preprocessing stopped before the terminal schema plugin, keep
+            # the primary error from gaining a secondary unused-context warning.
+            api.get_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT)
+        return result
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering vrnetlab checkout help")

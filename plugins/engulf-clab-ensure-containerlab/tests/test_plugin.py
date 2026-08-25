@@ -7,8 +7,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from engulf_api import BeforeGoalAPI, GoalResultStatus, Invocation, InvocationAPI, StateScope
-from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKind
+from engulf_api import (
+    AfterGoalAPI,
+    BeforeGoalAPI,
+    GoalResult,
+    GoalResultStatus,
+    Invocation,
+    InvocationAPI,
+    StateScope,
+)
+from engulf_clab_schema_api import (
+    SCHEMA_SOURCE_CONTEXT,
+    ContainerlabSourceHint,
+    ContainerlabSourceKind,
+)
 from engulf_executable_wrapper_api import AfterCallEvent, CallMode, PreparedCallEvent
 
 from engulf_clab_ensure_containerlab.containerlab import executable
@@ -45,7 +57,28 @@ class PluginLifecycleTest(unittest.TestCase):
         ensure.assert_called_once_with(state, invocation.environment)
         enable.assert_called_once_with(binary, "alice")
         api.lease.assert_called_once_with("repository-cache:containerlab")
-        publish.assert_called_once()
+        publish.assert_not_called()
+
+    def test_failed_goal_acknowledges_published_source_context(self) -> None:
+        plugin = EnsureContainerlabPlugin()
+        api = Mock(spec=AfterGoalAPI)
+        invocation = Invocation(("version",), Path("/labs"), {})
+        result = GoalResult.failed(1, error="earlier plugin failed")
+
+        returned = plugin.after_goal(invocation, result, api)
+
+        self.assertIs(returned, result)
+        api.get_context.assert_called_once_with(SCHEMA_SOURCE_CONTEXT)
+
+    def test_successful_goal_does_not_claim_an_unconsumed_source(self) -> None:
+        plugin = EnsureContainerlabPlugin()
+        api = Mock(spec=AfterGoalAPI)
+        result = GoalResult.completed()
+
+        returned = plugin.after_goal(Invocation((), Path("/labs"), {}), result, api)
+
+        self.assertIs(returned, result)
+        api.get_context.assert_not_called()
 
     @patch("engulf_clab_ensure_containerlab.plugin.record_plugin_schema")
     @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")

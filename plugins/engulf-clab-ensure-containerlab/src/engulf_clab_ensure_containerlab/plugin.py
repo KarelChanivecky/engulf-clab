@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import os
 
-from engulf_api import BeforeGoalAPI, GoalResult, Invocation, InvocationAPI, StateScope
+from engulf_api import (
+    AfterGoalAPI,
+    BeforeGoalAPI,
+    GoalResult,
+    Invocation,
+    InvocationAPI,
+    StateScope,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     SCHEMA_PLUGIN_DEPENDENCY,
@@ -201,7 +208,7 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
     # Resolve the executable before every other plugin prepares host resources.
     priority = 110
     plugin_dependencies = (SCHEMA_PLUGIN_DEPENDENCY,)
-    context_reads = SCHEMA_CONTEXTS
+    context_reads = SCHEMA_CONTEXTS | frozenset({SCHEMA_SOURCE_CONTEXT})
     context_writes = SCHEMA_CONTEXTS | frozenset({SCHEMA_SOURCE_CONTEXT})
 
     def __init__(self) -> None:
@@ -215,7 +222,6 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
                 with use_logger(api.logger), api.lease(CONTAINERLAB_REPOSITORY_LEASE):
                     binary = ensure_binary(api.state(StateScope.USER), invocation.environment)
                     enable_sudoless(binary, username)
-                publish_containerlab_source(api, resolved_containerlab_source(binary))
                 api.logger.warning(
                     "user %s now has root-equivalent Containerlab and Docker access; "
                     "log out and back in before using the new group memberships",
@@ -231,6 +237,20 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
         )
         publish_containerlab_source(api, source)
         return None
+
+    def after_goal(
+        self,
+        invocation: Invocation,
+        result: GoalResult[object],
+        api: AfterGoalAPI,
+    ) -> GoalResult[object]:
+        del invocation
+        if result.exit_code != 0:
+            # A plugin between this source producer and the terminal schema
+            # consumer may have stopped preprocessing. Acknowledge the hint so
+            # its useful primary error is not followed by a secondary warning.
+            api.get_context(SCHEMA_SOURCE_CONTEXT)
+        return result
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering Containerlab provisioning help")

@@ -37,7 +37,8 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
 - Publish a read-only source selection during `before_goal()` so strict schema
   generation can preempt the wrapped call. Publish the resolved checkout during
   `prepare_call()` alongside `engulf_clab.vrnetlab.path`; do not clone or update
-  merely to produce the early hint.
+  merely to produce the early hint. Failed goals acknowledge an early hint in
+  `after_goal()` when preprocessing stopped before the terminal generator.
 - `StateStore.path()` is used for the checkout directory because Git requires
   a filesystem path. Direct checkout operations therefore bypass managed-file
   atomic writes; clone into a temporary sibling and rename only after validating

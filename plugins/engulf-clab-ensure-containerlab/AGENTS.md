@@ -54,4 +54,6 @@ diagnostics and must restore the process `PATH` after each call.
   Go, and dependency lookup; do not clone or build Containerlab in unit tests.
 - Build/install the wheel and inspect active help/plugin discovery. Publish the
   selection hint before the terminal schema generator and replace it with the
-  resolved checkout/binary source during preparation.
+  resolved checkout/binary source during preparation. Preempting commands do
+  not publish unused hints; failed goals acknowledge an early hint during
+  `after_goal()` to preserve the primary diagnostic without warning noise.

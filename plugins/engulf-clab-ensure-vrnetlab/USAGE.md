@@ -46,7 +46,9 @@ current revision. Dirty worktrees are rejected. Non-Git checkouts are left
 alone, and an invalid existing managed path is never overwritten or repaired.
 
 The resolved checkout is available only to the current invocation and is not
-written into the source topology.
+written into the source topology. If another plugin stops preprocessing before
+the runtime schema generator, the original failure remains authoritative and
+this plugin suppresses the otherwise-secondary unused source-context warning.
 
 ## Troubleshooting and security
 
