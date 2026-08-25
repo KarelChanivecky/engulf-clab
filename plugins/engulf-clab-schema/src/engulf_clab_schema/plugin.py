@@ -8,6 +8,7 @@ from pathlib import Path
 
 from engulf_api import BeforeGoalAPI, GoalResult, Invocation, InvocationAPI, StateScope
 from engulf_clab_schema_api import (
+    ECLAB_SCHEMA_PIPELINE_ID,
     SCHEMA_COMPILED_CONTEXT,
     SCHEMA_REGISTRY_CONTEXT,
     SCHEMA_REQUEST_CONTEXT,
@@ -19,13 +20,17 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PathBase,
     PluginSchema,
-    RecordedPluginSchema,
     SchemaBackedPlugin,
     SchemaBuildRequest,
-    SchemaDeclarationFailure,
+    SchemaContribution,
+    SchemaPipeline,
+    SchemaRegistry,
     ValueType,
     VrnetlabSourceHint,
+    normalized_short_product,
     record_plugin_schema,
+    record_schema_pipeline,
+    schema_registry,
 )
 from engulf_executable_wrapper_api import HelpAPI, PreparedCallEvent
 
@@ -97,6 +102,7 @@ class SchemaGeneratorPlugin(SchemaBackedPlugin):
         invocation: Invocation,
         api: BeforeGoalAPI,
     ) -> GoalResult[object] | None:
+        record_schema_pipeline(api, SchemaPipeline(ECLAB_SCHEMA_PIPELINE_ID))
         record_plugin_schema(api, PLUGIN_SCHEMA)
         requests = _requests(api)
         if not any(request.required for request in requests):
@@ -108,7 +114,12 @@ class SchemaGeneratorPlugin(SchemaBackedPlugin):
             api.get_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT)
             return None
         try:
-            bundle = self._build(api, invocation.environment, strict=True)
+            bundle = self._build(
+                api,
+                invocation.environment,
+                strict=True,
+                requests=requests,
+            )
             if bundle is None:
                 raise RuntimeError("strict schema generation returned no bundle")
         except (OSError, RuntimeError, TypeError, ValueError) as error:
@@ -156,19 +167,8 @@ class SchemaGeneratorPlugin(SchemaBackedPlugin):
         strict: bool,
         requests: tuple[SchemaBuildRequest, ...] = (),
     ) -> CompiledSchemaBundle | None:
-        current = api.get_context(SCHEMA_REGISTRY_CONTEXT, ())
-        if type(current) is not tuple or any(
-            not isinstance(item, (RecordedPluginSchema, SchemaDeclarationFailure))
-            for item in current
-        ):
-            raise RuntimeError("invalid schema contribution registry")
-        failures = tuple(
-            f"{item.plugin_id}: {item.error}"
-            for item in current
-            if isinstance(item, SchemaDeclarationFailure)
-        )
-        if failures:
-            raise RuntimeError("incomplete plugin schema contributions: " + "; ".join(failures))
+        pipeline_id = _requested_pipeline(api, requests)
+        lineage, contributions = _resolve_pipeline(schema_registry(api), pipeline_id)
         source = api.get_context(SCHEMA_SOURCE_CONTEXT)
         if source is None:
             source = source_hint_from_environment(environment, binary=binary)
@@ -187,13 +187,19 @@ class SchemaGeneratorPlugin(SchemaBackedPlugin):
         with api.lease("containerlab-runtime-schema"):
             input_fingerprint = schema_input_fingerprint(
                 api.application,
-                current,
+                contributions,
                 source,
                 vrnetlab_source,
                 environment,
+                pipeline_id=pipeline_id,
+                pipeline_lineage=lineage,
             )
             if not strict:
-                cached = cached_bundle_fingerprint(state.directory, input_fingerprint)
+                cached = cached_bundle_fingerprint(
+                    state.directory,
+                    input_fingerprint,
+                    pipeline_id=pipeline_id,
+                )
                 if cached is not None:
                     if requests and all(
                         request.current_fingerprint == cached for request in requests
@@ -204,7 +210,11 @@ class SchemaGeneratorPlugin(SchemaBackedPlugin):
                         )
                         return None
                     api.logger.debug("reusing cached runtime schema bundle %s", cached)
-                    return load_cached_bundle(state.directory, cached)
+                    return load_cached_bundle(
+                        state.directory,
+                        cached,
+                        pipeline_id=pipeline_id,
+                    )
             base = resolve_base_schema(state, environment, source, refresh=strict)
             node_kinds = resolve_node_kind_catalog(
                 state,
@@ -214,7 +224,14 @@ class SchemaGeneratorPlugin(SchemaBackedPlugin):
                 vrnetlab_source,
                 refresh=strict,
             )
-            bundle = compile_schema_bundle(api.application, base, current, node_kinds)
+            bundle = compile_schema_bundle(
+                api.application,
+                base,
+                contributions,
+                node_kinds,
+                pipeline_id=pipeline_id,
+                pipeline_lineage=lineage,
+            )
             _cache_bundle(state.directory, bundle, input_fingerprint)
         return bundle
 
@@ -226,12 +243,74 @@ def _requests(api: BeforeGoalAPI | InvocationAPI) -> tuple[SchemaBuildRequest, .
     return value
 
 
+def _requested_pipeline(
+    api: BeforeGoalAPI | InvocationAPI,
+    requests: tuple[SchemaBuildRequest, ...],
+) -> str:
+    if not requests:
+        raise RuntimeError("schema generation requires at least one build request")
+    pipeline_ids = {request.pipeline_id for request in requests}
+    if len(pipeline_ids) != 1:
+        raise RuntimeError("all schema build requests must select the same pipeline")
+    pipeline_id = next(iter(pipeline_ids))
+    running_pipeline = normalized_short_product(api.application)
+    if pipeline_id != running_pipeline:
+        raise RuntimeError(
+            f"schema pipeline {pipeline_id} does not match running executable {running_pipeline}"
+        )
+    return pipeline_id
+
+
+def _resolve_pipeline(
+    registry: SchemaRegistry,
+    pipeline_id: str,
+) -> tuple[tuple[str, ...], tuple[SchemaContribution, ...]]:
+    definitions: dict[str, SchemaPipeline] = {}
+    for pipeline in registry.pipelines:
+        existing = definitions.get(pipeline.pipeline_id)
+        if existing is not None and existing != pipeline:
+            raise RuntimeError(f"conflicting schema pipeline declaration: {pipeline.pipeline_id}")
+        definitions[pipeline.pipeline_id] = pipeline
+
+    reversed_lineage: list[str] = []
+    seen: set[str] = set()
+    current: str | None = pipeline_id
+    while current is not None:
+        if current in seen:
+            raise RuntimeError(f"schema pipeline inheritance cycle includes {current}")
+        seen.add(current)
+        selected = definitions.get(current)
+        if selected is None:
+            raise RuntimeError(f"schema pipeline is not declared: {current}")
+        reversed_lineage.append(current)
+        current = selected.parent_pipeline_id
+    lineage = tuple(reversed(reversed_lineage))
+
+    contributions = tuple(
+        contribution
+        for member in lineage
+        for contribution in registry.contributions
+        if contribution.pipeline_id == member
+    )
+    providers: dict[str, str] = {}
+    for contribution in contributions:
+        previous = providers.get(contribution.plugin_id)
+        if previous is not None:
+            raise RuntimeError(
+                f"duplicate schema provider {contribution.plugin_id} in resolved pipelines "
+                f"{previous} and {contribution.pipeline_id}"
+            )
+        providers[contribution.plugin_id] = contribution.pipeline_id
+    return lineage, contributions
+
+
 def _cache_bundle(
     root: Path,
     bundle: CompiledSchemaBundle,
     input_fingerprint: str,
 ) -> None:
-    artifacts = root / "artifacts"
+    pipeline_root = root / "pipelines" / bundle.pipeline_id
+    artifacts = pipeline_root / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     target = artifacts / bundle.fingerprint
     if not bundle_directory_complete(target, bundle.fingerprint):
@@ -264,9 +343,16 @@ def _cache_bundle(
                     shutil.rmtree(displaced)
                 else:
                     displaced.unlink()
-    latest = root / "latest.json"
-    temporary = root / ".latest.json.tmp"
-    temporary.write_bytes(cache_record(input_fingerprint, bundle.fingerprint))
+    latest = pipeline_root / "latest.json"
+    temporary = pipeline_root / ".latest.json.tmp"
+    temporary.write_bytes(
+        cache_record(
+            input_fingerprint,
+            bundle.fingerprint,
+            pipeline_id=bundle.pipeline_id,
+            pipeline_lineage=bundle.pipeline_lineage,
+        )
+    )
     temporary.replace(latest)
 
 

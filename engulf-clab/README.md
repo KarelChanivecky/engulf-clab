@@ -217,13 +217,13 @@ does not determine topology label/environment keys: those are a fixed
 `ECLAB_*` prefix, the same across every edition, never derived from product
 metadata.
 
-`short_product_name` is expected to stay `"eclab"` across every edition
-instead. It is not used for labels; it namespaces the topology-local state
-directory that plugins like `engulf-clab-freeze` and
-`engulf-clab-license-pool` write beside a lab. Keeping it identical across
-editions means their state converges on one shared directory rather than
-fragmenting per edition. `display_name`, `vendor`, and `product` are what an
-edition customizes for its own command-facing branding:
+`short_product_name` is not used for those portable topology keys. It names
+topology-local state and the runtime schema pipeline. A launcher that only
+changes branding may keep `"eclab"` and share base state and schema. A distinct
+superset executable with its own generated skill uses a unique lowercase
+hyphen-normalized value, registers a schema pipeline with `eclab` as its parent,
+and therefore receives separate topology-local state and schema artifacts.
+`display_name`, `vendor`, and `product` remain its command-facing branding:
 
 ```python
 from engulf_clab import CONTAINERLAB_APPLICATION
@@ -232,9 +232,15 @@ VENDOR_CLAB = CONTAINERLAB_APPLICATION.edition(
     display_name="vendor-clab",
     vendor="Vendor Networks",
     product="Vendor Containerlab",
+    short_product_name="vendor-clab",
     include_plugins={"com.example.vendor.containerlab"},
 )
 ```
+
+The edition's collector requests only `vendor-clab`; base eclab declarations
+are inherited and expanded against the running edition metadata. The bundled
+eclab skill collector is inactive under that executable, so the edition owns
+its skill renderer, command, target, and refresh tracking.
 
 The edition launcher belongs in its own distribution and console-script entry
 point. It should include its own plugin explicitly rather than publishing a

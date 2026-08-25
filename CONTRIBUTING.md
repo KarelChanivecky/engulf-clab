@@ -25,7 +25,7 @@ documentation, schema declarations, and tests agree.
 | `mcp-server/` | Provides the stdio bridge, privileged daemon, installer, and systemd unit. | `engulf-clab-mcp` |
 | `plugins/engulf-clab-schema-api/` | Stable plugin schema declaration and invocation-state contract. | `engulf-clab-schema-api` |
 | `plugins/engulf-clab-schema/` | Compiles Containerlab and active-plugin schemas at runtime. | `engulf-clab-schema` |
-| `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes an edition-aware generated skill. | `engulf-clab-develop-eclab-lab` |
+| `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes the static base eclab generated skill. | `engulf-clab-develop-eclab-lab` |
 
 The wrapper imports the `engulf` runtime. Runtime plugins import the stable
 `engulf_api` and `engulf_executable_wrapper_api` contracts, not their runtime
@@ -114,10 +114,12 @@ and `engulf-clab-license-pool` to stage generated files beside a lab) are the
 one thing that still derives from the nonempty `short_product_name`,
 falling back to `product`, normalized to uppercase underscore-separated
 text. Editions are expected to keep `short_product_name` at `"eclab"` so
-this state converges on one shared directory; use `product`/`display_name`
-for edition branding instead. Keep this split — fixed labels, but
-metadata-derived state — intentional rather than reusing one prefix for
-both.
+this state converges on one shared directory when they are branding variants.
+A superset executable that owns a distinct schema pipeline and generated skill
+must instead use that normalized pipeline ID as `short_product_name`, so its
+topology-local state and schema artifacts are intentionally separate. Keep this
+split — fixed portable labels, but metadata-derived state and pipelines —
+intentional rather than reusing one prefix for both.
 
 ## Adding or changing a plugin
 

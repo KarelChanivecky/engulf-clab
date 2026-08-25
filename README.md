@@ -372,8 +372,8 @@ directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
 `ECLAB_LICENSE_<NODE>`. Destroy an active lab before freezing it. Use
 `.<state-prefix-lowercase>-freezeignore` for extra Git-ignore-style
 exclusions; external symlinks are rejected. The active application's
-`.<state-prefix-lowercase>` lab state (namespaced by short product name, kept
-separate from the fixed label prefix so every edition's state converges),
+`.<state-prefix-lowercase>` lab state (namespaced by short product name and kept
+separate from the fixed label prefix),
 Containerlab's `clab-<lab-name>` runtime directory, and empty directories left
 after exclusions are omitted.
 
@@ -388,14 +388,13 @@ written for one edition works unchanged under any other, so users are not
 confused by near-identical prefixes (`ECLAB_*` versus something
 edition-specific) that mean the same thing.
 
-`short_product_name` is expected to stay `"eclab"` across every edition
-instead. It is not used for labels; it namespaces the topology-local state
-directory that plugins like `engulf-clab-freeze` and
-`engulf-clab-license-pool` write beside a lab (`.eclab/...`). Keeping it
-identical across editions means their state converges on that one shared
-directory rather than fragmenting per edition. `display_name`, `vendor`, and
-`product` are what an edition customizes for its own command-facing
-branding:
+`short_product_name` is not used for those portable topology keys. It names
+topology-local state and the runtime schema pipeline. A launcher that only
+changes branding may keep `"eclab"` and share base state and schema. A distinct
+superset executable with its own generated skill uses a unique lowercase
+hyphen-normalized value, registers a schema pipeline with `eclab` as its parent,
+and therefore receives separate topology-local state and schema artifacts.
+`display_name`, `vendor`, and `product` remain its command-facing branding:
 
 ```python
 from engulf_clab import CONTAINERLAB_APPLICATION
@@ -404,9 +403,15 @@ ACME_CLAB = CONTAINERLAB_APPLICATION.edition(
     display_name="acme-clab",
     vendor="Acme Networks",
     product="Acme Containerlab",
+    short_product_name="acme-clab",
     include_plugins={"com.example.acme.containerlab"},
 )
 ```
+
+The edition's collector requests only `acme-clab`; base eclab declarations are
+inherited and expanded against the running edition metadata. The bundled
+`engulf-clab-develop-eclab-lab` collector remains exclusive to eclab, so the
+edition owns its own skill command, renderer, target, and refresh tracking.
 
 ## Contributing
 
@@ -440,8 +445,8 @@ Each installed plugin declares its exact controls and packaged references. The
 schema generator emits a task catalog and compact YAML capability file for each
 plugin, while also combining the declarations with the selected Containerlab
 source's `schemas/clab.schema.json` for complete validation.
-`engulf-clab-develop-eclab-lab` installs the result as an edition-aware,
-fingerprinted Codex skill. Read
+`engulf-clab-develop-eclab-lab` installs the base result as the static,
+fingerprinted `develop-eclab-lab` Codex skill. Read
 [`skills/README.md`](skills/README.md) for the contract and lifecycle.
 
 For the standard edition, install it into a Codex configuration root with:
@@ -450,10 +455,11 @@ For the standard edition, install it into a Codex configuration root with:
 eclab install-develop-eclab-lab-skill "$CODEX_HOME"
 ```
 
-Other editions receive corresponding command and skill names from callback-bound
-application metadata. The installer refuses unsafe or unrelated destinations
-and refreshes tracked installations after later runtime schema changes. Run
-`make check-skill` in CI.
+Superset editions declare and request their own inherited schema pipeline,
+consume the resulting bundle, and own a separate skill package. The eclab
+installer refuses unsafe or unrelated destinations and refreshes only its
+tracked eclab installations after later runtime schema changes. Run `make
+check-skill` in CI.
 Commits that change wrapper, plugin, or MCP behavior or documentation must
 include exactly one review trailer:
 

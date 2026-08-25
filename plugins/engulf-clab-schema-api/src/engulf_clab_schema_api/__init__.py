@@ -20,9 +20,12 @@ from .context import (
     publish_containerlab_source,
     publish_vrnetlab_source,
     record_plugin_schema,
+    record_schema_pipeline,
     request_schema_build,
+    schema_registry,
 )
 from .models import (
+    ECLAB_SCHEMA_PIPELINE_ID,
     UNSET,
     CompiledPluginSchema,
     CompiledReference,
@@ -44,7 +47,10 @@ from .models import (
     RequirementKind,
     RuntimeRequirement,
     SchemaBuildRequest,
+    SchemaContribution,
     SchemaDeclarationFailure,
+    SchemaPipeline,
+    SchemaRegistry,
     SchemaRegistryEntry,
     SchemaScope,
     SemanticAnnotation,
@@ -57,6 +63,7 @@ from .models import (
 )
 
 __all__ = [
+    "ECLAB_SCHEMA_PIPELINE_ID",
     "SCHEMA_COMPILED_CONTEXT",
     "SCHEMA_CONTEXTS",
     "SCHEMA_PLUGIN_DEPENDENCY",
@@ -89,7 +96,10 @@ __all__ = [
     "RuntimeRequirement",
     "SchemaBackedPlugin",
     "SchemaBuildRequest",
+    "SchemaContribution",
     "SchemaDeclarationFailure",
+    "SchemaPipeline",
+    "SchemaRegistry",
     "SchemaRegistryEntry",
     "SchemaScope",
     "SemanticAnnotation",
@@ -104,8 +114,10 @@ __all__ = [
     "publish_containerlab_source",
     "publish_vrnetlab_source",
     "record_plugin_schema",
+    "record_schema_pipeline",
     "register_schema_arguments",
     "register_schema_completions",
     "request_schema_build",
+    "schema_registry",
     "split_property_path",
 ]

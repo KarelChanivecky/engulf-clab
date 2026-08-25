@@ -132,6 +132,7 @@ def test_cached_bundle_is_reused_and_incomplete_artifacts_are_repaired(tmp_path:
     fingerprint = "a" * 64
     manifest = {
         "fingerprint": fingerprint,
+        "pipeline": {"id": "eclab", "lineage": ["eclab"]},
         "plugins": [
             {
                 "plugin_id": "example.plugin",
@@ -167,16 +168,70 @@ def test_cached_bundle_is_reused_and_incomplete_artifacts_are_repaired(tmp_path:
     )
 
     _cache_bundle(tmp_path, bundle, "inputs-one")
-    target = tmp_path / "artifacts" / fingerprint
+    target = tmp_path / "pipelines" / "eclab" / "artifacts" / fingerprint
     assert bundle_directory_complete(target, fingerprint)
     assert cached_bundle_fingerprint(tmp_path, "inputs-one") == fingerprint
     assert cached_bundle_fingerprint(tmp_path, "inputs-two") is None
 
     loaded = load_cached_bundle(tmp_path, fingerprint)
     assert loaded.fingerprint == fingerprint
-    assert {item.path for item in loaded.references} == {"README.md", "schema.yaml"}
+    assert {item.path for item in loaded.references} == {"README.md"}
+    assert {item.path for item in loaded.plugin_schemas} == {"schema.yaml"}
 
     (target / "plugins" / "example.plugin" / "README.md").unlink()
     assert cached_bundle_fingerprint(tmp_path, "inputs-one") is None
     _cache_bundle(tmp_path, bundle, "inputs-one")
     assert bundle_directory_complete(target, fingerprint)
+
+
+def test_pipeline_caches_are_isolated_and_legacy_unscoped_cache_is_ignored(
+    tmp_path: Path,
+) -> None:
+    fingerprint = "c" * 64
+
+    def bundle(pipeline_id: str, lineage: tuple[str, ...]) -> CompiledSchemaBundle:
+        manifest = {
+            "fingerprint": fingerprint,
+            "pipeline": {"id": pipeline_id, "lineage": list(lineage)},
+            "plugins": [],
+            "node_kinds": None,
+        }
+        return CompiledSchemaBundle(
+            fingerprint=fingerprint,
+            manifest=(json.dumps(manifest) + "\n").encode(),
+            topology_schema=b"{}\n",
+            catalog_json=b"{}\n",
+            catalog_markdown=b"# Catalog\n",
+            references=(),
+            pipeline_id=pipeline_id,
+            pipeline_lineage=lineage,
+        )
+
+    _cache_bundle(tmp_path, bundle("eclab", ("eclab",)), "same-input")
+    _cache_bundle(
+        tmp_path,
+        bundle("example-edition", ("eclab", "example-edition")),
+        "same-input",
+    )
+
+    assert cached_bundle_fingerprint(tmp_path, "same-input", pipeline_id="eclab") == fingerprint
+    assert (
+        cached_bundle_fingerprint(tmp_path, "same-input", pipeline_id="example-edition")
+        == fingerprint
+    )
+    assert (tmp_path / "pipelines" / "eclab" / "latest.json").is_file()
+    assert (tmp_path / "pipelines" / "example-edition" / "latest.json").is_file()
+
+    (tmp_path / "latest.json").write_text(
+        json.dumps(
+            {
+                "cache_format": 2,
+                "fingerprint": fingerprint,
+                "input_fingerprint": "legacy-only",
+                "pipeline_id": "eclab",
+            }
+        )
+    )
+    assert cached_bundle_fingerprint(tmp_path, "legacy-only", pipeline_id="eclab") is None
+    loaded = load_cached_bundle(tmp_path, fingerprint, pipeline_id="example-edition")
+    assert loaded.pipeline_lineage == ("eclab", "example-edition")

@@ -14,6 +14,7 @@ from engulf_clab_schema_api import (
     PluginOrdering,
     RecordedPluginSchema,
     ReferenceSnapshot,
+    SchemaContribution,
     SchemaDeclarationFailure,
     SchemaScope,
     SemanticAnnotation,
@@ -166,6 +167,9 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
     assert manifest["paths"]["node"]["env.ECLAB_MODE_*"][0]["plugin_id"] == "example.plugin"
     manifest_flag = manifest["plugins"][0]["options"][1]
     assert manifest["plugins"][0]["options"][0]["deprecated"] is False
+    assert manifest["pipeline"] == {"id": "eclab", "lineage": ["eclab"]}
+    assert manifest["plugins"][0]["pipeline_id"] == "eclab"
+    assert manifest["plugins"][0]["inherited"] is False
     assert manifest_flag["environment_default"] == "EXAMPLE_SOURCE"
     node = schema["definitions"]["eclab-explicit-node-config"]
     assert "^ECLAB_MODE_.+$" in node["properties"]["env"]["patternProperties"]
@@ -188,6 +192,7 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
     }
     capabilities = yaml.safe_load(plugin_schema.content)
     assert capabilities["plugin"]["id"] == "example.plugin"
+    assert capabilities["plugin"]["pipeline_id"] == "eclab"
     assert capabilities["global_flags"]["--example-source"]["environment_default"] == (
         "EXAMPLE_SOURCE"
     )
@@ -202,6 +207,37 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
     ]
     assert node["properties"]["image"]["type"] == "string"
     assert "enum" not in node["properties"]["image"]
+
+
+def test_child_pipeline_manifest_and_catalog_include_inheritance_provenance() -> None:
+    child = replace(_provider(), plugin_id="example.child")
+    bundle = compile_schema_bundle(
+        replace(APPLICATION, short_product_name="example-edition"),
+        _base(),
+        (
+            SchemaContribution("eclab", _provider()),
+            SchemaContribution("example-edition", child),
+        ),
+        pipeline_id="example-edition",
+        pipeline_lineage=("eclab", "example-edition"),
+    )
+
+    manifest = json.loads(bundle.manifest)
+    catalog = json.loads(bundle.catalog_json)
+    providers = {item["plugin_id"]: item for item in manifest["plugins"]}
+    catalog_providers = {item["plugin_id"]: item for item in catalog["providers"]}
+
+    assert bundle.pipeline_id == "example-edition"
+    assert bundle.pipeline_lineage == ("eclab", "example-edition")
+    assert manifest["pipeline"] == {
+        "id": "example-edition",
+        "lineage": ["eclab", "example-edition"],
+    }
+    assert providers["example.plugin"]["inherited"] is True
+    assert providers["example.child"]["inherited"] is False
+    assert catalog_providers["example.plugin"]["pipeline_id"] == "eclab"
+    assert catalog_providers["example.child"]["pipeline_id"] == "example-edition"
+    assert json.loads(bundle.topology_schema)["x-eclab-schema-pipeline"] == "example-edition"
 
 
 def test_referenced_node_objects_are_cloned_once_without_name_growth() -> None:

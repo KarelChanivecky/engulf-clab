@@ -11,13 +11,16 @@ from typing import Any, cast
 import yaml  # type: ignore[import-untyped]
 from engulf_api import ApplicationMetadata
 from engulf_clab_schema_api import (
+    ECLAB_SCHEMA_PIPELINE_ID,
     CompiledPluginSchema,
     CompiledReference,
     CompiledSchemaBundle,
     OptionDeclaration,
     OptionKind,
     RecordedPluginSchema,
+    SchemaContribution,
     SchemaDeclarationFailure,
+    SchemaPipeline,
     SchemaRegistryEntry,
     SchemaScope,
     SemanticAnnotation,
@@ -29,8 +32,8 @@ from engulf_clab_schema_api import (
 from .node_kinds import NODE_KIND_PROVIDER_ID, NodeKindCatalog, NodeKindRecord, SourceIdentity
 from .source import BaseSchema
 
-FORMAT_VERSION = 1
-COMPILER_VERSION = "3"
+FORMAT_VERSION = 2
+COMPILER_VERSION = "4"
 
 
 class SchemaCompilationError(RuntimeError):
@@ -40,13 +43,31 @@ class SchemaCompilationError(RuntimeError):
 def compile_schema_bundle(
     application: ApplicationMetadata,
     base: BaseSchema,
-    entries: Iterable[SchemaRegistryEntry],
+    entries: Iterable[SchemaRegistryEntry | SchemaContribution],
     node_kinds: NodeKindCatalog | None = None,
+    *,
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+    pipeline_lineage: tuple[str, ...] | None = None,
 ) -> CompiledSchemaBundle:
+    SchemaPipeline(pipeline_id)
+    lineage = (pipeline_id,) if pipeline_lineage is None else pipeline_lineage
+    _validate_pipeline_lineage(pipeline_id, lineage)
     providers: list[RecordedPluginSchema] = []
     failures: list[SchemaDeclarationFailure] = []
+    provider_pipelines: dict[str, str] = {}
     seen: set[str] = set()
-    for entry in entries:
+    for item in entries:
+        contribution = (
+            item
+            if isinstance(item, SchemaContribution)
+            else SchemaContribution(ECLAB_SCHEMA_PIPELINE_ID, item)
+        )
+        entry = contribution.entry
+        if contribution.pipeline_id not in lineage:
+            raise SchemaCompilationError(
+                f"schema contribution from pipeline {contribution.pipeline_id} is outside "
+                f"the compiled lineage for {pipeline_id}"
+            )
         if entry.plugin_id in seen:
             raise SchemaCompilationError(f"duplicate schema provider: {entry.plugin_id}")
         seen.add(entry.plugin_id)
@@ -54,6 +75,7 @@ def compile_schema_bundle(
             failures.append(entry)
         elif isinstance(entry, RecordedPluginSchema):
             providers.append(entry)
+            provider_pipelines[entry.plugin_id] = contribution.pipeline_id
         else:
             raise SchemaCompilationError("invalid schema registry entry")
     if failures:
@@ -61,7 +83,14 @@ def compile_schema_bundle(
         raise SchemaCompilationError(f"incomplete plugin schema contributions: {detail}")
     providers.sort(key=lambda item: item.plugin_id)
     _validate_node_kind_declarations(providers, node_kinds)
-    provider_schemas = tuple(_compiled_plugin_schema(provider) for provider in providers)
+    provider_schemas = tuple(
+        _compiled_plugin_schema(
+            provider,
+            provider_pipelines[provider.plugin_id],
+            pipeline_id,
+        )
+        for provider in providers
+    )
     plugin_schema_index = {item.plugin_id: item for item in provider_schemas}
     upstream_schema = (
         None if node_kinds is None else _compiled_node_kind_schema(node_kinds, providers)
@@ -71,6 +100,7 @@ def compile_schema_bundle(
         "format": FORMAT_VERSION,
         "compiler": COMPILER_VERSION,
         "application": _application(application),
+        "pipeline": _pipeline(pipeline_id, lineage),
         "containerlab": _source(base),
         "node_kinds": None if node_kinds is None else _node_kind_fingerprint(node_kinds),
         "plugins": [
@@ -78,6 +108,8 @@ def compile_schema_bundle(
                 provider,
                 include_reference_content=True,
                 plugin_schema=plugin_schema_index[provider.plugin_id],
+                pipeline_id=provider_pipelines[provider.plugin_id],
+                target_pipeline_id=pipeline_id,
             )
             for provider in providers
         ],
@@ -88,6 +120,7 @@ def compile_schema_bundle(
         "version": FORMAT_VERSION,
         "fingerprint": fingerprint,
         "application": _application(application),
+        "pipeline": _pipeline(pipeline_id, lineage),
         "containerlab": _source(base),
         "node_kinds": (
             None
@@ -99,6 +132,8 @@ def compile_schema_bundle(
                 provider,
                 include_reference_content=False,
                 plugin_schema=plugin_schema_index[provider.plugin_id],
+                pipeline_id=provider_pipelines[provider.plugin_id],
+                target_pipeline_id=pipeline_id,
             )
             for provider in providers
         ],
@@ -112,8 +147,11 @@ def compile_schema_bundle(
         fingerprint,
         node_kinds,
         upstream_schema,
+        pipeline_id,
+        lineage,
+        provider_pipelines,
     )
-    schema = _compose_schema(base.document, providers, fingerprint)
+    schema = _compose_schema(base.document, providers, fingerprint, pipeline_id, lineage)
     references = tuple(
         CompiledReference(
             provider.plugin_id,
@@ -135,6 +173,8 @@ def compile_schema_bundle(
         catalog_markdown=_catalog_markdown(catalog).encode(),
         references=references,
         plugin_schemas=plugin_schemas,
+        pipeline_id=pipeline_id,
+        pipeline_lineage=lineage,
     )
 
 
@@ -160,11 +200,31 @@ def _source(base: BaseSchema) -> dict[str, object]:
     }
 
 
+def _pipeline(pipeline_id: str, lineage: tuple[str, ...]) -> dict[str, object]:
+    return {"id": pipeline_id, "lineage": list(lineage)}
+
+
+def _validate_pipeline_lineage(pipeline_id: str, lineage: tuple[str, ...]) -> None:
+    if type(lineage) is not tuple or not lineage:
+        raise SchemaCompilationError("pipeline lineage must be a nonempty tuple")
+    for item in lineage:
+        try:
+            SchemaPipeline(item)
+        except (TypeError, ValueError) as error:
+            raise SchemaCompilationError(f"invalid schema pipeline lineage: {error}") from error
+    if lineage[-1] != pipeline_id:
+        raise SchemaCompilationError("pipeline lineage must end with the compiled pipeline")
+    if len(set(lineage)) != len(lineage):
+        raise SchemaCompilationError("schema pipeline lineage contains a cycle")
+
+
 def _provider_manifest(
     provider: RecordedPluginSchema,
     *,
     include_reference_content: bool,
     plugin_schema: CompiledPluginSchema,
+    pipeline_id: str,
+    target_pipeline_id: str,
 ) -> dict[str, object]:
     references: list[dict[str, object]] = []
     for reference in provider.references:
@@ -181,6 +241,8 @@ def _provider_manifest(
         "package": provider.package,
         "distribution": provider.distribution,
         "distribution_version": provider.distribution_version,
+        "pipeline_id": pipeline_id,
+        "inherited": pipeline_id != target_pipeline_id,
         "agent_schema": {
             "path": f"plugins/{provider.plugin_id}/{plugin_schema.path}",
             "sha256": plugin_schema.sha256,
@@ -275,13 +337,17 @@ def _option_manifest(
     return result
 
 
-def _compiled_plugin_schema(provider: RecordedPluginSchema) -> CompiledPluginSchema:
+def _compiled_plugin_schema(
+    provider: RecordedPluginSchema,
+    pipeline_id: str,
+    target_pipeline_id: str,
+) -> CompiledPluginSchema:
     if any(reference.path == "schema.yaml" for reference in provider.references):
         raise SchemaCompilationError(
             f"plugin reference collides with generated schema: {provider.plugin_id}/schema.yaml"
         )
     content = yaml.safe_dump(
-        _plugin_agent_document(provider),
+        _plugin_agent_document(provider, pipeline_id, target_pipeline_id),
         sort_keys=False,
         allow_unicode=True,
         width=1000,
@@ -294,7 +360,11 @@ def _compiled_plugin_schema(provider: RecordedPluginSchema) -> CompiledPluginSch
     )
 
 
-def _plugin_agent_document(provider: RecordedPluginSchema) -> dict[str, object]:
+def _plugin_agent_document(
+    provider: RecordedPluginSchema,
+    pipeline_id: str,
+    target_pipeline_id: str,
+) -> dict[str, object]:
     annotations = {item.subject: item for item in provider.annotations}
     commands: dict[str, dict[str, object]] = {}
     global_flags: dict[str, object] = {}
@@ -328,11 +398,13 @@ def _plugin_agent_document(provider: RecordedPluginSchema) -> dict[str, object]:
 
     document: dict[str, object] = {
         "format": "engulf-clab-plugin-capabilities",
-        "version": 1,
+        "version": 2,
         "plugin": {
             "id": provider.plugin_id,
             "distribution": provider.distribution,
             "version": provider.distribution_version,
+            "pipeline_id": pipeline_id,
+            "inherited": pipeline_id != target_pipeline_id,
         },
     }
     _put(document, "use_when", list(provider.use_cases))
@@ -686,6 +758,9 @@ def _catalog(
     fingerprint: str,
     node_kinds: NodeKindCatalog | None,
     node_kind_schema: CompiledPluginSchema | None,
+    pipeline_id: str,
+    pipeline_lineage: tuple[str, ...],
+    provider_pipelines: Mapping[str, str],
 ) -> dict[str, object]:
     routes: dict[str, list[dict[str, str]]] = defaultdict(list)
     provider_items: list[dict[str, object]] = []
@@ -704,6 +779,8 @@ def _catalog(
                 "plugin_id": provider.plugin_id,
                 "distribution": provider.distribution,
                 "version": provider.distribution_version,
+                "pipeline_id": provider_pipelines[provider.plugin_id],
+                "inherited": provider_pipelines[provider.plugin_id] != pipeline_id,
                 "schema": f"plugins/{provider.plugin_id}/{plugin_schemas[provider.plugin_id].path}",
                 "use_when": list(provider.use_cases),
                 "avoid_when": list(provider.rejections),
@@ -711,9 +788,10 @@ def _catalog(
         )
     return {
         "format": "engulf-clab-runtime-catalog",
-        "version": 1,
+        "version": 2,
         "fingerprint": fingerprint,
         "application": _application(application),
+        "pipeline": _pipeline(pipeline_id, pipeline_lineage),
         "containerlab": _source(base),
         "base_cli": {
             "authoritative_command": f"{application.short_product_name} --help",
@@ -738,11 +816,14 @@ def _catalog_markdown(catalog: dict[str, object]) -> str:
     application = cast(dict[str, object], catalog["application"])
     source = cast(dict[str, object], catalog["containerlab"])
     base_cli = cast(dict[str, str], catalog["base_cli"])
+    pipeline = cast(dict[str, object], catalog["pipeline"])
+    lineage = " -> ".join(cast(list[str], pipeline["lineage"]))
     lines = [
         "# Installed lab runtime catalog",
         "",
         f"Fingerprint: `{catalog['fingerprint']}`",
         f"Application: `{application['short_product_name']}` `{application['version']}`",
+        f"Schema pipeline: `{pipeline['id']}` (lineage: `{lineage}`)",
         f"Containerlab source: `{source['kind']}` revision `{source['revision']}`",
         f"Base CLI inventory: `{base_cli['authoritative_command']}` — {base_cli['explanation']}",
         "",
@@ -792,8 +873,8 @@ def _catalog_markdown(catalog: dict[str, object]) -> str:
             "",
             "Use this table when the task wording does not match a route exactly.",
             "",
-            "| Provider | Use when | Avoid when | Capabilities |",
-            "| --- | --- | --- | --- |",
+            "| Provider | Declared in | Use when | Avoid when | Capabilities |",
+            "| --- | --- | --- | --- | --- |",
         ]
     )
     providers = cast(list[dict[str, object]], catalog["providers"])
@@ -803,7 +884,8 @@ def _catalog_markdown(catalog: dict[str, object]) -> str:
             "<br>".join(cast(list[str], provider["avoid_when"])) or "No exclusions declared."
         )
         lines.append(
-            f"| `{provider['plugin_id']}` | {_markdown(use_when)} | "
+            f"| `{provider['plugin_id']}` | `{provider['pipeline_id']}` | "
+            f"{_markdown(use_when)} | "
             f"{_markdown(avoid_when)} | `{provider['schema']}` |"
         )
     return "\n".join(lines) + "\n"
@@ -837,10 +919,14 @@ def _compose_schema(
     base_document: dict[str, object],
     providers: list[RecordedPluginSchema],
     fingerprint: str,
+    pipeline_id: str,
+    pipeline_lineage: tuple[str, ...],
 ) -> dict[str, object]:
     document: dict[str, Any] = copy.deepcopy(base_document)
     document["x-eclab-fingerprint"] = fingerprint
     document["x-eclab-manifest"] = "manifest.json"
+    document["x-eclab-schema-pipeline"] = pipeline_id
+    document["x-eclab-schema-lineage"] = list(pipeline_lineage)
     mutable_definitions: set[str] = set()
     scoped: dict[tuple[SchemaScope, tuple[str, ...]], list[tuple[str, OptionDeclaration]]] = (
         defaultdict(list)

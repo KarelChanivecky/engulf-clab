@@ -5,7 +5,9 @@ describe their installed commands, environment variables, topology controls,
 use cases, rejection guidance, and packaged references. It also adapts those
 declarations into executable-wrapper completion and environment-backed CLI
 options. It performs no plugin discovery, schema compilation, network access,
-or installation.
+or installation. Contributions share the fixed `SCHEMA_REGISTRY_CONTEXT`
+Engulf context, whose immutable `SchemaRegistry` value partitions declarations
+by schema pipeline.
 
 Create one module-level `PluginSchema`, declare the schema generator as an
 Engulf dependency positioned after the contributor, union `SCHEMA_CONTEXTS`
@@ -26,11 +28,12 @@ the import package and must also be present in the built wheel.
 
 ## Builder signatures
 
-`PluginSchema(plugin_id: str, *, package: str)` creates a mutable import-time
-builder. `plugin_id` is the exact lowercase, dot-qualified Engulf plugin ID.
-`package` is the import package used to resolve its distribution metadata and
-packaged references. Every mutator returns the same builder, so declarations
-may be chained.
+`PluginSchema(plugin_id: str, *, package: str, pipeline_id: str = "eclab")`
+creates a mutable import-time builder. `plugin_id` is the exact lowercase,
+dot-qualified Engulf plugin ID. `package` is the import package used to resolve
+its distribution metadata and packaged references. `pipeline_id` selects the
+declaration partition; existing eclab contributors may omit it. Every mutator
+returns the same builder, so declarations may be chained.
 
 ```python
 add_command(
@@ -219,6 +222,56 @@ package-relative Markdown, text, JSON, or YAML resource when the invocation
 runs; absolute paths, traversal, case-colliding duplicates, and oversized
 resources are rejected.
 
+## Edition schema pipelines
+
+The built-in root is `SchemaPipeline("eclab")`. An edition that extends eclab
+registers one deterministic parent edge during `before_goal()` and places only
+its own declarations in the child partition:
+
+```python
+from engulf_clab_schema_api import (
+    PluginSchema,
+    SchemaBuildRequest,
+    SchemaPipeline,
+    compiled_schema,
+    record_schema_pipeline,
+    request_schema_build,
+)
+
+PIPELINE = SchemaPipeline("example-edition", "eclab")
+EDITION_SCHEMA = PluginSchema(
+    "example.edition",
+    package="example_edition",
+    pipeline_id=PIPELINE.pipeline_id,
+)
+
+record_schema_pipeline(api, PIPELINE)
+request_schema_build(
+    api,
+    SchemaBuildRequest(
+        "example.skill_collector",
+        request_id,
+        pipeline_id=PIPELINE.pipeline_id,
+    ),
+)
+# In the consumer's later callback, after the terminal generator ran:
+bundle = compiled_schema(api, pipeline_id=PIPELINE.pipeline_id)
+```
+
+Pipeline IDs must already match the lowercase hyphen-normalized executable
+short product name. Each pipeline has at most one parent. The generator walks
+the requested parent chain root-first, includes every declaration from each
+member, and compiles the resolved declarations once. A child cannot override a
+parent provider: duplicate plugin IDs, missing parents, cycles, and conflicting
+pipeline declarations fail the requested build. Declaration failures in
+unrelated partitions do not affect it.
+
+All inherited `{short_product}` placeholders expand from the currently running
+application, not the application that originally authored the declaration.
+Pipeline membership affects schema composition only; it does not activate a
+plugin or change Engulf runtime isolation. External editions consume the final
+`CompiledSchemaBundle` and own their skill rendering and installation.
+
 `publish_containerlab_source()` and `publish_vrnetlab_source()` may publish
 immutable source hints when another plugin has already resolved a checkout or
 repository revision. Without a vrnetlab hint, the generator follows
@@ -230,11 +283,17 @@ generator still resolves repository revisions to exact commits before writing
 the manifest.
 
 `SchemaBuildRequest(requester_plugin_id, request_id, required=True,
-current_fingerprint=None)` requests composition. `required=True` is a strict
-explicit build. A best-effort consumer may set `required=False` and report the
-single `current_fingerprint` already present at every target it owns. On an
-exact cache hit, that tells the generator it need not emit or reinstall the
-bundle; `None` asks it to return the cached bundle when one is available.
+current_fingerprint=None, pipeline_id="eclab")` requests composition.
+`required=True` is a strict explicit build. Every request in one invocation
+must select the same pipeline, and it must match the running executable. A
+best-effort consumer may set `required=False` and report the single
+`current_fingerprint` already present at every target it owns. On an exact cache
+hit, that tells the generator it need not emit or reinstall the bundle; `None`
+asks it to return the cached bundle when one is available.
+
+`CompiledSchemaBundle.pipeline_id` and `pipeline_lineage` identify the result.
+Use `compiled_schema(api, pipeline_id=...)` to retrieve only the requested
+bundle from the fixed compiled context.
 
 `ValueSpec` is either one `ValueType` or a nonempty tuple containing accepted
 types, literal JSON scalars, or `ExplainedValue(value, explanation)` entries.

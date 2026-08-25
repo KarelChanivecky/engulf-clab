@@ -5,8 +5,11 @@ Installed Engulf plugins describe their own commands, CLI controls, runtime
 variables, topology extensions, use cases, exclusions, and packaged references
 through `engulf-clab-schema-api`.
 
-`engulf-clab-schema` runs after schema contributors. It combines those
-declarations with the exact Containerlab schema selected for the invocation:
+`engulf-clab-schema` runs after schema contributors. The fixed schema-registry
+context contains partitioned declaration pipelines. It resolves only the
+pipeline requested by the running executable, inherits its single parent chain,
+and combines those declarations with the exact Containerlab schema selected for
+the invocation:
 
 1. the checkout selected by `--eclab-containerlab-dir` or the
    `CONTAINERLAB_DIR` environment default;
@@ -32,9 +35,8 @@ runtime-selection, topology-design, safety, and diagnostic guidance.
 
 ## Install
 
-Install `engulf-clab-develop-eclab-lab` in the same environment as the wrapper,
-then inspect the edition's help. The command is derived from its short product
-name. For the standard edition:
+Install `engulf-clab-develop-eclab-lab` in the same environment as the base
+wrapper, then inspect eclab help. Its command and target are static:
 
 ```bash
 eclab install-develop-eclab-lab-skill "$CODEX_HOME"
@@ -42,8 +44,8 @@ eclab install-develop-eclab-lab-skill "$CODEX_HOME"
 
 The argument is the configuration root containing `skills/`, not the skills
 directory itself. The command creates
-`$CODEX_HOME/skills/develop-eclab-lab/`. Other editions receive corresponding
-command and skill names.
+`$CODEX_HOME/skills/develop-eclab-lab/`. This collector is inactive under every
+other executable, so it cannot generate or refresh the eclab target there.
 
 The installer refuses a symlinked configuration root, a symlinked skills
 directory, and an existing target without its generated-skill ownership marker.
@@ -64,10 +66,35 @@ artifact, and refresh only stale or incomplete tracked targets. A deleted
 target or one that no longer has its ownership marker is untracked; an unsafe or
 manually replaced target is reported and left alone.
 
-Newly discovered plugins participate automatically when they depend on
+Newly discovered eclab plugins participate automatically when they depend on
 `engulf_clab.schema` and call `record_plugin_schema()` during `before_goal`.
 Because the generator is declared as an after-dependency, it sees every
 contribution before compiling.
+
+## Superset edition contract
+
+The public schema API keeps the physical Engulf context IDs stable while its
+typed `SchemaRegistry` partitions declarations by pipeline. Existing plugins
+write to `eclab` by default. A superset edition registers, for example,
+`SchemaPipeline("example-edition", "eclab")`; its own plugins construct
+`PluginSchema(..., pipeline_id="example-edition")`. Its collector issues a
+`SchemaBuildRequest(..., pipeline_id="example-edition")` only when that
+executable is running and later retrieves
+`compiled_schema(api, pipeline_id="example-edition")`.
+
+The requested pipeline must equal the normalized executable short product. The
+generator resolves the root-first chain and compiles parent and child raw
+declarations once. Every parent contribution is inherited; duplicate provider
+IDs are not overrides. Missing parents, cycles, conflicting declarations, and
+multiple pipelines requested in one invocation fail. Unrelated declaration
+failures are ignored, and inherited `{short_product}` placeholders resolve from
+the running edition metadata.
+
+Each pipeline has its own `pipelines/<pipeline-id>/latest.json` and artifact
+tree in schema-generator user state. Containerlab/vrnetlab source caches and the
+generation lease remain shared. The API exposes the final compiled bundle to an
+external edition; the external edition owns its distinct skill template,
+installation command, target, and refresh tracking.
 
 ## Contributor contract
 
@@ -104,4 +131,4 @@ make check-skill
 
 For an integration check, install the built packages into a temporary virtual
 environment with the wrapper and contributors, run plugin discovery, then run
-the edition-aware install command against a temporary configuration root.
+the static eclab install command against a temporary configuration root.

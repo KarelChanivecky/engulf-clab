@@ -13,16 +13,19 @@ from pathlib import Path
 
 from engulf_api import (
     AfterGoalAPI,
+    ApplicationMetadata,
     BeforeGoalAPI,
     DependencyPosition,
     GoalResult,
     Invocation,
     PluginDependency,
+    RegistrationAPI,
     StateScope,
     StateStore,
 )
 from engulf_clab_schema import bundle_directory_complete
 from engulf_clab_schema_api import (
+    ECLAB_SCHEMA_PIPELINE_ID,
     SCHEMA_COMPILED_CONTEXT,
     SCHEMA_PLUGIN_ID,
     SCHEMA_REGISTRY_CONTEXT,
@@ -34,38 +37,42 @@ from engulf_clab_schema_api import (
     SchemaBackedPlugin,
     SchemaBuildRequest,
     ValueType,
+    compiled_schema,
     normalized_short_product,
     record_plugin_schema,
     request_schema_build,
 )
-from engulf_executable_wrapper_api import HelpAPI
+from engulf_executable_wrapper_api import ArgumentRegistry, CompletionRegistry, HelpAPI
 
 PLUGIN_ID = "engulf_clab.develop_lab_skill"
 INSTALL_REQUEST_CONTEXT = "engulf_clab.develop_lab_skill.install_request"
 MARKER_NAME = ".engulf-clab-generated.json"
 TARGETS_NAME = "targets.json"
+ECLAB_SHORT_PRODUCT = ECLAB_SCHEMA_PIPELINE_ID
+ECLAB_INSTALL_COMMAND = "install-develop-eclab-lab-skill"
+ECLAB_SKILL_NAME = "develop-eclab-lab"
 
 PLUGIN_SCHEMA = (
     PluginSchema(PLUGIN_ID, package="engulf_clab_develop_lab_skill")
     .add_command(
-        "install-develop-{short_product}-lab-skill",
+        ECLAB_INSTALL_COMMAND,
         "Install or refresh the runtime-aware lab development skill.",
     )
     .add_cli_argument(
-        "install-develop-{short_product}-lab-skill",
+        ECLAB_INSTALL_COMMAND,
         "CONFIG_ROOT",
         "Select the configuration root that contains the skills directory.",
         values=ValueType.DIRECTORY_PATH,
     )
     .annotate(
-        "install-develop-{short_product}-lab-skill",
+        ECLAB_INSTALL_COMMAND,
         lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.AFTER_GOAL),
         implies=("The wrapper call is preempted after the generated skill is installed.",),
         examples=("eclab install-develop-eclab-lab-skill ~/.codex",),
     )
     .annotate(
         "CONFIG_ROOT",
-        commands=("install-develop-{short_product}-lab-skill",),
+        commands=(ECLAB_INSTALL_COMMAND,),
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         path_base=PathBase.INVOCATION_DIRECTORY,
         requires=("The directory exists and is not a symbolic link.",),
@@ -118,14 +125,31 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
         {SCHEMA_REGISTRY_CONTEXT, SCHEMA_REQUEST_CONTEXT, INSTALL_REQUEST_CONTEXT}
     )
 
+    def register_arguments(
+        self,
+        registry: ArgumentRegistry,
+        api: RegistrationAPI,
+    ) -> None:
+        if _is_eclab_application(api.application):
+            super().register_arguments(registry, api)
+
+    def register_completions(
+        self,
+        registry: CompletionRegistry,
+        api: RegistrationAPI,
+    ) -> None:
+        if _is_eclab_application(api.application):
+            super().register_completions(registry, api)
+
     def before_goal(
         self,
         invocation: Invocation,
         api: BeforeGoalAPI,
     ) -> GoalResult[object] | None:
+        if not _is_eclab_application(api.application):
+            return None
         record_plugin_schema(api, PLUGIN_SCHEMA)
-        short_product = normalized_short_product(api.application)
-        command = install_command(short_product)
+        command = install_command()
         if not invocation.arguments or invocation.arguments[0] != command:
             if _skip_automatic_refresh(invocation.arguments, invocation.environment):
                 return None
@@ -138,6 +162,7 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                         uuid.uuid4().hex,
                         required=False,
                         current_fingerprint=current_fingerprint,
+                        pipeline_id=ECLAB_SCHEMA_PIPELINE_ID,
                     ),
                 )
             return None
@@ -157,14 +182,19 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
             return GoalResult.rejected(2, rejected_by=self.plugin_id)
         request = SkillInstallRequest(
             config_root,
-            skill_name(short_product),
+            skill_name(),
             command,
             uuid.uuid4().hex,
         )
         api.set_context(INSTALL_REQUEST_CONTEXT, request)
         request_schema_build(
             api,
-            SchemaBuildRequest(self.plugin_id, request.request_id, required=True),
+            SchemaBuildRequest(
+                self.plugin_id,
+                request.request_id,
+                required=True,
+                pipeline_id=ECLAB_SCHEMA_PIPELINE_ID,
+            ),
         )
         return None
 
@@ -175,10 +205,11 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
         api: AfterGoalAPI,
     ) -> GoalResult[object]:
         del invocation
+        if not _is_eclab_application(api.application):
+            return result
         request_value = api.get_context(INSTALL_REQUEST_CONTEXT)
         request = request_value if isinstance(request_value, SkillInstallRequest) else None
-        bundle_value = api.get_context(SCHEMA_COMPILED_CONTEXT)
-        bundle = bundle_value if isinstance(bundle_value, CompiledSchemaBundle) else None
+        bundle = compiled_schema(api, ECLAB_SCHEMA_PIPELINE_ID)
         if request is not None:
             if bundle is None:
                 if result.exit_code == 0:
@@ -199,8 +230,9 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
         return result
 
     def help(self, api: HelpAPI) -> str:
-        short_product = normalized_short_product(api.application)
-        command = install_command(short_product)
+        if not _is_eclab_application(api.application):
+            return ""
+        command = install_command()
         return f"  {command} CONFIG_ROOT  Install or refresh the runtime-aware development skill"
 
     def _refresh_tracked(self, api: AfterGoalAPI, bundle: CompiledSchemaBundle) -> None:
@@ -254,6 +286,12 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
         name: str,
         bundle: CompiledSchemaBundle,
     ) -> Path:
+        if name != ECLAB_SKILL_NAME:
+            raise ValueError(f"unsupported generated skill target: {name}")
+        if bundle.pipeline_id != ECLAB_SCHEMA_PIPELINE_ID:
+            raise ValueError(
+                f"cannot install {bundle.pipeline_id} schema as the eclab development skill"
+            )
         skills = config_root / "skills"
         if config_root.is_symlink() or not config_root.is_dir():
             raise ValueError(f"unsafe configuration root: {config_root}")
@@ -273,7 +311,6 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
             try:
                 _write_static_skill(
                     staged,
-                    name,
                     catalog_markdown=bundle.catalog_markdown,
                     fingerprint=bundle.fingerprint,
                 )
@@ -301,6 +338,7 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                     destination.write_bytes(reference.content)
                 current = {
                     "fingerprint": bundle.fingerprint,
+                    "pipeline_id": bundle.pipeline_id,
                     "manifest": f"runtimes/{bundle.fingerprint}/manifest.json",
                     "catalog": f"runtimes/{bundle.fingerprint}/catalog.md",
                     "catalog_json": f"runtimes/{bundle.fingerprint}/catalog.json",
@@ -312,7 +350,12 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                 )
                 (staged / MARKER_NAME).write_text(
                     json.dumps(
-                        {"owner": PLUGIN_ID, "skill_name": name, "fingerprint": bundle.fingerprint},
+                        {
+                            "owner": PLUGIN_ID,
+                            "skill_name": name,
+                            "pipeline_id": bundle.pipeline_id,
+                            "fingerprint": bundle.fingerprint,
+                        },
                         sort_keys=True,
                     )
                     + "\n",
@@ -330,15 +373,16 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
         return target
 
 
-def install_command(short_product: str) -> str:
-    return f"install-develop-{short_product}-lab-skill"
+def install_command() -> str:
+    return ECLAB_INSTALL_COMMAND
 
 
-def skill_name(short_product: str) -> str:
-    value = f"develop-{short_product}-lab"
-    if len(value) > 63:
-        raise ValueError("normalized skill name exceeds 63 characters")
-    return value
+def skill_name() -> str:
+    return ECLAB_SKILL_NAME
+
+
+def _is_eclab_application(application: ApplicationMetadata) -> bool:
+    return normalized_short_product(application) == ECLAB_SCHEMA_PIPELINE_ID
 
 
 def _skip_automatic_refresh(
@@ -356,13 +400,13 @@ def _skip_automatic_refresh(
 
 def _write_static_skill(
     destination: Path,
-    name: str,
     *,
     catalog_markdown: bytes | None = None,
     fingerprint: str | None = None,
 ) -> None:
-    short_product = name.removeprefix("develop-").removesuffix("-lab")
-    command = install_command(short_product)
+    name = skill_name()
+    short_product = ECLAB_SHORT_PRODUCT
+    command = install_command()
     source = _skill_source()
     replacements = {
         "@@SKILL_NAME@@": name,
@@ -423,7 +467,12 @@ def _marker(target: Path) -> dict[str, object] | None:
         value = json.loads(path.read_text(encoding="utf-8"))
     except OSError, json.JSONDecodeError:
         return None
-    if not isinstance(value, dict) or value.get("owner") != PLUGIN_ID:
+    if (
+        not isinstance(value, dict)
+        or value.get("owner") != PLUGIN_ID
+        or value.get("skill_name") != ECLAB_SKILL_NAME
+        or value.get("pipeline_id", ECLAB_SCHEMA_PIPELINE_ID) != ECLAB_SCHEMA_PIPELINE_ID
+    ):
         return None
     return value
 
@@ -445,10 +494,22 @@ def _installed_fingerprint(target: Path) -> str | None:
         current = json.loads(current_path.read_text(encoding="utf-8"))
     except OSError, json.JSONDecodeError:
         return None
-    if not isinstance(current, dict) or current.get("fingerprint") != fingerprint:
+    if (
+        not isinstance(current, dict)
+        or current.get("fingerprint") != fingerprint
+        or current.get("pipeline_id", ECLAB_SCHEMA_PIPELINE_ID) != ECLAB_SCHEMA_PIPELINE_ID
+    ):
         return None
     runtime = target / "references" / "runtimes" / fingerprint
-    return fingerprint if bundle_directory_complete(runtime, fingerprint) else None
+    return (
+        fingerprint
+        if bundle_directory_complete(
+            runtime,
+            fingerprint,
+            pipeline_id=ECLAB_SCHEMA_PIPELINE_ID,
+        )
+        else None
+    )
 
 
 def _targets(state: StateStore) -> list[dict[str, str]]:
@@ -466,6 +527,7 @@ def _targets(state: StateStore) -> list[dict[str, str]]:
         if isinstance(item, dict)
         and isinstance(item.get("config_root"), str)
         and isinstance(item.get("skill_name"), str)
+        and item["skill_name"] == ECLAB_SKILL_NAME
     ]
 
 

@@ -73,9 +73,10 @@ ordinary allocation. The selected file is copied under
 `.<state-prefix-lowercase>/licenses/` beside the topology and the generated
 topology references that copy. This state-directory prefix is derived from the
 active application's short product name — unlike the fixed `ECLAB` label prefix
-above, it is expected to stay the same across every edition (so their state
-converges on one shared `.eclab/licenses/` directory), but technically follows
-whatever `short_product_name` the active launcher reports.
+above. Branding-only editions may keep `eclab` and share
+`.eclab/licenses/`; a superset executable with its own schema pipeline uses its
+pipeline ID as `short_product_name` and therefore gets a separate copy
+directory. Pool allocation coordination remains per canonical pool.
 
 A successful `destroy` releases that workspace's claims and removes its copied
 licenses. `destroy -a` / `destroy --all` releases every recorded allocation.

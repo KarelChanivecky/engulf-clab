@@ -1,7 +1,8 @@
 # Runtime-generated lab development skill
 
-This Engulf plugin installs a Codex-compatible lab development skill containing
-the schema and documentation contributed by the exact active plugin set.
+This Engulf plugin installs the base eclab Codex-compatible lab development
+skill containing the schema and documentation contributed by the exact active
+plugin set. Its public command and target are intentionally static.
 
 Install the stable eclab skill distribution in the same environment as the
 wrapper:
@@ -30,6 +31,14 @@ structured queries, then loads only task-relevant
 composed schema as final topology validation rather than as its discovery
 interface.
 
+The collector runs only when callback-bound application metadata normalizes to
+the `eclab` executable. Under another edition it registers no command, records
+no collector declaration, requests no schema, reads no tracked targets, and
+performs no installation or refresh. Superset editions register and request
+their own schema pipeline, consume its `CompiledSchemaBundle`, and own their
+separate skill renderer and target; this package does not expose a generic
+template-composition API.
+
 The catalog also contains a `containerlab.node_kinds` provider generated from
 the resolved Containerlab and vrnetlab repositories. Its compact index routes
 each exact `kind:` to one small YAML record and only the upstream documents
@@ -41,7 +50,7 @@ current catalog appended at generation time. Catalog paths are rewritten to be
 relative to the skill directory, so the agent can route directly from its
 loaded instructions to the current fingerprint's small provider YAML files.
 
-Only recognized generated installations are replaced. Symlinks and unrelated
+Only recognized eclab generated installations are replaced. Symlinks and unrelated
 directories are refused. Explicitly installed configuration roots are tracked
 for best-effort refresh after later launcher calls. No automatic schema build is
 requested when that tracking list is empty. A complete target reports its

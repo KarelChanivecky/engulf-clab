@@ -98,10 +98,12 @@ example `engulf_clab.example`.
 
 - Keep the static template in `plugins/engulf-clab-develop-lab-skill/skill/`
   concise and put runtime detail in the compiler-generated `references/` tree.
-- The generated skill name, command, and prompt must derive from callback-bound
-  application metadata. Install atomically, back up only recognized generated
-  targets, refuse symlinks and unknown targets, and retain fingerprinted runtime
-  snapshots for existing conversations.
+- The bundled eclab generated-skill command, target, prompt, and pipeline are
+  static and must be gated to callback-bound `short_product_name == "eclab"`.
+  External editions consume their own compiled pipeline bundle and own their
+  skill tooling. Install atomically, back up only recognized generated targets,
+  refuse symlinks and unknown targets, and retain fingerprinted runtime snapshots
+  for existing conversations.
 - Every runtime control needs a `PluginSchema` declaration with a one-line
   explanation of at most 240 characters. Use packaged `refer()` snapshots for
   detailed material.
@@ -130,7 +132,7 @@ example `engulf_clab.example`.
   `.venv/bin/eclab --engulf-plugin-list`, and any advertised secondary help.
 - Run `make check-skill` after schema, plugin behavior, or generated-skill
   changes. Validate a release candidate by building the three schema/skill
-  packages and invoking the edition-aware install command against a temporary
+  packages and invoking the static eclab install command against a temporary
   configuration root.
 - Commits that change wrapper, plugin, MCP, schema, skill, or referenced
   documentation paths need exactly one `Skill-Impact: updated` or

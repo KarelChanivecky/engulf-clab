@@ -5,11 +5,17 @@
   `engulf-executable-wrapper-api`, but never the `engulf` runtime.
 - Keep builder validation deterministic and free of filesystem access. Read and
   snapshot references only inside `record_plugin_schema()` while its API is live.
-- Context values are immutable tuples and frozen records. Never store callback
-  API, logger, state, or lease objects.
+- Keep the physical registry context ID fixed. Its value is an immutable
+  `SchemaRegistry` partitioned by normalized pipeline IDs; contributions and
+  pipeline declarations are frozen records. Never store callback API, logger,
+  state, or lease objects.
+- `eclab` is the default root for source compatibility. A child has one parent,
+  every declaration is inheritable, and `{short_product}` expansion always uses
+  callback-bound metadata from the running executable.
 - Cache negotiation stays declarative: consumers may report an installed bundle
   fingerprint in `SchemaBuildRequest`, while the terminal generator alone owns
-  cache validation and compilation.
+  cache validation and compilation. Requests and compiled bundle lookups must
+  name their pipeline explicitly outside base eclab.
 - Keep schema-backed registration import-time only: expand options and
   annotations from callback-bound application metadata without reading
   references, compiling schemas, touching state, or accessing the network.

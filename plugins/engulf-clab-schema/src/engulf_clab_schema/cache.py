@@ -12,10 +12,14 @@ from typing import TypeGuard
 
 from engulf_api import ApplicationMetadata
 from engulf_clab_schema_api import (
+    ECLAB_SCHEMA_PIPELINE_ID,
+    CompiledPluginSchema,
     CompiledReference,
     CompiledSchemaBundle,
     ContainerlabSourceHint,
     ContainerlabSourceKind,
+    SchemaContribution,
+    SchemaPipeline,
     SchemaRegistryEntry,
     VrnetlabSourceHint,
 )
@@ -23,7 +27,7 @@ from engulf_clab_schema_api import (
 from .compiler import COMPILER_VERSION, FORMAT_VERSION
 from .source import SCHEMA_RELATIVE, checkout_for_binary
 
-CACHE_FORMAT_VERSION = 1
+CACHE_FORMAT_VERSION = 2
 _README_NAMES = frozenset({"readme", "readme.md", "readme.markdown", "readme.txt"})
 _TOP_LEVEL_ARTIFACTS = (
     "manifest.json",
@@ -35,12 +39,17 @@ _TOP_LEVEL_ARTIFACTS = (
 
 def schema_input_fingerprint(
     application: ApplicationMetadata,
-    entries: Iterable[SchemaRegistryEntry],
+    entries: Iterable[SchemaRegistryEntry | SchemaContribution],
     containerlab: ContainerlabSourceHint,
     vrnetlab: VrnetlabSourceHint | None,
     environment: Mapping[str, str],
+    *,
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+    pipeline_lineage: tuple[str, ...] | None = None,
 ) -> str:
     """Fingerprint cheap inputs that determine a compiled runtime bundle."""
+    SchemaPipeline(pipeline_id)
+    lineage = (pipeline_id,) if pipeline_lineage is None else pipeline_lineage
     payload = {
         "cache_format": CACHE_FORMAT_VERSION,
         "schema_format": FORMAT_VERSION,
@@ -53,6 +62,7 @@ def schema_input_fingerprint(
             "short_product_name": application.short_product_name,
             "version": application.version,
         },
+        "pipeline": {"id": pipeline_id, "lineage": list(lineage)},
         "plugins": _stable(tuple(entries)),
         "containerlab": _containerlab_input(containerlab, environment),
         "vrnetlab": _vrnetlab_input(vrnetlab, environment),
@@ -61,10 +71,16 @@ def schema_input_fingerprint(
     return hashlib.sha256(encoded).hexdigest()
 
 
-def cached_bundle_fingerprint(root: Path, input_fingerprint: str) -> str | None:
+def cached_bundle_fingerprint(
+    root: Path,
+    input_fingerprint: str,
+    *,
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+) -> str | None:
     """Return a complete cached bundle matching the exact cheap-input fingerprint."""
+    pipeline_root = _pipeline_root(root, pipeline_id)
     try:
-        value = json.loads((root / "latest.json").read_text(encoding="utf-8"))
+        value = json.loads((pipeline_root / "latest.json").read_text(encoding="utf-8"))
     except OSError, json.JSONDecodeError:
         return None
     if not isinstance(value, dict):
@@ -73,14 +89,25 @@ def cached_bundle_fingerprint(root: Path, input_fingerprint: str) -> str | None:
         return None
     if value.get("input_fingerprint") != input_fingerprint:
         return None
+    if value.get("pipeline_id") != pipeline_id:
+        return None
     fingerprint = value.get("fingerprint")
     if not _fingerprint(fingerprint):
         return None
-    target = root / "artifacts" / fingerprint
-    return fingerprint if bundle_directory_complete(target, fingerprint) else None
+    target = pipeline_root / "artifacts" / fingerprint
+    return (
+        fingerprint
+        if bundle_directory_complete(target, fingerprint, pipeline_id=pipeline_id)
+        else None
+    )
 
 
-def bundle_directory_complete(directory: Path, fingerprint: str) -> bool:
+def bundle_directory_complete(
+    directory: Path,
+    fingerprint: str,
+    *,
+    pipeline_id: str | None = None,
+) -> bool:
     """Check that a cached/runtime directory contains every manifest-owned artifact."""
     if not directory.is_dir() or directory.is_symlink() or not _fingerprint(fingerprint):
         return False
@@ -89,6 +116,20 @@ def bundle_directory_complete(directory: Path, fingerprint: str) -> bool:
     except OSError, json.JSONDecodeError:
         return False
     if not isinstance(manifest, dict) or manifest.get("fingerprint") != fingerprint:
+        return False
+    pipeline = manifest.get("pipeline")
+    if not isinstance(pipeline, dict):
+        return False
+    manifest_pipeline_id = pipeline.get("id")
+    lineage = pipeline.get("lineage")
+    if (
+        not isinstance(manifest_pipeline_id, str)
+        or not isinstance(lineage, list)
+        or not lineage
+        or any(not isinstance(item, str) for item in lineage)
+        or lineage[-1] != manifest_pipeline_id
+        or (pipeline_id is not None and manifest_pipeline_id != pipeline_id)
+    ):
         return False
     required = set(_TOP_LEVEL_ARTIFACTS)
     plugins = manifest.get("plugins")
@@ -129,52 +170,149 @@ def bundle_directory_complete(directory: Path, fingerprint: str) -> bool:
     return all(_regular_file(directory / path) for path in required)
 
 
-def load_cached_bundle(root: Path, fingerprint: str) -> CompiledSchemaBundle:
+def load_cached_bundle(
+    root: Path,
+    fingerprint: str,
+    *,
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+) -> CompiledSchemaBundle:
     """Load a complete cached bundle for a consumer whose target needs refreshing."""
-    directory = root / "artifacts" / fingerprint
-    if not bundle_directory_complete(directory, fingerprint):
+    directory = _pipeline_root(root, pipeline_id) / "artifacts" / fingerprint
+    if not bundle_directory_complete(directory, fingerprint, pipeline_id=pipeline_id):
         raise RuntimeError(f"cached runtime schema bundle is incomplete: {fingerprint}")
+    manifest_bytes = (directory / "manifest.json").read_bytes()
+    manifest = json.loads(manifest_bytes)
+    pipeline = manifest["pipeline"]
+    plugin_schemas: list[CompiledPluginSchema] = []
     references: list[CompiledReference] = []
-    plugins = directory / "plugins"
-    if plugins.is_dir() and not plugins.is_symlink():
-        for path in sorted(plugins.rglob("*")):
-            if not _regular_file(path):
-                continue
-            relative = path.relative_to(plugins)
-            if len(relative.parts) < 2:
-                continue
-            content = path.read_bytes()
-            references.append(
-                CompiledReference(
-                    relative.parts[0],
-                    PurePosixPath(*relative.parts[1:]).as_posix(),
-                    None,
-                    content,
-                    hashlib.sha256(content).hexdigest(),
-                )
+    for plugin_id, path in _agent_schema_paths(manifest):
+        content = (directory / "plugins" / plugin_id / path).read_bytes()
+        plugin_schemas.append(
+            CompiledPluginSchema(
+                plugin_id,
+                path,
+                content,
+                hashlib.sha256(content).hexdigest(),
             )
+        )
+    for plugin_id, path, title in _reference_paths(manifest):
+        content = (directory / "plugins" / plugin_id / path).read_bytes()
+        references.append(
+            CompiledReference(
+                plugin_id,
+                path,
+                title,
+                content,
+                hashlib.sha256(content).hexdigest(),
+            )
+        )
     return CompiledSchemaBundle(
         fingerprint=fingerprint,
-        manifest=(directory / "manifest.json").read_bytes(),
+        manifest=manifest_bytes,
         topology_schema=(directory / "clab.schema.json").read_bytes(),
         catalog_json=(directory / "catalog.json").read_bytes(),
         catalog_markdown=(directory / "catalog.md").read_bytes(),
         references=tuple(references),
+        plugin_schemas=tuple(plugin_schemas),
+        pipeline_id=pipeline_id,
+        pipeline_lineage=tuple(pipeline["lineage"]),
     )
 
 
-def cache_record(input_fingerprint: str, bundle_fingerprint: str) -> bytes:
+def cache_record(
+    input_fingerprint: str,
+    bundle_fingerprint: str,
+    *,
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+    pipeline_lineage: tuple[str, ...] | None = None,
+) -> bytes:
+    SchemaPipeline(pipeline_id)
+    lineage = (pipeline_id,) if pipeline_lineage is None else pipeline_lineage
     return (
         json.dumps(
             {
                 "cache_format": CACHE_FORMAT_VERSION,
                 "fingerprint": bundle_fingerprint,
                 "input_fingerprint": input_fingerprint,
+                "pipeline_id": pipeline_id,
+                "pipeline_lineage": list(lineage),
             },
             sort_keys=True,
         )
         + "\n"
     ).encode()
+
+
+def _pipeline_root(root: Path, pipeline_id: str) -> Path:
+    SchemaPipeline(pipeline_id)
+    return root / "pipelines" / pipeline_id
+
+
+def _agent_schema_paths(manifest: dict[str, object]) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    plugins = manifest.get("plugins")
+    if isinstance(plugins, list):
+        for provider in plugins:
+            if not isinstance(provider, dict):
+                continue
+            agent_schema = provider.get("agent_schema")
+            if isinstance(agent_schema, dict):
+                result.append(_split_plugin_path(agent_schema.get("path")))
+    node_kinds = manifest.get("node_kinds")
+    if isinstance(node_kinds, dict):
+        agent_schema = node_kinds.get("agent_schema")
+        if isinstance(agent_schema, dict):
+            result.append(_split_plugin_path(agent_schema.get("path")))
+    return result
+
+
+def _reference_paths(manifest: dict[str, object]) -> list[tuple[str, str, str | None]]:
+    result: list[tuple[str, str, str | None]] = []
+    plugins = manifest.get("plugins")
+    if isinstance(plugins, list):
+        for provider in plugins:
+            if not isinstance(provider, dict) or not isinstance(provider.get("plugin_id"), str):
+                continue
+            plugin_id = provider["plugin_id"]
+            references = provider.get("references")
+            if not isinstance(references, list):
+                continue
+            for reference in references:
+                if not isinstance(reference, dict):
+                    continue
+                title = reference.get("title")
+                result.append(
+                    (
+                        plugin_id,
+                        _safe_relative_path(reference.get("path")),
+                        title if isinstance(title, str) else None,
+                    )
+                )
+    node_kinds = manifest.get("node_kinds")
+    if isinstance(node_kinds, dict) and isinstance(node_kinds.get("references"), list):
+        for reference in node_kinds["references"]:
+            if not isinstance(reference, dict):
+                continue
+            plugin_id, path = _split_plugin_path(reference.get("path"))
+            title = reference.get("title")
+            result.append((plugin_id, path, title if isinstance(title, str) else None))
+    return result
+
+
+def _split_plugin_path(value: object) -> tuple[str, str]:
+    path = PurePosixPath(_safe_relative_path(value))
+    if len(path.parts) < 3 or path.parts[0] != "plugins":
+        raise RuntimeError("cached manifest contains an invalid plugin artifact path")
+    return path.parts[1], PurePosixPath(*path.parts[2:]).as_posix()
+
+
+def _safe_relative_path(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("cached manifest contains an invalid artifact path")
+    path = PurePosixPath(value)
+    if path.is_absolute() or not path.parts or ".." in path.parts:
+        raise RuntimeError("cached manifest contains an unsafe artifact path")
+    return path.as_posix()
 
 
 def _containerlab_input(

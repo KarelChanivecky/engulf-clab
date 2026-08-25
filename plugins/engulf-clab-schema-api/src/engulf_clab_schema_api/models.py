@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+
+ECLAB_SCHEMA_PIPELINE_ID = "eclab"
+_SCHEMA_PIPELINE_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def _validate_schema_pipeline_id(value: str, *, label: str = "pipeline_id") -> None:
+    if not isinstance(value, str) or _SCHEMA_PIPELINE_ID.fullmatch(value) is None:
+        raise ValueError(
+            f"{label} must be a lowercase normalized identifier containing letters, digits, "
+            "or single hyphens"
+        )
+
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
@@ -201,6 +214,50 @@ class SchemaDeclarationFailure:
 type SchemaRegistryEntry = RecordedPluginSchema | SchemaDeclarationFailure
 
 
+@dataclass(frozen=True, slots=True)
+class SchemaPipeline:
+    pipeline_id: str
+    parent_pipeline_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_schema_pipeline_id(self.pipeline_id)
+        if self.parent_pipeline_id is not None:
+            _validate_schema_pipeline_id(self.parent_pipeline_id, label="parent_pipeline_id")
+            if self.parent_pipeline_id == self.pipeline_id:
+                raise ValueError("a schema pipeline cannot inherit from itself")
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaContribution:
+    pipeline_id: str
+    entry: SchemaRegistryEntry
+
+    def __post_init__(self) -> None:
+        _validate_schema_pipeline_id(self.pipeline_id)
+        if not isinstance(self.entry, (RecordedPluginSchema, SchemaDeclarationFailure)):
+            raise TypeError("entry must be a recorded schema or declaration failure")
+
+    @property
+    def plugin_id(self) -> str:
+        return self.entry.plugin_id
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaRegistry:
+    pipelines: tuple[SchemaPipeline, ...] = (SchemaPipeline(ECLAB_SCHEMA_PIPELINE_ID),)
+    contributions: tuple[SchemaContribution, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.pipelines) is not tuple or any(
+            not isinstance(item, SchemaPipeline) for item in self.pipelines
+        ):
+            raise TypeError("pipelines must be a tuple of SchemaPipeline values")
+        if type(self.contributions) is not tuple or any(
+            not isinstance(item, SchemaContribution) for item in self.contributions
+        ):
+            raise TypeError("contributions must be a tuple of SchemaContribution values")
+
+
 class ContainerlabSourceKind(StrEnum):
     CHECKOUT = "checkout"
     BINARY = "binary"
@@ -231,6 +288,10 @@ class SchemaBuildRequest:
     request_id: str
     required: bool = True
     current_fingerprint: str | None = None
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID
+
+    def __post_init__(self) -> None:
+        _validate_schema_pipeline_id(self.pipeline_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,3 +320,16 @@ class CompiledSchemaBundle:
     catalog_markdown: bytes
     references: tuple[CompiledReference, ...]
     plugin_schemas: tuple[CompiledPluginSchema, ...] = ()
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID
+    pipeline_lineage: tuple[str, ...] = (ECLAB_SCHEMA_PIPELINE_ID,)
+
+    def __post_init__(self) -> None:
+        _validate_schema_pipeline_id(self.pipeline_id)
+        if type(self.pipeline_lineage) is not tuple or not self.pipeline_lineage:
+            raise ValueError("pipeline_lineage must be a nonempty tuple")
+        for pipeline_id in self.pipeline_lineage:
+            _validate_schema_pipeline_id(pipeline_id, label="pipeline_lineage entry")
+        if self.pipeline_lineage[-1] != self.pipeline_id:
+            raise ValueError("pipeline_lineage must end with pipeline_id")
+        if len(set(self.pipeline_lineage)) != len(self.pipeline_lineage):
+            raise ValueError("pipeline_lineage must not contain a cycle")

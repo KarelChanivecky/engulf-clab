@@ -16,6 +16,7 @@ from typing import Self, cast
 from engulf_api import ApplicationMetadata
 
 from .models import (
+    ECLAB_SCHEMA_PIPELINE_ID,
     UNSET,
     ExplainedValue,
     JsonScalar,
@@ -31,6 +32,7 @@ from .models import (
     ReferenceSnapshot,
     RequirementKind,
     RuntimeRequirement,
+    SchemaPipeline,
     SchemaScope,
     SemanticAnnotation,
     TaskRoute,
@@ -190,13 +192,21 @@ def normalized_short_product(application: ApplicationMetadata) -> str:
 
 
 class PluginSchema:
-    def __init__(self, plugin_id: str, *, package: str) -> None:
+    def __init__(
+        self,
+        plugin_id: str,
+        *,
+        package: str,
+        pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+    ) -> None:
         if not isinstance(plugin_id, str) or _PLUGIN_ID.fullmatch(plugin_id) is None:
             raise ValueError("plugin_id must be a lowercase dot-qualified identifier")
         if not isinstance(package, str) or not package:
             raise ValueError("package must be a nonempty import package name")
+        SchemaPipeline(pipeline_id)
         self.plugin_id = plugin_id
         self.package = package
+        self.pipeline_id = pipeline_id
         self._options: list[OptionDeclaration] = []
         self._use_cases: list[str] = []
         self._rejections: list[str] = []

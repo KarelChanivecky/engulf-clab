@@ -71,10 +71,10 @@ Freeze copies the source lab while excluding the active application's
 known license files, and the current lab's `clab-<lab-name>` Containerlab
 runtime directory. This state-directory prefix
 is derived from the active application's short product name — unlike the
-fixed `ECLAB` label prefix above, it is expected to stay the same across every
-edition (so their state converges on one shared `.eclab/` directory), but
-technically follows whatever `short_product_name` the active launcher
-reports. Empty directories left after exclusions are omitted. Add extra
+fixed `ECLAB` label prefix above. Branding-only editions may keep `eclab` and
+share `.eclab/`; a superset executable with its own schema pipeline uses its
+pipeline ID as `short_product_name` and therefore gets separate state. Empty
+directories left after exclusions are omitted. Add extra
 Git-ignore-style patterns to `.<state-prefix-lowercase>-freezeignore`; base
 eclab uses `.eclab-freezeignore`. Symlinks that point outside the source lab
 are rejected.
