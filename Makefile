@@ -1,10 +1,13 @@
 PYTHON := .venv/bin/python
 SKILL_PACKAGE_DIR := plugins/engulf-clab-develop-lab-skill
 SKILL_DISTRIBUTION := engulf-clab-develop-eclab-lab
+STATIC_SKILL_PACKAGE_DIR := skills/engulf-clab-develop-eclab-lab-static
+STATIC_SKILL_DISTRIBUTION := engulf-clab-develop-eclab-lab-static
 PACKAGE_DIRS := \
 	plugins/engulf-clab-schema-api \
 	plugins/engulf-clab-schema \
 	plugins/engulf-clab-develop-lab-skill \
+	skills/engulf-clab-develop-eclab-lab-static \
 	plugins/engulf-clab-containers-api \
 	plugins/engulf-clab-lab-parser \
 	plugins/engulf-clab-lab-writer \
@@ -60,6 +63,14 @@ publish: build
 	}
 	@test -n "$$(find "dist/$$(basename "$(SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_eclab_lab-*.tar.gz' -print -quit)" || { \
 		echo "error: $(SKILL_DISTRIBUTION) sdist is missing from the release artifacts" >&2; \
+		exit 1; \
+	}
+	@test -n "$$(find "dist/$$(basename "$(STATIC_SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_eclab_lab_static-*.whl' -print -quit)" || { \
+		echo "error: $(STATIC_SKILL_DISTRIBUTION) wheel is missing from the release artifacts" >&2; \
+		exit 1; \
+	}
+	@test -n "$$(find "dist/$$(basename "$(STATIC_SKILL_PACKAGE_DIR)")" -maxdepth 1 -type f -name 'engulf_clab_develop_eclab_lab_static-*.tar.gz' -print -quit)" || { \
+		echo "error: $(STATIC_SKILL_DISTRIBUTION) sdist is missing from the release artifacts" >&2; \
 		exit 1; \
 	}
 	@$(PYTHON) -m twine upload --repository-url "$$TWINE_REPOSITORY_URL" dist/*/*

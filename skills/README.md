@@ -1,6 +1,6 @@
 # Runtime-generated lab skill
 
-The lab-development skill is no longer maintained as a repository snapshot.
+The primary lab-development skill is no longer maintained as a repository snapshot.
 Installed Engulf plugins describe their own commands, CLI controls, runtime
 variables, topology extensions, use cases, exclusions, and packaged references
 through `engulf-clab-schema-api`.
@@ -66,6 +66,23 @@ artifact, and refresh only stale or incomplete tracked targets. A deleted
 target or one that no longer has its ownership marker is untracked; an unsafe or
 manually replaced target is reported and left alone.
 
+## Static comparison baseline
+
+The historical self-contained skill remains buildable as
+`engulf-clab-develop-eclab-lab-static` for effectiveness comparisons. It keeps
+the last static snapshot from before runtime-generated composition and installs
+beside the generated target as `develop-eclab-lab-static`:
+
+```bash
+python -m pip install engulf-clab-develop-eclab-lab-static
+develop-eclab-lab-static-install
+```
+
+Invoke `$develop-eclab-lab-static` explicitly when evaluating the baseline and
+`$develop-eclab-lab` for the generated version. The static package is frozen as
+a comparison artifact; normal plugin and documentation changes update only the
+generated skill pipeline.
+
 Newly discovered eclab plugins participate automatically when they depend on
 `engulf_clab.schema` and call `record_plugin_schema()` during `before_goal`.
 Because the generator is declared as an after-dependency, it sees every
@@ -129,6 +146,7 @@ make check-skill
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-schema-api
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-schema
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-develop-lab-skill
+.venv/bin/python -m build --no-isolation skills/engulf-clab-develop-eclab-lab-static
 ```
 
 For an integration check, install the built packages into a temporary virtual

@@ -33,11 +33,11 @@ meta-package to enable the complete maintained set.
 | --- | --- |
 | This README | Installation choices, package map, common topology patterns, workspace/state, editions, and releases |
 | `engulf-clab/README.md` | Wrapper behavior, argument forwarding, plugin discovery, diagnostics, and library use |
-| `plugins/*/USAGE.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
-| `plugins/*/CONTRIBUTING.md` | Per-package role, architecture, invariants, and validation commands |
+| `plugins/*/README.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
 | `mcp-server/README.md` | Privileged local MCP architecture, configuration, tools, security boundary, and operations |
 | `CONTRIBUTING.md` | Development setup, Engulf contracts, documentation standards, validation, commits, and releases |
-| `skills/README.md` | Runtime-generated lab-skill architecture, installation, and contributor contract |
+| `skills/README.md` | Skill architecture, source synchronization, installation, hooks, packaging, and release workflow |
+| `skills/engulf-clab-develop-eclab-lab-static/SKILL.md` | Concise agent workflow for building and troubleshooting labs |
 
 The nearest `AGENTS.md` adds non-user-facing invariants for agents changing a
 specific package. Package source and tests remain the precise specification for
@@ -68,7 +68,6 @@ python -m pip install engulf-clab engulf-clab-all-plugins
 
 eclab deploy -t lab.clab.yml
 eclab destroy -t lab.clab.yml
-eclab install-completion  # Detect Bash, Zsh, or Fish from SHELL.
 
 # Create a portable, sanitized copy for sharing.
 eclab freeze
@@ -128,16 +127,6 @@ that environment. For an edition, run the edition launcher's commands instead;
 an installation of base eclab does not prove that the edition declares the same
 plugins.
 
-`install-completion [bash|zsh|fish] [--output PATH]` installs completion for the
-selected launcher. It prefers any registered native Containerlab completer; when
-none exists, it sources the configured Containerlab executable's trusted
-`completion <shell>` output once. Native and schema-declared plugin candidates are
-then merged, while schema candidates remain available if native completion cannot be
-loaded. Schema-backed wrapper flags provide per-invocation forms for most
-process-level configuration variables. The environment variables remain supported
-for persistent defaults, and CLI values win when both are present. Node `env` values
-in topology YAML are unaffected.
-
 Direct `containerlab` remains valid for labs that do not need wrapper features.
 It cannot interpret eclab-managed WAN labels, allocate pooled licenses, prepare
 packaged container recipes, build declared images, or create frozen archives.
@@ -149,7 +138,6 @@ plugins around one call:
 
 ```text
 CLI arguments
-  -> schema-backed wrapper options are consumed into the invocation environment
   -> every plugin analyzes without side effects
   -> accepted plugins prepare resources and deferred topology mutations
   -> the writer materializes one temporary topology beside the source file
@@ -183,9 +171,8 @@ The publisher removes and rebuilds the root `dist/` tree, validates every wheel
 and source distribution with Twine, and uploads only those fresh artifacts. If
 the URL matches the package repository managed by the neighboring Engulf
 checkout, it verifies that the managed container is active and loads its upload
-token and CA automatically. The publish target explicitly checks that wheel and
-source distributions for both `engulf-clab-develop-eclab-lab` and the static
-comparison skill are present before uploading.
+token and CA automatically. The publish target explicitly checks that both the
+`engulf-clab-develop-eclab-lab-static` wheel and source distribution are present before uploading.
 Set `ENGULF_DIR` when that checkout is not at
 `../engulf`; credentials for other repositories use Twine's normal environment
 variables or configuration.
@@ -237,7 +224,7 @@ sudo /opt/eclab-mcp/venv/bin/eclab-mcp-install-system \
   --user "$USER"
 ```
 
-See [the MCP server guide](mcp-server/README.md) for its root-owned TOML
+See [the MCP server guide](eclab-mcp.md) for its root-owned TOML
 configuration, client setup, environment override boundary, and uninstall
 procedure. Members of the `eclab-mcp` group are trusted lab operators; a
 writable configured lab root is privileged input. The guided source installer
@@ -276,7 +263,7 @@ export ROUTER_LICENSES=$PWD/licenses
 eclab deploy -t demo.clab.yml
 ```
 
-See each plugin `USAGE.md` for its exact YAML fields, environment variables,
+See each plugin README for its exact YAML fields, environment variables,
 required host tools, and cleanup behavior.
 
 ## Packages
@@ -286,8 +273,6 @@ required host tools, and cleanup behavior.
 | `engulf-clab` | `eclab` | Distribution that installs the Containerlab wrapper command. |
 | `engulf-clab-mcp` | `eclab-mcp`, `eclab-mcpd` | Local Unix-socket privileged MCP executor and standard-stdio bridge. |
 | `engulf-clab-all-plugins` | None | Meta-package that installs all maintained plugins. |
-| `engulf-clab-develop-eclab-lab` | `eclab install-develop-eclab-lab-skill` | Runtime-generated eclab skill collector. |
-| `engulf-clab-develop-eclab-lab-static` | `develop-eclab-lab-static-install` | Historical static skill retained for comparative evaluation. |
 | `engulf-clab-containers-api` | Contract only | Typed contract for independently published container collections. |
 | `engulf-clab-containers` | `engulf_clab.containers` | Injects active collection recipes into temporary topologies. |
 | `engulf-clab-containers-core` | `eclab.containers` | Core host-connector collection. |
@@ -376,8 +361,8 @@ directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
 `ECLAB_LICENSE_<NODE>`. Destroy an active lab before freezing it. Use
 `.<state-prefix-lowercase>-freezeignore` for extra Git-ignore-style
 exclusions; external symlinks are rejected. The active application's
-`.<state-prefix-lowercase>` lab state (namespaced by short product name and kept
-separate from the fixed label prefix),
+`.<state-prefix-lowercase>` lab state (namespaced by short product name, kept
+separate from the fixed label prefix so every edition's state converges),
 Containerlab's `clab-<lab-name>` runtime directory, and empty directories left
 after exclusions are omitted.
 
@@ -392,13 +377,14 @@ written for one edition works unchanged under any other, so users are not
 confused by near-identical prefixes (`ECLAB_*` versus something
 edition-specific) that mean the same thing.
 
-`short_product_name` is not used for those portable topology keys. It names
-topology-local state and the runtime schema pipeline. A launcher that only
-changes branding may keep `"eclab"` and share base state and schema. A distinct
-superset executable with its own generated skill uses a unique lowercase
-hyphen-normalized value, registers a schema pipeline with `eclab` as its parent,
-and therefore receives separate topology-local state and schema artifacts.
-`display_name`, `vendor`, and `product` remain its command-facing branding:
+`short_product_name` is expected to stay `"eclab"` across every edition
+instead. It is not used for labels; it namespaces the topology-local state
+directory that plugins like `engulf-clab-freeze` and
+`engulf-clab-license-pool` write beside a lab (`.eclab/...`). Keeping it
+identical across editions means their state converges on that one shared
+directory rather than fragmenting per edition. `display_name`, `vendor`, and
+`product` are what an edition customizes for its own command-facing
+branding:
 
 ```python
 from engulf_clab import CONTAINERLAB_APPLICATION
@@ -407,15 +393,9 @@ ACME_CLAB = CONTAINERLAB_APPLICATION.edition(
     display_name="acme-clab",
     vendor="Acme Networks",
     product="Acme Containerlab",
-    short_product_name="acme-clab",
     include_plugins={"com.example.acme.containerlab"},
 )
 ```
-
-The edition's collector requests only `acme-clab`; base eclab declarations are
-inherited and expanded against the running edition metadata. The bundled
-`engulf-clab-develop-eclab-lab` collector remains exclusive to eclab, so the
-edition owns its own skill command, renderer, target, and refresh tracking.
 
 ## Contributing
 
@@ -423,14 +403,13 @@ Use Python 3.14 and the repository `.venv` when present. Keep changes focused
 and run the narrowest relevant checks, such as unit tests, bytecode compilation,
 plugin discovery, and `ruff check`.
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete development setup,
+Read [`CONTRIBUTING.md`](eclab-contributing.md) for the complete development setup,
 plugin lifecycle contract, package checklist, documentation requirements,
 validation matrix, commit policy, and release workflow.
 
 Each plugin under `plugins/` is a self-contained distribution. A new plugin
-needs its own concise `README.md`, complete `USAGE.md`, contributor-oriented
-`CONTRIBUTING.md`, `AGENTS.md`, MIT `LICENSE`, `pyproject.toml`, `src/` package,
-and `py.typed` marker when typed. Plugins import `engulf_api` and
+needs its own `AGENTS.md`, MIT `LICENSE`, `pyproject.toml`, `src/` package, and
+`py.typed` marker when typed. Plugins import `engulf_api` and
 `engulf_executable_wrapper_api`, never the `engulf` runtime. Implement
 side-effect-free `analyze_call()`; perform external work in `prepare_call()` or
 `after_call()`; report through the callback logger; and use leases/state
@@ -444,32 +423,30 @@ engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
 engulf.plugins.v1.application.engulf_clab
 ```
 
-### Runtime-generated skill
+### Repository skill
 
-Each installed plugin declares its exact controls and packaged references. The
-schema generator emits a task catalog and compact YAML capability file for each
-plugin, while also combining the declarations with the selected Containerlab
-source's `schemas/clab.schema.json` for complete validation.
-`engulf-clab-develop-eclab-lab` installs the base result as the static,
-fingerprinted `develop-eclab-lab` Codex skill. Read
-[`skills/README.md`](skills/README.md) for the contract and lifecycle.
-
-For the standard edition, install it into a Codex configuration root with:
+The canonical `develop-eclab-lab` Codex skill lives under
+`skills/develop-eclab-lab` and is distributed as the separately buildable
+`engulf-clab-develop-eclab-lab-static` pip package.
+Read `skills/README.md` in a source checkout before changing its definition,
+source mappings, normalizations, package data, installer, or hooks.
+Install a user-level copy and configure this checkout's hooks with:
 
 ```bash
-eclab install-develop-eclab-lab-skill "$CODEX_HOME"
+make install-skill
 ```
 
-Superset editions declare and request their own inherited schema pipeline,
-consume the resulting bundle, and own a separate skill package. The eclab
-installer refuses unsafe or unrelated destinations and refreshes only its
-tracked eclab installations after later runtime schema changes. Run `make
-check-skill` in CI.
+The pip package embeds the skill and all copied Engulf/ECLAB context. After
+installing `engulf-clab-develop-eclab-lab-static`, run `develop-eclab-lab-static-install` to copy the
+embedded skill into `$CODEX_HOME/skills/develop-eclab-lab`, or
+`~/.codex/skills/develop-eclab-lab` when `CODEX_HOME` is unset. The installed
+skill does not need this checkout. Use `develop-eclab-lab-static-install --check` to
+compare an installed copy with its package and `--skills-dir` / `--backup-dir`
+for non-default locations.
 
-For a side-by-side baseline, install
-`engulf-clab-develop-eclab-lab-static` and explicitly invoke
-`$develop-eclab-lab-static`. Its target is distinct from the generated
-`$develop-eclab-lab` skill.
+Run `make update-skill` after changing documentation copied into the skill, and
+run `make check-skill` in CI. The hooks compare staged documentation with its
+staged skill reference and reject vendor-specific material in the new skill.
 Commits that change wrapper, plugin, or MCP behavior or documentation must
 include exactly one review trailer:
 
@@ -477,7 +454,8 @@ include exactly one review trailer:
 Skill-Impact: updated
 ```
 
-or `Skill-Impact: none`.
+or `Skill-Impact: none`. The `updated` value requires a staged change beneath
+`skills/engulf-clab-develop-eclab-lab-static/`.
 
 ## License
 

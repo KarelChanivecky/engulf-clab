@@ -1,0 +1,4 @@
+interface:
+  display_name: "Develop CLAB with eclab (Static)"
+  short_description: "Compare the static eclab lab workflow"
+  default_prompt: "Use $develop-eclab-lab-static to build or troubleshoot an eclab lab using the historical static guidance."
