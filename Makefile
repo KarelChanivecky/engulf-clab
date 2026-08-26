@@ -27,7 +27,7 @@ PACKAGES := \
 # Package name -> source directory
 DIR_engulf-clab-schema-api := plugins/engulf-clab-schema-api
 DIR_engulf-clab-schema := plugins/engulf-clab-schema
-DIR_engulf-clab-develop-eclab-lab := plugins/engulf-clab-develop-lab-skill
+DIR_engulf-clab-develop-eclab-lab := plugins/engulf-clab-develop-eclab-lab
 DIR_engulf-clab-develop-eclab-lab-static := skills/engulf-clab-develop-eclab-lab-static
 DIR_engulf-docker-image-api := plugins/engulf-docker-image-api
 DIR_engulf-docker-image-core := plugins/engulf-docker-image-core
