@@ -139,6 +139,13 @@ example `engulf_clab.example`.
 - Run direct-consumer tests after changing a shared contract: parser changes
   affect mutators/writer, container API changes affect manager/collections, and
   checkout changes affect both ensure plugins.
+- When bumping a package version, sweep the dependency pins for it. Search every
+  `pyproject.toml` in the repository (including `engulf-clab/` and `mcp-server/`)
+  for the package name and raise any consumer floor that the new version breaks,
+  bumping the consumer's own version when its `pyproject.toml` changes. Before
+  publishing, install the full set into `.venv` and run `.venv/bin/pip check` —
+  a successful publish does not clear a stale consumer pin, and the conflict only
+  surfaces at install time on someone else's machine.
 - Check installed documentation surfaces with `.venv/bin/eclab --help`,
   `.venv/bin/eclab --engulf-plugin-list`, and any advertised secondary help.
 - Run `make check-skill` after schema, plugin behavior, or generated-skill
