@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import shlex
 from collections.abc import Mapping
@@ -15,9 +14,11 @@ from .topology import topology_nodes
 # convention: labels/env vars must stay portable regardless of the active
 # application's product metadata.
 LABEL_PREFIX = "ECLAB"
+BASE_NODE_ENV = f"{LABEL_PREFIX}_DOCKER_BASE_NODE"
 _RESERVED_ARGUMENTS = frozenset(("-f", "--file", "-t", "--tag"))
 _IMAGE_VARIABLE_SYNTAX = re.compile(r"\$(?:\$|\{?[A-Za-z_][A-Za-z0-9_]*)")
-DEFAULT_DOCKER_BUILD_JOBS = 2
+_TRUE_VALUES = frozenset(("1", "on", "true", "yes"))
+_FALSE_VALUES = frozenset(("0", "off", "false", "no"))
 
 
 @dataclass(frozen=True)
@@ -28,20 +29,7 @@ class BuildRequest:
     context: Path
     build_args: tuple[tuple[str, str], ...]
     extra_args: tuple[str, ...]
-
-
-def docker_build_jobs(environ: Mapping[str, str] | None = None) -> int:
-    variable = f"{LABEL_PREFIX}_DOCKER_BUILD_JOBS"
-    value = (os.environ if environ is None else environ).get(variable)
-    if value is None:
-        return DEFAULT_DOCKER_BUILD_JOBS
-    try:
-        jobs = int(value)
-    except ValueError as error:
-        raise DockerfileError(f"{variable} must be a positive integer") from error
-    if jobs < 1:
-        raise DockerfileError(f"{variable} must be a positive integer")
-    return jobs
+    base_node: bool = False
 
 
 def _optional_string(mapping: Mapping[str, Any], key: str, *, owner: str) -> str | None:
@@ -52,6 +40,22 @@ def _optional_string(mapping: Mapping[str, Any], key: str, *, owner: str) -> str
         raise DockerfileError(f"{owner} {key} must be a string")
     value = value.strip()
     return value or None
+
+
+def _optional_boolean(mapping: Mapping[str, Any], key: str, *, owner: str) -> bool:
+    value = mapping.get(key)
+    if value is None:
+        return False
+    if not isinstance(value, str):
+        raise DockerfileError(f"{owner} {key} must be a boolean string")
+    normalized = value.strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+    raise DockerfileError(
+        f"{owner} {key} must be one of true, false, 1, 0, yes, no, on, or off"
+    )
 
 
 def _resolve_path(value: str, *, topology_dir: Path, label: str) -> Path:
@@ -70,6 +74,14 @@ def _extra_args(value: str, *, node_name: str) -> tuple[str, ...]:
     except ValueError as error:
         raise DockerfileError(f"node {node_name} has invalid Docker arguments: {error}") from error
     for argument in args:
+        if argument == "--pull" or (
+            argument.startswith("--pull=")
+            and argument.removeprefix("--pull=").lower() not in ("false", "0")
+        ):
+            raise DockerfileError(
+                f"node {node_name} must not enable {argument} in Docker arguments; "
+                "base images are provisioned through the image graph"
+            )
         if argument in _RESERVED_ARGUMENTS or argument.startswith(("--file=", "--tag=")):
             raise DockerfileError(
                 f"node {node_name} must not set {argument} in Docker arguments; "
@@ -99,8 +111,17 @@ def build_requests_from_topology(
             continue
         if not isinstance(environment, dict):
             raise DockerfileError(f"node {node.name} env must be a YAML mapping")
+        base_node = _optional_boolean(
+            environment,
+            BASE_NODE_ENV,
+            owner=f"node {node.name}",
+        )
         dockerfile_value = _optional_string(environment, dockerfile_key, owner=f"node {node.name}")
         if dockerfile_value is None:
+            if base_node:
+                raise DockerfileError(
+                    f"node {node.name} sets {BASE_NODE_ENV} but not {dockerfile_key}"
+                )
             continue
         context_value = _optional_string(environment, context_key, owner=f"node {node.name}")
         if context_value is None:
@@ -113,7 +134,9 @@ def build_requests_from_topology(
                 f"node {node.name} image tag must be literal and must not use variable syntax: "
                 f"{image}"
             )
-        dockerfile = _resolve_path(dockerfile_value, topology_dir=topology_dir, label=dockerfile_key)
+        dockerfile = _resolve_path(
+            dockerfile_value, topology_dir=topology_dir, label=dockerfile_key
+        )
         if not dockerfile.is_file():
             raise DockerfileError(f"{dockerfile_key} must name a file: {dockerfile}")
         context = _resolve_path(context_value, topology_dir=topology_dir, label=context_key)
@@ -137,7 +160,10 @@ def build_requests_from_topology(
                 dockerfile=dockerfile,
                 context=context,
                 build_args=tuple(sorted(build_args)),
-                extra_args=() if extra_value is None else _extra_args(extra_value, node_name=node.name),
+                extra_args=()
+                if extra_value is None
+                else _extra_args(extra_value, node_name=node.name),
+                base_node=base_node,
             )
         )
     return requests

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-containers-core"
-version = "0.1.1"
+version = "0.2.0"
 description = "Core packaged container collection for engulf-clab"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -14,8 +14,9 @@ dependencies = [
     "engulf-executable-wrapper-api>=1.0,<2",
     "engulf-clab-schema-api>=1.0,<2",
     "engulf-clab-schema>=0.1,<0.2",
-    "engulf-clab-containers-api>=1.0,<2",
-    "engulf-clab-containers>=0.1,<0.2",
+    "engulf-clab-containers-api>=1.1,<2",
+    "engulf-clab-containers>=0.2,<0.3",
+    "engulf-docker-image-api>=1.0,<2",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
@@ -23,6 +24,9 @@ dependencies = [
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "eclab.containers" = "engulf_clab_containers_core:plugin"
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_docker_image"]
+"eclab.containers" = "engulf_clab_containers_core:image_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_containers_core"]

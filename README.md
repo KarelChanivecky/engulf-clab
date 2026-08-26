@@ -16,6 +16,7 @@ meta-package to enable the complete maintained set.
 - [Quick start](#quick-start)
 - [Topology language and runtime discovery](#topology-language-and-runtime-discovery)
 - [Invocation lifecycle](#invocation-lifecycle)
+- [Reusable image providers](#reusable-image-providers)
 - [Publishing](#publishing)
 - [Local MCP control service](#local-mcp-control-service)
 - [Typical topology](#typical-topology)
@@ -151,7 +152,9 @@ plugins around one call:
 CLI arguments
   -> schema-backed wrapper options are consumed into the invocation environment
   -> every plugin analyzes without side effects
-  -> accepted plugins prepare resources and deferred topology mutations
+  -> accepted plugins prepare resources, graph fragments, and deferred topology mutations
+  -> image providers resolve recursively and selected build/pull recipes run dependency-first
+  -> provisioned roots are marked image-pull-policy Never in the derived topology
   -> the writer materializes one temporary topology beside the source file
   -> Containerlab runs with the effective arguments
   -> plugins perform outcome-aware cleanup
@@ -163,11 +166,39 @@ beside it preserves Containerlab's relative-path behavior, and the writer
 removes the temporary file after the wrapped call.
 
 Plugin dependencies establish correctness-sensitive ordering. In a complete
-installation, collections register recipes before the manager injects them;
-the parser publishes the immutable topology before mutators run; ensure plugins
-prepare tool sources before builders; and the writer runs after all mutators.
+installation, collections register before the manager exposes their image
+provider; the parser publishes the immutable topology before mutators run;
+Dockerfile adapters contribute graph fragments before the image dispatcher;
+ensure plugins prepare tool sources before builders; and the writer runs after
+all mutators and image resolution.
 Use the live plugin list rather than relying on a hard-coded sequence when
 debugging another edition or package set.
+
+## Reusable image providers
+
+Docker image resolution is not tied to eclab or YAML. The
+`engulf-docker-image-api` distribution defines immutable roots, recipes,
+parameters, provider responses, context registries, and the
+`org.engulf.docker-image` goal plugin contract. `engulf-docker-image-core`
+provides Dockerfile `FROM` analysis, authority-ranked provider selection with
+execution fallback, a low-authority pull provisioner, and dependency-first
+execution:
+
+```text
+application-owned parser -> ImageBuildGraph -> provider dispatcher
+                                             -> dependency requirement -> providers again
+                                             <- selected recipes on backtracking
+                                             -> Docker builds/pulls, dependencies first
+```
+
+An application can parse JSON, YAML, value files, or programmatic input and
+inject only a graph loader into `DockerImageGoal`. Providers publish against
+that neutral goal catalog. eclab instead uses a thin executable-wrapper adapter:
+final node `image` values become roots, node-local custom parameters remain
+ordinary node `env` entries, Dockerfile nodes contribute graph fragments, and packaged
+containers register providers. The Dockerfile and container plugins import
+neither one another nor one another's IDs; both depend only on the neutral
+contract and `engulf_clab.image_build` dispatcher.
 
 ## Publishing
 
@@ -261,6 +292,12 @@ name: demo
 
 topology:
   nodes:
+    router-base-build:
+      image: example/router-base:dev
+      env:
+        ECLAB_DOCKERFILE: router-base/Dockerfile
+        ECLAB_DOCKER_CTX: router-base
+        ECLAB_DOCKER_BASE_NODE: "true"
     router:
       image: example/router:dev
       uuid: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
@@ -270,6 +307,11 @@ topology:
         ECLAB_DOCKER_CTX: router
   links: []
 ```
+
+Here `router-base-build` is an explicit image-build root but is removed from the
+derived topology before Containerlab runs. A normal `FROM
+example/router-base:dev` in `router/Dockerfile` connects the recipes; each node
+keeps its own context, build arguments, and Docker flags.
 
 ```bash
 export ROUTER_LICENSES=$PWD/licenses
@@ -288,12 +330,15 @@ required host tools, and cleanup behavior.
 | `engulf-clab-all-plugins` | None | Meta-package that installs all maintained plugins. |
 | `engulf-clab-develop-eclab-lab` | `eclab install-develop-eclab-lab-skill` | Runtime-generated eclab skill collector. |
 | `engulf-clab-develop-eclab-lab-static` | `develop-eclab-lab-static-install` | Historical static skill retained for comparative evaluation. |
+| `engulf-docker-image-api` | Contract only | Application-neutral image graph, parameter, provider, and Engulf goal-plugin contracts. |
+| `engulf-docker-image-core` | Library/goal | Recursive Dockerfile dependency resolution, provider backtracking, and dependency-first builds. |
 | `engulf-clab-containers-api` | Contract only | Typed contract for independently published container collections. |
-| `engulf-clab-containers` | `engulf_clab.containers` | Injects active collection recipes into temporary topologies. |
+| `engulf-clab-containers` | `engulf_clab.containers` | Injects collection runtime fields and registers the collection image provider. |
 | `engulf-clab-containers-core` | `eclab.containers` | Core host-connector collection. |
 | `engulf-clab-ensure-checkout` | Library only | Shared safe Git checkout provisioning and update logic. |
 | `engulf-clab-ensure-containerlab` | `engulf_clab.ensure_containerlab` | Finds, builds, or provisions Containerlab. |
-| `engulf-clab-dockerfile-build` | `engulf_clab.dockerfile_build` | Builds node images declared with Dockerfile variables. |
+| `engulf-clab-image-build` | `engulf_clab.image_build` | Maps topology images and node-env parameters into the neutral graph and dispatches builds. |
+| `engulf-clab-dockerfile-build` | `engulf_clab.dockerfile_build` | Contributes node-owned Dockerfile recipes and build-only image nodes. |
 | `engulf-clab-ensure-vrnetlab` | `engulf_clab.ensure_vrnetlab` | Finds or provisions a vrnetlab checkout. |
 | `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
 | `engulf-clab-license-pool` | `engulf_clab.license_pool` | Shares license files safely across labs. |

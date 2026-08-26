@@ -9,12 +9,12 @@ Install this package to author or type-check a collection. Lab users normally
 receive it through a collection or manager dependency:
 
 ```bash
-python -m pip install 'engulf-clab-containers-api>=1.0,<2'
+python -m pip install 'engulf-clab-containers-api>=1.1,<2'
 ```
 
-The API imports the stable `engulf_api` and
-`engulf_executable_wrapper_api` contracts. It does not import or initialize the
-Engulf runtime.
+The API imports the stable `engulf_api`, `engulf_executable_wrapper_api`, and
+application-neutral `engulf_docker_image_api` contracts. It does not import or
+initialize the Engulf runtime.
 
 ## Contents
 
@@ -48,6 +48,8 @@ plugin = ContainerCollectionPlugin(
             build=ContainerBuildRecipe(
                 dockerfile=root / "containers" / "utility" / "Dockerfile",
                 context=root,
+                build_args={"EDITION": "community"},
+                parameter_build_args={"RELEASE": "APP_RELEASE"},
             ),
             node=ContainerNodeRequirements(cap_add=("NET_ADMIN",)),
         ),
@@ -66,8 +68,8 @@ as the entry-point name:
 "vendor.containers" = "vendor_collection:plugin"
 ```
 
-The collection package depends on `engulf-clab-containers-api>=1.0,<2` and
-`engulf-clab-containers>=0.1,<0.2`. Its plugin ID owns the image namespace after
+The collection package depends on `engulf-clab-containers-api>=1.1,<2` and
+`engulf-clab-containers>=0.2,<0.3`. Its plugin ID owns the image namespace after
 underscores are converted to hyphens, so the example exposes
 `vendor.containers/utility:latest`. Two active plugins cannot own the same
 namespace. Dockerfiles and everything they `COPY` must be included in the
@@ -84,17 +86,23 @@ All public values are immutable dataclasses or immutable registrations:
 
 | Type / function | Fields and behavior |
 | --- | --- |
-| `ContainerBuildRecipe` | Absolute `dockerfile: Path` and absolute build `context: Path`. The manager later verifies that both exist and that the Dockerfile is inside the context. |
+| `ContainerBuildRecipe` | Absolute `dockerfile` and `context`; optional fixed `build_args`; optional `parameter_build_args` mapping provider parameter names to Docker build-argument names. The manager later validates the package assets. |
 | `ContainerNodeRequirements` | `kind="linux"`; unique `cap_add` tuple; string/int `sysctls`; string/int default `environment`; `requires_management=True`. Boolean mapping values are rejected even though `bool` subclasses `int`. |
 | `ContainerDefinition` | Lowercase Docker-safe `name`, nonempty `summary`, build recipe, and optional node requirements. Names may contain internal `.`, `_`, or `-`. |
 | `RegisteredContainerCollection` | Validated dot-qualified `plugin_id` plus a tuple of definitions. Usually created internally by the collection plugin. |
 | `ContainerCollectionPlugin` | Declarative `ExecutableWrapperPlugin` that publishes its recipes to call context before the manager runs. |
+| `ContainerImageProvider` | Application-neutral provider over registered collections; resolves exact `latest` names and maps declared custom parameters to Docker build arguments. |
 | `image_namespace(plugin_id)` | Replaces underscores with hyphens; the namespace plus definition name yields `<namespace>/<name>:latest`. |
 
 Mappings are copied into read-only proxies and tuples may not contain duplicate
 capabilities. A collection's plugin ID must be lowercase and dot-qualified.
 Construction fails early for malformed declarations so invalid package data
 cannot reach topology preparation.
+
+An application using the generic Docker-image goal can wrap
+`ContainerImageProvider` with `ImageProviderPlugin` and publish it under
+`engulf.plugins.v1.goal.v1.org_engulf_docker_image`. This does not require the
+application to parse Containerlab YAML or run the eclab executable-wrapper goal.
 
 ## Manager interaction
 
@@ -107,10 +115,15 @@ manager then:
 2. lists the active catalog for `--eclab-containers-help`;
 3. matches only an explicit topology image using the canonical name or the same
    name without `:latest`;
-4. merges required Containerlab fields and edition-prefixed Dockerfile controls
-   through the shared topology editor; and
-5. lets the Dockerfile builder build the package-owned recipe before the writer
-   materializes the temporary topology.
+4. merges required Containerlab runtime fields through the shared topology editor;
+5. registers the catalog as a neutral Docker image provider; and
+6. lets the image dispatcher recursively resolve and build the selected recipe
+   before the writer materializes the temporary topology.
+
+A consuming topology supplies custom build values through the image dispatcher's
+ordinary node `env` conventions. If a suffix appears in `parameter_build_args`,
+the provider adds the mapped Docker build argument. Parameters belong only to
+the requirement for that exact image and are not inherited by dependencies.
 
 Only `latest` is supported for managed recipes. A different tag under an active
 collection namespace is rejected instead of falling through to an unrelated

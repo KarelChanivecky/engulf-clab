@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-dockerfile-build"
-version = "0.1.4"
-description = "Build Dockerfile-defined node images before engulf-clab deploy"
+version = "0.2.0"
+description = "Contribute eclab Dockerfile node recipes to the shared image build graph"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
@@ -15,6 +15,8 @@ dependencies = [
     "engulf-clab-schema-api>=1.2,<2",
     "engulf-clab-schema>=0.1,<0.2",
     "engulf-clab-lab-parser>=0.1.2,<0.2",
+    "engulf-clab-image-build>=0.1,<0.2",
+    "engulf-docker-image-api>=1.0,<2",
     "PyYAML>=6.0",
 ]
 

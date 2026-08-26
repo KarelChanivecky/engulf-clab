@@ -4,12 +4,15 @@ PACKAGES := \
 	engulf-clab-schema \
 	engulf-clab-develop-eclab-lab \
 	engulf-clab-develop-eclab-lab-static \
+	engulf-docker-image-api \
+	engulf-docker-image-core \
 	engulf-clab-containers-api \
 	engulf-clab-lab-parser \
 	engulf-clab-lab-writer \
 	engulf-clab-ensure-checkout \
 	engulf-clab-ensure-containerlab \
 	engulf-clab-ensure-vrnetlab \
+	engulf-clab-image-build \
 	engulf-clab-dockerfile-build \
 	engulf-clab-containers \
 	engulf-clab-containers-core \
@@ -26,12 +29,15 @@ DIR_engulf-clab-schema-api := plugins/engulf-clab-schema-api
 DIR_engulf-clab-schema := plugins/engulf-clab-schema
 DIR_engulf-clab-develop-eclab-lab := plugins/engulf-clab-develop-lab-skill
 DIR_engulf-clab-develop-eclab-lab-static := skills/engulf-clab-develop-eclab-lab-static
+DIR_engulf-docker-image-api := plugins/engulf-docker-image-api
+DIR_engulf-docker-image-core := plugins/engulf-docker-image-core
 DIR_engulf-clab-containers-api := plugins/engulf-clab-containers-api
 DIR_engulf-clab-lab-parser := plugins/engulf-clab-lab-parser
 DIR_engulf-clab-lab-writer := plugins/engulf-clab-lab-writer
 DIR_engulf-clab-ensure-checkout := plugins/engulf-clab-ensure-checkout
 DIR_engulf-clab-ensure-containerlab := plugins/engulf-clab-ensure-containerlab
 DIR_engulf-clab-ensure-vrnetlab := plugins/engulf-clab-ensure-vrnetlab
+DIR_engulf-clab-image-build := plugins/engulf-clab-image-build
 DIR_engulf-clab-dockerfile-build := plugins/engulf-clab-dockerfile-build
 DIR_engulf-clab-containers := plugins/engulf-clab-containers
 DIR_engulf-clab-containers-core := plugins/engulf-clab-containers-core

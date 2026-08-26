@@ -10,6 +10,7 @@ from engulf_api import (
 )
 from engulf_clab_containers_api import (
     CONTAINER_COLLECTION_CONTEXT,
+    ContainerImageProvider,
     RegisteredContainerCollection,
 )
 from engulf_clab_lab_parser import (
@@ -28,6 +29,11 @@ from engulf_clab_schema_api import (
     ValueType,
     record_plugin_schema,
 )
+from engulf_docker_image_api import (
+    IMAGE_PROVIDER_CONTEXT,
+    RegisteredImageProvider,
+    register_image_provider,
+)
 from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
@@ -37,7 +43,7 @@ from engulf_executable_wrapper_api import (
 )
 
 from .errors import ContainersError
-from .manager import LABEL_PREFIX, catalog, format_catalog, topology_edits
+from .manager import catalog, format_catalog, topology_edits
 
 _HELP_OPTION = "--eclab-containers-help"
 PLUGIN_SCHEMA = (
@@ -61,7 +67,7 @@ PLUGIN_SCHEMA = (
         shared_with=("eclab.containers",),
         examples=("eclab.containers/host-connector:latest",),
     )
-    .use_case("Use a packaged helper container and inject its required node recipe.")
+    .use_case("Use a packaged helper container with required runtime fields and image provider.")
     .reject("Do not invent collection names; inspect the installed container catalog first.")
     .order(
         LifecycleStage.BEFORE_GOAL,
@@ -70,14 +76,14 @@ PLUGIN_SCHEMA = (
     )
     .order(
         LifecycleStage.PREPARE_CALL,
-        "Recipe injection follows topology parsing and precedes builds and final serialization.",
+        "Runtime-field injection follows parsing and precedes image resolution and serialization.",
         after=("engulf_clab.lab_parser",),
-        before=("engulf_clab.dockerfile_build", "engulf_clab.lab_writer"),
+        before=("engulf_clab.image_build", "engulf_clab.lab_writer"),
     )
     .route(
         "use-packaged-container",
         "USAGE.md",
-        "Read collection naming and recipe injection behavior.",
+        "Read collection naming, runtime-field injection, and provider behavior.",
     )
     .refer("USAGE.md")
 )
@@ -94,7 +100,7 @@ class ContainersPlugin(SchemaBackedPlugin):
             postprocess=None,
         ),
         PluginDependency(
-            "engulf_clab.dockerfile_build",
+            "engulf_clab.image_build",
             preprocess=DependencyPosition.AFTER,
             postprocess=None,
         ),
@@ -105,13 +111,24 @@ class ContainersPlugin(SchemaBackedPlugin):
         ),
         SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_reads = frozenset({CONTAINER_COLLECTION_CONTEXT, TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
-    context_writes = SCHEMA_CONTEXTS
+    context_reads = (
+        frozenset({CONTAINER_COLLECTION_CONTEXT, TOPOLOGY_CONTEXT, IMAGE_PROVIDER_CONTEXT})
+        | SCHEMA_CONTEXTS
+    )
+    context_writes = frozenset({IMAGE_PROVIDER_CONTEXT}) | SCHEMA_CONTEXTS
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
-        self._collections(api)
+        collections = self._collections(api)
+        register_image_provider(
+            api,
+            RegisteredImageProvider(
+                self.plugin_id,
+                ContainerImageProvider(collections),
+                priority=self.priority,
+            ),
+        )
         return None
 
     def help(self, api: HelpAPI) -> str:
@@ -119,7 +136,7 @@ class ContainersPlugin(SchemaBackedPlugin):
         return (
             f"  {_HELP_OPTION}   List packaged containers from active collections\n"
             "  Select one as <collection-namespace>/<name>[:latest]; deploy injects its "
-            "required node recipe."
+            "required runtime fields and resolves its image provider."
         )
 
     def analyze_call(self, event: BeforeCallEvent, api: InvocationAPI) -> CallContribution | None:
@@ -135,7 +152,7 @@ class ContainersPlugin(SchemaBackedPlugin):
             ):
                 return None
             path = topology_path_from_args(tuple(event.wrapper_args[1:]))
-            topology_edits(load_topology(path), containers, prefix=LABEL_PREFIX)
+            topology_edits(load_topology(path), containers)
         except (ContainersError, OSError, RuntimeError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
@@ -152,7 +169,7 @@ class ContainersPlugin(SchemaBackedPlugin):
             mutation = editor(api, self.plugin_id)
             document = session.original_document()
             nodes = document["topology"]["nodes"]
-            for node_name, fields in topology_edits(document, containers, prefix=LABEL_PREFIX):
+            for node_name, fields in topology_edits(document, containers):
                 original = nodes[node_name]
                 for field, value in fields.items():
                     path = ("topology", "nodes", node_name, field)

@@ -25,8 +25,8 @@ mutation API. Do not write topology files here.
   selection and immutability.
 - A mutator declares a hard preprocessing dependency on
   `engulf_clab.lab_parser`, reads `engulf_clab.topology.session`, and declares
-  the writer after itself — for example the Dockerfile builder consuming
-  collection recipes.
+  the writer after itself — for example an image-graph contributor consuming
+  materialized node environment controls.
 - Run parser tests plus writer and every direct topology-mutator suite after a
   contract change. Use temporary YAML only; never deploy. Preserve schema
   registration before the generator's terminal preprocessing position. Base

@@ -5,9 +5,9 @@ Docker build inputs inside the typed package and make runtime behavior generic,
 environment-driven, and reusable across labs. The fixed collection plugin ID is
 `eclab.containers`, which owns its image namespace.
 
-- Import only stable API packages. The collection plugin registers recipes; it
-  must not parse topology YAML, mutate files, invoke Docker, or configure host
-  resources.
+- Import only stable API packages. Publish the same recipes through the eclab
+  collection adapter and the generic Docker-image goal adapter; neither may
+  parse topology YAML, mutate files, invoke Docker, or configure host resources.
 - Derive every recipe path from installed package resources and keep the
   Dockerfile inside its declared context. Include every Dockerfile `COPY` input
   in wheels and source distributions.

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-image-build"
+version = "0.1.0"
+description = "Containerlab adapter for the application-neutral Docker image build graph"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-docker-image-api>=1.0,<2",
+    "engulf-docker-image-core>=1.0,<2",
+    "engulf-clab-schema-api>=1.2,<2",
+    "engulf-clab-schema>=0.1,<0.2",
+    "engulf-clab-lab-parser>=0.1,<0.2",
+    "engulf-clab-lab-writer>=0.1,<0.2",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.image_build" = "engulf_clab_image_build:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.image_build" = "engulf_clab_image_build:plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_image_build"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_image_build/README.md"
+"AGENTS.md" = "engulf_clab_image_build/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_image_build/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_image_build/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/build.sh", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_image_build"]

@@ -37,8 +37,8 @@
 Run the narrowest checks that exercise the changed boundary:
 
 ```bash
-.venv/bin/python -m compileall -q plugins/engulf-clab-develop-lab-skill/src
-.venv/bin/python -m pytest -q plugins/engulf-clab-develop-lab-skill/tests
+.venv/bin/python -m compileall -q plugins/engulf-clab-develop-eclab-lab/src
+.venv/bin/python -m pytest -q plugins/engulf-clab-develop-eclab-lab/tests
 make check-skill
 ```
 

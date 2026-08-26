@@ -4,18 +4,11 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from engulf_clab_dockerfile_build.config import build_requests_from_topology, docker_build_jobs
+from engulf_clab_dockerfile_build.config import build_requests_from_topology
 from engulf_clab_dockerfile_build.errors import DockerfileError
 
 
 class ConfigurationTest(unittest.TestCase):
-    def test_runtime_build_job_limit(self) -> None:
-        self.assertEqual(docker_build_jobs({}), 2)
-        self.assertEqual(docker_build_jobs({"ECLAB_DOCKER_BUILD_JOBS": "4"}), 4)
-        self.assertEqual(docker_build_jobs({"FCLAB_DOCKER_BUILD_JOBS": "4"}), 2)
-        with self.assertRaisesRegex(DockerfileError, "positive integer"):
-            docker_build_jobs({"ECLAB_DOCKER_BUILD_JOBS": "0"})
-
     def test_build_request_uses_node_image_and_relative_paths(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -31,7 +24,7 @@ class ConfigurationTest(unittest.TestCase):
                                 "ECLAB_DOCKERFILE": "api/Dockerfile",
                                 "ECLAB_DOCKER_CTX": "api",
                                 "ECLAB_DOCKER_VAR_VERSION": "1.2.3",
-                                "ECLAB_DOCKER_ARGS": "--pull --label 'team=netops'",
+                                "ECLAB_DOCKER_ARGS": "--label 'team=netops'",
                             },
                         }
                     }
@@ -43,7 +36,82 @@ class ConfigurationTest(unittest.TestCase):
         self.assertEqual(requests[0].dockerfile, node_dir / "Dockerfile")
         self.assertEqual(requests[0].context, node_dir)
         self.assertEqual(requests[0].build_args, (("VERSION", "1.2.3"),))
-        self.assertEqual(requests[0].extra_args, ("--pull", "--label", "team=netops"))
+        self.assertEqual(requests[0].extra_args, ("--label", "team=netops"))
+        self.assertFalse(requests[0].base_node)
+
+    def test_base_node_marker_is_parsed(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Dockerfile").touch()
+            data = {
+                "topology": {
+                    "nodes": {
+                        "base": {
+                            "image": "example/base",
+                            "env": {
+                                "ECLAB_DOCKERFILE": "Dockerfile",
+                                "ECLAB_DOCKER_CTX": ".",
+                                "ECLAB_DOCKER_BASE_NODE": "yes",
+                            },
+                        }
+                    }
+                }
+            }
+
+            requests = build_requests_from_topology(root / "lab.clab.yml", data)
+
+        self.assertTrue(requests[0].base_node)
+
+    def test_base_node_requires_a_dockerfile(self) -> None:
+        data = {
+            "topology": {
+                "nodes": {
+                    "base": {
+                        "image": "example/base",
+                        "env": {"ECLAB_DOCKER_BASE_NODE": "true"},
+                    }
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(DockerfileError, "BASE_NODE.*DOCKERFILE"):
+            build_requests_from_topology(Path("/lab/lab.clab.yml"), data)
+
+    def test_base_node_value_must_be_a_boolean_string(self) -> None:
+        data = {
+            "topology": {
+                "nodes": {
+                    "base": {
+                        "image": "example/base",
+                        "env": {"ECLAB_DOCKER_BASE_NODE": True},
+                    }
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(DockerfileError, "boolean string"):
+            build_requests_from_topology(Path("/lab/lab.clab.yml"), data)
+
+    def test_pull_argument_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Dockerfile").touch()
+            data = {
+                "topology": {
+                    "nodes": {
+                        "api": {
+                            "image": "example/api",
+                            "env": {
+                                "ECLAB_DOCKERFILE": "Dockerfile",
+                                "ECLAB_DOCKER_CTX": ".",
+                                "ECLAB_DOCKER_ARGS": "--pull",
+                            },
+                        }
+                    }
+                }
+            }
+            with self.assertRaisesRegex(DockerfileError, "image graph"):
+                build_requests_from_topology(root / "lab.clab.yml", data)
 
     def test_missing_context_is_rejected(self) -> None:
         with TemporaryDirectory() as directory:

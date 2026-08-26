@@ -8,15 +8,21 @@ python -m pip install engulf-clab-containers engulf-clab-containers-core
 eclab --eclab-containers-help
 ```
 
+The distribution publishes two thin adapters over the same immutable recipes:
+the eclab executable-wrapper collection adapter and an application-neutral
+`org.engulf.docker-image` provider adapter. A non-eclab Engulf application can
+therefore request these images through the generic Docker image goal without
+parsing Containerlab YAML.
+
 | Image | Purpose | Detailed guide (packaged) |
 | --- | --- | --- |
 | `eclab.containers/host-connector` | Map lab-facing VIPs to hosts reachable through management `eth0`. | `containers/host-connector/USAGE.md` |
 | `eclab.containers/wan-access` | NAT one lab interface through management `eth0`, with optional DHCP. | `containers/wan-access/USAGE.md` |
 
 A topology selects a recipe by its exact image name. The container manager
-injects the package recipe, required Containerlab fields, and
-`image-pull-policy: Never` into a temporary deploy topology. The source lab is
-unchanged.
+registers its package recipe as an image provision and injects only required
+Containerlab runtime fields plus `image-pull-policy: Never` into a temporary
+deploy topology. The source lab is unchanged.
 
 ## Common contract
 
@@ -56,8 +62,8 @@ cache. Images remain cached after destroy; deploy again after upgrading the
 collection.
 
 If a recipe is missing, run `eclab --engulf-plugin-list` and confirm the core
-collection, manager, Dockerfile builder, parser, and writer are active in the
-same launcher. For a build failure, verify Docker access and inspect builder
+collection, manager, image dispatcher, parser, and writer are active in the
+same launcher. For a build failure, verify Docker access and inspect dispatcher
 diagnostics. For startup or packet-flow failures, inspect `docker logs
 clab-<lab>-<node>` and follow the selected image's guide.
 

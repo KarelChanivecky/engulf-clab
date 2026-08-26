@@ -145,7 +145,7 @@ derive their executable-wrapper adapter from `SchemaBackedPlugin`, and call
 make check-skill
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-schema-api
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-schema
-.venv/bin/python -m build --no-isolation plugins/engulf-clab-develop-lab-skill
+.venv/bin/python -m build --no-isolation plugins/engulf-clab-develop-eclab-lab
 .venv/bin/python -m build --no-isolation skills/engulf-clab-develop-eclab-lab-static
 ```
 

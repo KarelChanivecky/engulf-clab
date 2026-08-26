@@ -7,7 +7,9 @@ from engulf_clab_containers_api import (
     ContainerBuildRecipe,
     ContainerCollectionPlugin,
     ContainerDefinition,
+    ContainerImageProvider,
     ContainerNodeRequirements,
+    RegisteredContainerCollection,
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
@@ -18,6 +20,7 @@ from engulf_clab_schema_api import (
     ValueType,
     record_plugin_schema,
 )
+from engulf_docker_image_api import ImageProviderPlugin
 
 _PACKAGE = Path(__file__).resolve().parent
 _CONTEXT = _PACKAGE
@@ -194,4 +197,9 @@ class CoreContainerCollectionPlugin(ContainerCollectionPlugin):
         return result
 
 
-plugin = CoreContainerCollectionPlugin("eclab.containers", (HOST_CONNECTOR, WAN_ACCESS))
+_CONTAINERS = (HOST_CONNECTOR, WAN_ACCESS)
+plugin = CoreContainerCollectionPlugin("eclab.containers", _CONTAINERS)
+image_plugin = ImageProviderPlugin(
+    "eclab.containers",
+    ContainerImageProvider((RegisteredContainerCollection("eclab.containers", _CONTAINERS),)),
+)

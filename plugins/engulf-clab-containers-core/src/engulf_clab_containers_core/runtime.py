@@ -4,6 +4,7 @@ import ipaddress
 import os
 import socket
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -257,7 +258,7 @@ def main() -> int:
                 print(f"host-connector ready on {', '.join(interfaces)}", flush=True)
             time.sleep(1)
     except (ConnectorError, OSError, subprocess.SubprocessError) as error:
-        print(f"host-connector: {error}", file=os.sys.stderr, flush=True)
+        print(f"host-connector: {error}", file=sys.stderr, flush=True)
         return 1
 
 

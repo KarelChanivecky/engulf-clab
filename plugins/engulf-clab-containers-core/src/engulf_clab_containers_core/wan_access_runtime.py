@@ -54,7 +54,7 @@ def parse_dhcp_config(environment: dict[str, str]) -> DhcpConfig | None:
         subnet = ipaddress.ip_network(subnet_text, strict=False)
     except ValueError as error:
         raise WanAccessError(f"{_SUBNET_ENV} must be an IPv4 CIDR network") from error
-    if subnet.version != 4:
+    if not isinstance(subnet, ipaddress.IPv4Network):
         raise WanAccessError(f"{_SUBNET_ENV} must be an IPv4 network")
 
     def parse_address(name: str, default: str) -> ipaddress.IPv4Address:
@@ -123,17 +123,41 @@ def configure_nat(interface: str) -> None:
     _ensure_chain("nat", "POSTROUTING", _NAT_CHAIN)
     _ensure_chain("filter", "FORWARD", _FORWARD_CHAIN)
     _run(
-        "iptables", "-t", "nat", "-A", _NAT_CHAIN,
-        "-o", _UPLINK, "-j", "MASQUERADE",
+        "iptables",
+        "-t",
+        "nat",
+        "-A",
+        _NAT_CHAIN,
+        "-o",
+        _UPLINK,
+        "-j",
+        "MASQUERADE",
     )
     _run(
-        "iptables", "-A", _FORWARD_CHAIN,
-        "-i", interface, "-o", _UPLINK, "-j", "ACCEPT",
+        "iptables",
+        "-A",
+        _FORWARD_CHAIN,
+        "-i",
+        interface,
+        "-o",
+        _UPLINK,
+        "-j",
+        "ACCEPT",
     )
     _run(
-        "iptables", "-A", _FORWARD_CHAIN,
-        "-i", _UPLINK, "-o", interface,
-        "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT",
+        "iptables",
+        "-A",
+        _FORWARD_CHAIN,
+        "-i",
+        _UPLINK,
+        "-o",
+        interface,
+        "-m",
+        "conntrack",
+        "--ctstate",
+        "ESTABLISHED,RELATED",
+        "-j",
+        "ACCEPT",
     )
 
 

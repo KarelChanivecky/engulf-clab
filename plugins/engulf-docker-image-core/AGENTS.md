@@ -1,0 +1,14 @@
+# Docker Image Core Instructions
+
+- Do not import eclab, Containerlab, YAML, or application-specific providers.
+- Keep provider calls side-effect free and Docker work in the scheduler.
+- Preserve deterministic authority/priority/ID selection and recursive backtracking.
+- Resolve every dependency from its own complete requirement; never copy
+  parameters between image requirements.
+- Execute every selected build or pull recipe; Docker owns only layer caching.
+- Keep the default pull offer low-authority and retry failed fallible offers
+  without re-running provider callbacks.
+- Acquire all tag leases on the callback thread and never pass APIs to workers.
+- Use argv subprocess execution, reject recipe attempts to override file/tag/pull,
+  and retain Docker output.
+- Update API consumers and tests whenever graph semantics change.

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-docker-image-api"
+version = "1.0.0"
+description = "Application-neutral Docker image graph and provider contracts for Engulf"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_docker_image_api"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_docker_image_api/README.md"
+"AGENTS.md" = "engulf_docker_image_api/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_docker_image_api/CONTRIBUTING.md"
+"USAGE.md" = "engulf_docker_image_api/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/build.sh", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_docker_image_api"]

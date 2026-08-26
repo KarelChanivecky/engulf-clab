@@ -20,6 +20,8 @@ fi
     engulf-clab-schema \
     engulf-clab-schema-api \
     engulf-clab-health-gates \
+    engulf-docker-image-core \
+    engulf-docker-image-api \
     engulf-clab-containers-core \
     engulf-clab-containers \
     engulf-clab-containers-api \
@@ -31,6 +33,7 @@ fi
     engulf-clab-vrnetlab \
     engulf-clab-ensure-vrnetlab \
     engulf-clab-ensure-containerlab \
+    engulf-clab-image-build \
     engulf-clab-dockerfile-build \
     engulf-clab-dockerfile \
     engulf-clab-lab-writer \

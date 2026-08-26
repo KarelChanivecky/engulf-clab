@@ -4,7 +4,7 @@ This is the only plugin that turns declarative container collections into
 topology mutations. Keep collection discovery under normal Engulf activation,
 accept only typed fields from `engulf-clab-containers-api`, and never mutate the
 source topology. It must run after collections and the lab parser, and before
-the Dockerfile builder and lab writer.
+the image dispatcher and lab writer.
 
 - Derive from `SchemaBackedPlugin` so discovery controls and advertised values
   participate in completion without parsing generated schema artifacts.
@@ -12,9 +12,9 @@ the Dockerfile builder and lab writer.
   `engulf_clab.containers.collections`, and topology context declarations stable.
 - Validate the complete catalog and proposed merge during `analyze_call()`;
   perform only deferred editor operations during `prepare_call()`.
-- Use the fixed `ECLAB` Docker variable prefix (`manager.LABEL_PREFIX`). Never
-  derive it from callback application metadata or the executable filename —
-  injected node env vars must stay portable across editions.
+- Do not inject package build paths into node environment. Generic custom build
+  parameters are valid fixed-prefix node `env` controls owned by the image
+  dispatcher; runtime recipe defaults remain collection-owned.
 - Preserve canonical `:latest` naming, namespace collision detection, package
   asset validation, required management networking, and conflict-safe merge
   rules. Do not silently override user fields or fall through malformed managed
@@ -23,8 +23,8 @@ the Dockerfile builder and lab writer.
   kind. Injection is deploy-only, while other Containerlab commands parse the
   raw topology.
 - The manager must not run Docker, import collection implementation modules
-  directly, inspect undeclared fields, or retain state. The Dockerfile builder
-  owns builds and the writer owns temporary-file cleanup.
+  directly, inspect undeclared fields, or retain state. Register a pure image
+  provider; the image dispatcher owns builds and the writer owns cleanup.
 - Keep `--eclab-containers-help` side-effect free and based only on active
   registered collections. Update runtime help and `USAGE.md` together when catalog
   syntax changes.

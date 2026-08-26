@@ -26,6 +26,8 @@ documentation, schema declarations, and tests agree.
 | `plugins/engulf-clab-schema-api/` | Stable plugin schema declaration and invocation-state contract. | `engulf-clab-schema-api` |
 | `plugins/engulf-clab-schema/` | Compiles Containerlab and active-plugin schemas at runtime. | `engulf-clab-schema` |
 | `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes the static base eclab generated skill. | `engulf-clab-develop-eclab-lab` |
+| `plugins/engulf-docker-image-api/` | Stable application-neutral graph and provider contract. | `engulf-docker-image-api` |
+| `plugins/engulf-docker-image-core/` | Recursive resolver, Dockerfile analyzer, scheduler, and reusable goal. | `engulf-docker-image-core` |
 
 The wrapper imports the `engulf` runtime. Runtime plugins import the stable
 `engulf_api` and `engulf_executable_wrapper_api` contracts, not their runtime
@@ -147,9 +149,10 @@ IDs are lowercase, dot-qualified identifiers such as `engulf_clab.example`.
 
 When topology mutation is required, depend on `engulf-clab-lab-parser`, record
 deferred operations with an editor owned by the plugin ID, and depend on
-`engulf-clab-lab-writer`. Never edit the selected YAML in place. Mutators that
-produce Dockerfile recipes must run before the Dockerfile builder; collectors
-must run after every mutator.
+`engulf-clab-lab-writer`. Never edit the selected YAML in place. Mutators and
+graph contributors must run before the image dispatcher; collectors must run
+after every mutator and dispatcher. Concrete providers depend on the neutral
+image contract, never on another provider.
 
 ## Documentation contract
 
@@ -223,6 +226,7 @@ Run a package's own tests after changing it and the tests of direct consumers
 after changing a shared API. In particular:
 
 - container API changes require manager and core collection tests;
+- image API/core changes require dispatcher, Dockerfile adapter, and provider tests;
 - parser changes require every topology mutator and writer tests;
 - checkout helper changes require both ensure-plugin test suites;
 - wrapper/Engulf changes require plugin discovery and dynamic-help checks; and

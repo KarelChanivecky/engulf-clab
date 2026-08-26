@@ -5,8 +5,9 @@ import unittest
 from engulf_api import ApplicationMetadata
 from engulf_clab_containers_api import ContainerCollectionPlugin, ContainerDefinition
 from engulf_clab_schema_api import ExplainedValue, ValueMode, ValueType
+from engulf_docker_image_api import DockerImagePlugin, ImageRequirement
 
-from engulf_clab_containers_core import HOST_CONNECTOR, WAN_ACCESS, plugin
+from engulf_clab_containers_core import HOST_CONNECTOR, WAN_ACCESS, image_plugin, plugin
 from engulf_clab_containers_core.plugin import PLUGIN_SCHEMA
 
 APPLICATION = ApplicationMetadata(
@@ -33,6 +34,14 @@ class CollectionTest(unittest.TestCase):
             plugin.containers,
             (HOST_CONNECTOR, WAN_ACCESS),
         )
+
+    def test_generic_goal_adapter_provides_the_same_recipes(self) -> None:
+        self.assertIsInstance(image_plugin, DockerImagePlugin)
+        response = image_plugin.provider.provide(
+            ImageRequirement("eclab.containers/host-connector")
+        )
+        assert response is not None and response.provision is not None
+        self.assertEqual(response.provision.image, "eclab.containers/host-connector:latest")
 
     def test_recipes_are_typed_and_inside_the_package_context(self) -> None:
         for definition in plugin.containers:
@@ -92,12 +101,9 @@ class CollectionTest(unittest.TestCase):
         self.assertIn("containers/host-connector/USAGE.md", paths)
         self.assertIn("containers/wan-access/USAGE.md", paths)
         routes = {route.task: route.reference for route in snapshot.routes}
-        self.assertEqual(
-            routes["connect-lab-to-host"], "containers/host-connector/USAGE.md"
-        )
-        self.assertEqual(
-            routes["provide-lab-wan-access"], "containers/wan-access/USAGE.md"
-        )
+        self.assertEqual(routes["connect-lab-to-host"], "containers/host-connector/USAGE.md")
+        self.assertEqual(routes["provide-lab-wan-access"], "containers/wan-access/USAGE.md")
+
 
 if __name__ == "__main__":
     unittest.main()

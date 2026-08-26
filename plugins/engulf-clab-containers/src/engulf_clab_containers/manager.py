@@ -11,10 +11,6 @@ from engulf_clab_containers_api import (
 
 from .errors import ContainersError
 
-# Fixed across every edition so injected node env vars stay portable; see
-# engulf-clab-wan's LABEL_PREFIX for the same convention.
-LABEL_PREFIX = "ECLAB"
-
 
 @dataclass(frozen=True, slots=True)
 class ManagedContainer:
@@ -107,8 +103,6 @@ def merged_fields(
     node_name: str,
     node: dict[str, Any],
     managed: ManagedContainer,
-    *,
-    prefix: str,
 ) -> dict[str, object]:
     requirements = managed.definition.node
     if requirements.requires_management:
@@ -128,8 +122,6 @@ def merged_fields(
         ),
     }
     environment = dict(requirements.environment)
-    environment[f"{prefix}_DOCKERFILE"] = str(managed.definition.build.dockerfile)
-    environment[f"{prefix}_DOCKER_CTX"] = str(managed.definition.build.context)
     result["env"] = _merged_mapping(node_name, "env", node.get("env"), environment)
     return result
 
@@ -195,15 +187,13 @@ def topology_nodes(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def topology_edits(
     document: dict[str, Any],
     containers: tuple[ManagedContainer, ...],
-    *,
-    prefix: str,
 ) -> tuple[tuple[str, dict[str, object]], ...]:
     edits: list[tuple[str, dict[str, object]]] = []
     for name, node in topology_nodes(document).items():
         managed = matching_container(node.get("image"), containers)
         if managed is None:
             continue
-        edits.append((name, merged_fields(name, node, managed, prefix=prefix)))
+        edits.append((name, merged_fields(name, node, managed)))
     return tuple(edits)
 
 

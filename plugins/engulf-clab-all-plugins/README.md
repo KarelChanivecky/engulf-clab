@@ -20,7 +20,9 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
 | `engulf-clab-ensure-containerlab` | Containerlab executable discovery, managed checkout, update, and build. |
 | `engulf-clab-ensure-vrnetlab` | Conditional vrnetlab checkout discovery and provisioning. |
-| `engulf-clab-dockerfile-build` | Pre-deploy builds for node-declared Dockerfiles. |
+| `engulf-docker-image-api` and `engulf-docker-image-core` | Neutral provider graph, recursive resolver, and dependency-first Docker scheduler. |
+| `engulf-clab-image-build` | Topology image roots, node-env parameters, provider dispatch, and build orchestration. |
+| `engulf-clab-dockerfile-build` | Node-owned Dockerfile recipes and build-only image nodes. |
 | `engulf-clab-vrnetlab-build` | Pre-deploy vrnetlab image builds from qcow2/archive sources. |
 | `engulf-clab-containers-api` | Typed contract for independently packaged container collections. |
 | `engulf-clab-containers` | Active collection catalog and temporary topology injection. |
@@ -63,9 +65,9 @@ Python environment's package manager to remove individual features.
 
 ## Compatibility and releases
 
-The meta-package pins every maintained feature to its compatible `0.1` release
-line and the stable container and schema APIs to their `1.x` lines through
-dependencies. When a maintained plugin is added, removed, or moves to an
+The meta-package pins every maintained feature to its declared compatible
+release line and the stable image, container, and schema APIs to their `1.x`
+lines through dependencies. When a maintained plugin is added, removed, or moves to an
 incompatible series, update this dependency set and this table in the same
 release. The package contains no runtime configuration, source topology fields,
 state, entry points, or cleanup behavior of its own.
