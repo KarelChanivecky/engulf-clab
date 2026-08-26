@@ -45,6 +45,17 @@ def schema_registry(api: InvocationAPI) -> SchemaRegistry:
     return value
 
 
+def _commit_registry(api: BeforeGoalAPI, registry: SchemaRegistry) -> None:
+    # The registry is a blackboard accumulated by every schema-declaring plugin in
+    # before_goal but consumed only when an invocation compiles a schema (freeze,
+    # destroy, and --help runs legitimately never do). Recording the value we just
+    # wrote acknowledges the contribution, mirroring the schema plugin's
+    # acknowledgement of terminal source inputs, so the runtime's unused-context
+    # diagnostic does not fire on every non-compiling invocation.
+    api.set_context(SCHEMA_REGISTRY_CONTEXT, registry)
+    api.get_context(SCHEMA_REGISTRY_CONTEXT)
+
+
 def record_schema_pipeline(api: BeforeGoalAPI, pipeline: SchemaPipeline) -> None:
     if not isinstance(pipeline, SchemaPipeline):
         raise TypeError("pipeline must be a SchemaPipeline")
@@ -54,10 +65,7 @@ def record_schema_pipeline(api: BeforeGoalAPI, pipeline: SchemaPipeline) -> None
         if any(item != pipeline for item in matching):
             raise RuntimeError(f"conflicting schema pipeline declaration: {pipeline.pipeline_id}")
         return
-    api.set_context(
-        SCHEMA_REGISTRY_CONTEXT,
-        SchemaRegistry((*current.pipelines, pipeline), current.contributions),
-    )
+    _commit_registry(api, SchemaRegistry((*current.pipelines, pipeline), current.contributions))
 
 
 def record_plugin_schema(api: BeforeGoalAPI, schema: PluginSchema) -> None:
@@ -68,10 +76,7 @@ def record_plugin_schema(api: BeforeGoalAPI, schema: PluginSchema) -> None:
         api.logger.warning("schema contribution from %s is incomplete: %s", schema.plugin_id, error)
         entry = SchemaDeclarationFailure(schema.plugin_id, str(error))
     contribution = SchemaContribution(schema.pipeline_id, entry)
-    api.set_context(
-        SCHEMA_REGISTRY_CONTEXT,
-        SchemaRegistry(current.pipelines, (*current.contributions, contribution)),
-    )
+    _commit_registry(api, SchemaRegistry(current.pipelines, (*current.contributions, contribution)))
 
 
 def publish_containerlab_source(
