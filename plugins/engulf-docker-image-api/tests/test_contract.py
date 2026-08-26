@@ -11,9 +11,11 @@ from engulf_docker_image_api import (
     ImageProviderPlugin,
     ImageProviderResponse,
     ImageProvision,
+    ImageRecipe,
     ImageRequirement,
     ProvisionAuthority,
     RegisteredImageProvider,
+    VrnetlabBuildRecipe,
     canonical_image_reference,
 )
 
@@ -80,6 +82,47 @@ class ContractTest(unittest.TestCase):
                 ),
                 terminal=True,
             )
+
+    def test_every_recipe_satisfies_the_image_recipe_protocol(self) -> None:
+        recipes = (
+            DockerfileRecipe(Path("/work/Dockerfile"), Path("/work")),
+            DockerPullRecipe("example/root"),
+            VrnetlabBuildRecipe(
+                Path("/images/root.qcow2"), Path("/vrnetlab/vendor/router"), "example/root"
+            ),
+        )
+
+        for recipe in recipes:
+            with self.subTest(recipe=type(recipe).__name__):
+                self.assertIsInstance(recipe, ImageRecipe)
+                self.assertEqual(recipe.recipe_kind, type(recipe).recipe_kind)
+                self.assertIsInstance(recipe.recipe_kind, str)
+
+    def test_recipe_kinds_are_distinct(self) -> None:
+        kinds = {
+            DockerfileRecipe.recipe_kind,
+            DockerPullRecipe.recipe_kind,
+            VrnetlabBuildRecipe.recipe_kind,
+        }
+        self.assertEqual(len(kinds), 3)
+
+    def test_provision_rejects_values_outside_the_recipe_protocol(self) -> None:
+        for bad in (None, "dockerfile", object(), 42):
+            with self.subTest(value=bad), self.assertRaisesRegex(TypeError, "ImageRecipe protocol"):
+                ImageProvision("example/root", bad)
+
+    def test_custom_recipe_implementations_are_accepted(self) -> None:
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class _CustomRecipe:
+            payload: str
+
+            recipe_kind = "custom"
+
+        provision = ImageProvision("example/root", _CustomRecipe("anything"))
+
+        self.assertEqual(provision.recipe.recipe_kind, "custom")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 from engulf_api import (
     GoalPhase,
@@ -110,6 +110,7 @@ def _string_pairs(
 
 @dataclass(frozen=True, slots=True)
 class DockerfileRecipe:
+    recipe_kind: ClassVar[str] = "dockerfile"
     dockerfile: Path
     context: Path
     build_args: tuple[tuple[str, str], ...] = ()
@@ -135,13 +136,49 @@ class DockerfileRecipe:
 class DockerPullRecipe:
     """Pull one source reference and retag it as the provisioned image when needed."""
 
+    recipe_kind: ClassVar[str] = "pull"
     source: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source", canonical_image_reference(self.source))
 
 
-type ImageRecipe = DockerfileRecipe | DockerPullRecipe
+@dataclass(frozen=True, slots=True)
+class VrnetlabBuildRecipe:
+    """Build one image with a vrnetlab builder (`make` + retag) from a source disk/zip.
+
+    This is a build *descriptor*, not an executor: it names the resolved source
+    artifact and the vrnetlab builder directory that owns the Makefile, and the
+    image tag it must produce. The docker-image-core builder runs it.
+    """
+
+    recipe_kind: ClassVar[str] = "vrnetlab"
+    source: Path
+    builder: Path
+    image: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, Path) or not self.source.is_absolute():
+            raise ValueError("vrnetlab source must be an absolute path")
+        if not isinstance(self.builder, Path) or not self.builder.is_absolute():
+            raise ValueError("vrnetlab builder directory must be an absolute path")
+        _image_reference(self.image, label="vrnetlab build image")
+        object.__setattr__(self, "image", canonical_image_reference(self.image))
+
+
+@runtime_checkable
+class ImageRecipe(Protocol):
+    """Interface every provision recipe implements.
+
+    This is an open protocol, not a closed union: any package can contribute a new
+    recipe kind by implementing it, without docker-image-api knowing about it.
+    Each recipe exposes a ``recipe_kind`` discriminator; executors
+    (docker-image-core, provision) use it — or the concrete type — to decide
+    whether they can run a recipe, so an unsupported kind fails clearly instead of
+    being silently dropped.
+    """
+
+    recipe_kind: ClassVar[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,8 +190,8 @@ class ImageProvision:
 
     def __post_init__(self) -> None:
         _image_reference(self.image, label="provision image")
-        if not isinstance(self.recipe, (DockerfileRecipe, DockerPullRecipe)):
-            raise TypeError("provision recipe must be a DockerfileRecipe or DockerPullRecipe")
+        if not isinstance(self.recipe, ImageRecipe):
+            raise TypeError("provision recipe must implement the ImageRecipe protocol")
         if type(self.dependencies) is not tuple or any(
             not isinstance(item, ImageRequirement) for item in self.dependencies
         ):

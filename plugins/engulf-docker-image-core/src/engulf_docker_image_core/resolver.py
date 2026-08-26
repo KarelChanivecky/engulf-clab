@@ -280,6 +280,8 @@ def _seed_provisions(provisions: tuple[ImageProvision, ...]) -> dict[str, ImageP
 
 
 def _combined_dependencies(provision: ImageProvision) -> tuple[ImageRequirement, ...]:
+    # Only Dockerfile builds can declare static FROM bases worth resolving; vrnetlab
+    # (make-driven) and pull recipes contribute no discoverable image dependencies.
     discovered = (
         dockerfile_requirements(provision.recipe)
         if isinstance(provision.recipe, DockerfileRecipe)

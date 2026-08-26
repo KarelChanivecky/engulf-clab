@@ -6,6 +6,7 @@ from .build import (
     build_resolved_graph,
     docker_build_command,
     docker_pull_commands,
+    vrnetlab_build_commands,
 )
 from .dockerfile import dockerfile_requirements
 from .errors import (
@@ -52,4 +53,5 @@ __all__ = [
     "provision_image_graph",
     "registered_provider_lookup",
     "resolve_image_graph",
+    "vrnetlab_build_commands",
 ]
