@@ -34,7 +34,7 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
         self.assertIn("ECLAB_LICENSE is the persistent environment default", rendered)
         self.assertIn("ECLAB_LICENSE_<NODE>", rendered)
         self.assertIn("--eclab-license-pool-strategy", rendered)
-        self.assertIn("sticky (default), round-robin, or least-recently-used", rendered)
+        self.assertIn("least-recently-used (default), sticky, or round-robin", rendered)
         self.assertIn("ECLAB_LICENSE_POOL_STRATEGY", rendered)
         self.assertIn("selected license basename", rendered)
         self.assertNotIn("VENDOR_CLAB_LICENSE", rendered)

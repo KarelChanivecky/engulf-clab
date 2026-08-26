@@ -105,13 +105,13 @@ PLUGIN_SCHEMA = (
         LICENSE_POOL_STRATEGY_ENVIRONMENT,
         "Set the persistent license-pool selection strategy; the matching CLI flag takes precedence.",
         values=_STRATEGY_VALUES,
-        default=LicenseStrategy.STICKY.value,
+        default=LicenseStrategy.LEAST_RECENTLY_USED.value,
     )
     .add_cli_flag(
         "--eclab-license-pool-strategy",
         "Select the license-pool allocation strategy for this invocation.",
         values=_STRATEGY_VALUES,
-        default=LicenseStrategy.STICKY.value,
+        default=LicenseStrategy.LEAST_RECENTLY_USED.value,
         environment=LICENSE_POOL_STRATEGY_ENVIRONMENT,
     )
     .add_runtime_var(
@@ -279,7 +279,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             f"    env.{contract.clamp_environment}: file   Require this available pool filename/path\n"
             f"    license: {contract.prompt_marker}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
             "  --eclab-license-pool-strategy STRATEGY\n"
-            "      sticky (default), round-robin, or least-recently-used\n"
+            "      least-recently-used (default), sticky, or round-robin\n"
             f"  {LICENSE_POOL_STRATEGY_ENVIRONMENT} is the persistent strategy default; CLI wins.\n"
             "  --eclab-license VALUE        Default non-interactive frozen-lab license\n"
             f"  {contract.license_environment} is the persistent environment default; "
@@ -462,7 +462,7 @@ def _load(state: Any) -> dict[str, Any]:
 def _claim(
     state: Any,
     requests: list[tuple[str, str, str | None, str]],
-    strategy: LicenseStrategy | str = LicenseStrategy.STICKY,
+    strategy: LicenseStrategy | str = LicenseStrategy.LEAST_RECENTLY_USED,
 ) -> dict[str, str]:
     strategy = _coerce_strategy(strategy)
     with state.transaction() as locked:
@@ -513,7 +513,7 @@ def _license_strategy(environ: Mapping[str, str]) -> LicenseStrategy:
     return _coerce_strategy(
         environ.get(
             LICENSE_POOL_STRATEGY_ENVIRONMENT,
-            LicenseStrategy.STICKY.value,
+            LicenseStrategy.LEAST_RECENTLY_USED.value,
         )
     )
 

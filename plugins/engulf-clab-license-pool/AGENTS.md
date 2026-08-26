@@ -23,7 +23,7 @@ through the shared topology editor.
   contents in user state.
 - Preserve allocation preference, history, clamp exclusion, retry stability,
   pool-local regular-file selection, and deterministic lab-copy paths.
-- Keep `sticky` as the compatibility default. Round-robin owns a pool-local
+- `least-recently-used` is the default strategy. Round-robin owns a pool-local
   sorted-file cursor; least-recently-used owns a monotonic pool-local use
   sequence. Every strategy reuses an active claim, excludes historical clamps
   while an ordinary choice remains, and records explicit clamp use.

@@ -34,7 +34,7 @@ eclab deploy -t lab.clab.yml \
 | `uuid` | Recommended stable node identity; node name is the fallback. |
 | `env.ECLAB_LIC_CLAMP` | Require one exact pool filename/path; fails when absent or claimed. |
 | `--eclab-license-pool-strategy` | Per-invocation `sticky`, `round-robin`, or `least-recently-used`. |
-| `ECLAB_LICENSE_POOL_STRATEGY` | Persistent strategy default; `sticky` when unset. |
+| `ECLAB_LICENSE_POOL_STRATEGY` | Persistent strategy default; `least-recently-used` when unset. |
 | `--eclab-license VALUE` | Global file, pool, or `$VARIABLE` for a frozen-license prompt. |
 
 The CLI strategy wins over its environment default. One invocation selects one
@@ -46,9 +46,9 @@ fixed prefix across editions.
 
 | Strategy | Automatic selection | Persistent history |
 | --- | --- | --- |
-| `sticky` | Compatibility default: never-used free file, prior file for this claim, another non-clamped free file, then any free file. | Prior claim associations. |
+| `sticky` | Never-used free file, prior file for this claim, another non-clamped free file, then any free file. | Prior claim associations. |
 | `round-robin` | Sort canonical pool files and scan from the saved next index, wrapping past claimed or historically clamped entries. | Next automatic index. |
-| `least-recently-used` | Choose the ordinary free file with the oldest pool-local use sequence; unseen files are oldest. | Monotonic use sequence per file. |
+| `least-recently-used` | Default: choose the ordinary free file with the oldest pool-local use sequence; unseen files are oldest. | Monotonic use sequence per file. |
 
 All strategies first reuse a valid active claim so retries remain stable. An
 explicit clamp selects its exact available file regardless of strategy and is

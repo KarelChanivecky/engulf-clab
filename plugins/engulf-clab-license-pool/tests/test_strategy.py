@@ -85,9 +85,9 @@ class LicenseStrategyTestCase(unittest.TestCase):
         )
         expected = ("sticky", "round-robin", "least-recently-used")
         self.assertEqual(runtime.values, expected)
-        self.assertEqual(runtime.default_json, '"sticky"')
+        self.assertEqual(runtime.default_json, '"least-recently-used"')
         self.assertEqual(flag.values, expected)
-        self.assertEqual(flag.default_json, '"sticky"')
+        self.assertEqual(flag.default_json, '"least-recently-used"')
         self.assertEqual(flag.environment, LICENSE_POOL_STRATEGY_ENVIRONMENT)
 
         registry = ArgumentRegistry()
@@ -111,8 +111,8 @@ class LicenseStrategyTestCase(unittest.TestCase):
         ]
         self.assertEqual(candidates, list(expected))
 
-    def test_strategy_defaults_to_sticky_and_rejects_unknown_values(self) -> None:
-        self.assertIs(_license_strategy({}), LicenseStrategy.STICKY)
+    def test_strategy_defaults_to_lru_and_rejects_unknown_values(self) -> None:
+        self.assertIs(_license_strategy({}), LicenseStrategy.LEAST_RECENTLY_USED)
         self.assertIs(
             _license_strategy(
                 {LICENSE_POOL_STRATEGY_ENVIRONMENT: "least-recently-used"}
