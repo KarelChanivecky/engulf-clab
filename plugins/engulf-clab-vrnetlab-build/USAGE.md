@@ -1,7 +1,9 @@
 # engulf-clab-vrnetlab-build
 
-Builds configured vrnetlab images before `eclab deploy`. Docker, `make`, QEMU,
-and the selected vrnetlab builder's prerequisites must be available.
+Builds configured vrnetlab images before `eclab deploy` and registers a Docker
+image provider (`org.engulf.docker.vrnetlab-build`) so the image-build graph
+provisions opted-in nodes' tags by building rather than pulling. Docker, `make`,
+QEMU, and the selected vrnetlab builder's prerequisites must be available.
 
 Install with `python -m pip install engulf-clab-vrnetlab-build`, or through
 `engulf-clab-all-plugins`; its vrnetlab checkout dependency is installed
@@ -71,8 +73,10 @@ IMAGE_SOURCE
 
 Names are uppercased and non-alphanumeric runs become underscores. Supported
 inputs are `.qcow2`, `.zip`, `.tar`, `.tar.gz`, and `.tgz`; an archive must
-contain exactly one qcow2. With no configured source, an existing local Docker
-image under the requested tag is accepted; otherwise deploy fails.
+contain exactly one qcow2. With no configured source, the node still opts into
+the provider: if a local Docker image under the requested tag exists it is
+reused, otherwise deploy fails with a resolution error naming the missing
+source.
 
 ## Validation and build lifecycle
 
@@ -84,6 +88,16 @@ The type must be a safe relative `vendor/type` directory containing a
 wholesale: only the single qcow2 member is streamed, retaining its basename for
 builder tag logic.
 
+Preparation discovers the opted-in nodes, resolves their sources, and refreshes
+the image provider map; the image-build graph then resolves each requested tag
+to a `VrnetlabBuildRecipe` (offered by this provider, ahead of the pull
+fallback) and executes it. Preparation also stages and builds eagerly —
+extracting archives, fingerprinting, and running Make — so the graph's executor
+normally finds the tag already present and no-ops; if image-build drives a
+recipe whose tag is absent, the executor runs `make` in the builder directory
+and retags the native builder image to the requested tag, restoring any
+pre-existing tag if that fails.
+
 A fingerprint covers the requested image, source checksum and basename,
 checkout identity, and builder type. A matching record plus an existing
 requested Docker tag allows reuse. Otherwise the plugin safely places the input
@@ -94,7 +108,9 @@ outside those temporary build inputs.
 
 Builders in different directories may run concurrently up to the configured job
 limit. Builds sharing a builder directory remain serialized because that directory is temporarily
-modified. Docker-tag and builder leases also coordinate separate eclab calls.
+modified. Docker-tag and builder leases also coordinate separate eclab calls,
+and the graph holds a `vrnetlab-builder:` lease per involved builder while
+provisioning.
 
 After Make succeeds, the native builder tag remains and the exact topology
 image tag is added when different. Use a requested tag unique to the lab:

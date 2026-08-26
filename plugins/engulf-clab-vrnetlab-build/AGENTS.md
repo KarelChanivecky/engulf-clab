@@ -7,12 +7,20 @@ This directory contains the `engulf-clab-vrnetlab-build` plugin distribution.
 The plugin finds nodes with `ECLAB_VRNETLAB_TYPE` in their Containerlab
 node environment and ensures their Docker images are built before deploy.
 The builder is selected by the vendor/type path beneath a prepared vrnetlab
-checkout.
+checkout. It also registers a Docker image provider
+(`org.engulf.docker.vrnetlab-build`) offering a `VrnetlabBuildRecipe` for each
+opted-in node's requested tag, so the image-build graph resolves those tags by
+building rather than pulling; `prepare_call` refreshes the provider map with
+the discovered build requests, and the same provider instance backs both the
+`IMAGE_PROVIDER_CONTEXT` registration and the
+`engulf.plugins.v1.goal.v1.org_engulf_docker_image` entry point (`image_plugin`).
 
 ## Compatibility
 
 - Goal catalog: `engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper`
 - Application declaration: `engulf.plugins.v1.application.engulf_clab`
+- Docker-image goal adapter: `engulf.plugins.v1.goal.v1.org_engulf_docker_image`
+  (`org.engulf.docker.vrnetlab-build`)
 - Plugin import package: `engulf_clab_vrnetlab_build`
 - Plugin ID: `engulf_clab.vrnetlab_build`
 - Prepared-checkout context ID: `engulf_clab.vrnetlab.path`
@@ -79,3 +87,9 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   discovery ordering/context wiring.
 - Keep `PLUGIN_SCHEMA` aligned with image-source aliases, opt-in variables, and
   the last-running generator dependency; run `make check-skill`.
+- Keep the provider registration, the `image_plugin` goal adapter, and
+  `prepare_call`'s `refresh_requests` synchronized: `provide()` is a pure lookup
+  over the refreshed map (the resolver may call it from build worker threads
+  with no invocation api), and both dispatch paths must see the same provider
+  instance. Ordering must keep this plugin's `prepare_call` before
+  `engulf_clab.image_build`'s so the map is populated before resolution.

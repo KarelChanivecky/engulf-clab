@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from .plugin import VrnetlabPlugin
+from .plugin import VrnetlabPlugin, image_plugin, plugin
 
-plugin = VrnetlabPlugin()
-
-__all__ = ["VrnetlabPlugin", "plugin"]
+__all__ = ["VrnetlabPlugin", "image_plugin", "plugin"]

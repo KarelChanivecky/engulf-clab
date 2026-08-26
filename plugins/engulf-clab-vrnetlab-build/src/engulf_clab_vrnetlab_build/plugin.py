@@ -31,6 +31,12 @@ from engulf_clab_schema_api import (
     ValueType,
     record_plugin_schema,
 )
+from engulf_docker_image_api import (
+    IMAGE_PROVIDER_CONTEXT,
+    ImageProviderPlugin,
+    RegisteredImageProvider,
+    register_image_provider,
+)
 from engulf_executable_wrapper_api import (
     ArgumentRegistry,
     BeforeCallEvent,
@@ -51,6 +57,7 @@ from .errors import VrnetlabError
 from .images import ensure_images
 from .logging import use_logger
 from .options import IMAGE_OPTION, complete_image_option, parse_image_options
+from .provider import VRNETLAB_PROVIDER_ID, VrnetlabBuildProvider
 from .topology import load_topology, topology_path_from_args
 
 PLUGIN_SCHEMA = (
@@ -157,9 +164,9 @@ PLUGIN_SCHEMA = (
     .reject("Do not infer a builder type from the image tag; declare ECLAB_VRNETLAB_TYPE.")
     .order(
         LifecycleStage.PREPARE_CALL,
-        "Image construction consumes the parsed topology and resolved checkout before serialization.",
+        "Image construction consumes the parsed topology and resolved checkout before image resolution and serialization.",
         after=("engulf_clab.ensure_vrnetlab", "engulf_clab.lab_parser"),
-        before=("engulf_clab.lab_writer",),
+        before=("engulf_clab.image_build", "engulf_clab.lab_writer"),
     )
     .route(
         "build-vrnetlab-image",
@@ -185,10 +192,23 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             preprocess=DependencyPosition.BEFORE,
             postprocess=None,
         ),
+        PluginDependency(
+            "engulf_clab.image_build",
+            preprocess=DependencyPosition.AFTER,
+            postprocess=None,
+        ),
         SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_reads = frozenset({VRNETLAB_PATH_CONTEXT, TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
-    context_writes = SCHEMA_CONTEXTS
+    context_reads = (
+        frozenset({VRNETLAB_PATH_CONTEXT, TOPOLOGY_CONTEXT, IMAGE_PROVIDER_CONTEXT})
+        | SCHEMA_CONTEXTS
+    )
+    # register_image_provider appends to the provider registry, so registration is a
+    # read-modify-write of IMAGE_PROVIDER_CONTEXT — it must appear in both sets.
+    context_writes = frozenset({IMAGE_PROVIDER_CONTEXT}) | SCHEMA_CONTEXTS
+
+    def __init__(self) -> None:
+        self._provider = VrnetlabBuildProvider()
 
     def register_arguments(
         self,
@@ -219,6 +239,14 @@ class VrnetlabPlugin(SchemaBackedPlugin):
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
+        register_image_provider(
+            api,
+            RegisteredImageProvider(
+                VRNETLAB_PROVIDER_ID,
+                self._provider,
+                priority=self.priority,
+            ),
+        )
         return None
 
     def help(self, api: HelpAPI) -> str:
@@ -233,6 +261,9 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             "      default=FILE                    Fallback when no node source is selected\n"
             "    --eclab-vrnetlab-build-jobs COUNT Concurrent image builds "
             f"(default: {DEFAULT_VRNETLAB_BUILD_JOBS})\n"
+            "  Opted-in node images are provisioned through the image-build graph: "
+            "this plugin's provider offers a vrnetlab build recipe for each requested "
+            "tag ahead of the pull fallback.\n"
             f"  {prefix}_VRNETLAB_IMG_PATH remains the persistent image fallback; "
             "node selectors and node YAML win.\n"
             f"  {prefix}_VRNETLAB_BUILD_JOBS is the persistent job default; its CLI option wins.\n"
@@ -297,11 +328,16 @@ class VrnetlabPlugin(SchemaBackedPlugin):
                 event.environment,
                 image_selectors=parsed.selectors,
             )
+            checkout_context = api.get_context(VRNETLAB_PATH_CONTEXT)
+            # Populate the provider map before the build so engulf_clab.image_build —
+            # which runs after this prepare_call — can resolve these image references to
+            # the vrnetlab provider instead of the docker-pull fallback, for this deploy.
+            self._provider.refresh_requests(requests, checkout_context=checkout_context)
+
             if not requests:
                 api.logger.debug("no vrnetlab image-build requests in original topology")
                 return
 
-            checkout_context = api.get_context(VRNETLAB_PATH_CONTEXT)
             state_store = api.state(StateScope.USER)
             with use_logger(api.logger):
                 api.logger.info("using topology %s", topology_path)
@@ -336,3 +372,10 @@ def _complete_build_jobs(context: CompletionContext) -> tuple[CompletionCandidat
 
 
 plugin = VrnetlabPlugin()
+
+# Adapter exposed under the org_engulf_docker_image goal entry point. It wraps the SAME
+# provider instance as `plugin` so references recorded by plugin.prepare_call are the
+# ones provide() answers for, whichever dispatch path drives resolution.
+image_plugin = ImageProviderPlugin(
+    VRNETLAB_PROVIDER_ID, plugin._provider, priority=VrnetlabPlugin.priority
+)

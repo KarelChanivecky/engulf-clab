@@ -74,8 +74,7 @@ def _native_image_tag_from_make(builder: Path) -> str | None:
         cwd=builder,
         check=False,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
     )
     if result.returncode != 0:
         return None
