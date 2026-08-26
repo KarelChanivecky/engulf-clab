@@ -56,7 +56,7 @@ fi
 local_packages=(
     "plugins/engulf-clab-schema-api"
     "plugins/engulf-clab-schema"
-    "plugins/engulf-clab-develop-lab-skill"
+    "plugins/engulf-clab-develop-eclab-lab"
     "plugins/engulf-clab-ensure-checkout"
     "plugins/engulf-clab-lab-parser"
     "plugins/engulf-clab-lab-writer"
@@ -85,15 +85,16 @@ done
 
 install_wheel() {
     local package_dir="$1"
+    local wheel_dir="${2:-${package_dir}/dist}"
     local wheel_stem
     wheel_stem="$(
         "${python_executable}" -c \
             'import re, sys, tomllib; project = tomllib.load(open(sys.argv[1], "rb"))["project"]; name = re.sub(r"[-_.]+", "_", project["name"]); version = re.sub(r"[^A-Za-z0-9.]+", "_", project["version"]); print(f"{name}-{version}")' \
             "${package_dir}/pyproject.toml"
     )"
-    local -a wheels=("${package_dir}/dist/${wheel_stem}-"*.whl)
+    local -a wheels=("${wheel_dir}/${wheel_stem}-"*.whl)
     if [[ ${#wheels[@]} -ne 1 || ! -e "${wheels[0]}" ]]; then
-        echo "error: expected one current wheel for ${package_dir}, found ${#wheels[@]}" >&2
+        echo "error: expected one current wheel for ${package_dir} in ${wheel_dir}, found ${#wheels[@]}" >&2
         exit 1
     fi
     "${python_executable}" -m pip install --force-reinstall --no-deps "${wheels[0]}"
@@ -119,7 +120,7 @@ engulf_packages=(
     "plugins/engulf-plugin-list"
 )
 for package in "${engulf_packages[@]}"; do
-    install_wheel "${engulf_root}/${package}"
+    install_wheel "${engulf_root}/${package}" "${engulf_root}/dist/${package##*/}"
 done
 for package in "${local_packages[@]}"; do
     install_wheel "${repository_root}/${package}"
