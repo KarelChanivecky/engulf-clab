@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 import unittest
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from engulf_clab_containers_core.wan_access_runtime import (
-    WanAccessError,
-    configure_dhcp_addressing,
-    configure_interface,
-    configure_nat,
-    dnsmasq_arguments,
-    parse_dhcp_config,
-    start_dhcp,
+_RUNTIME_PATH = (
+    Path(__file__).parents[1]
+    / "src/engulf_clab_containers_core/containers/wan-access/wan_access_runtime.py"
 )
+_RUNTIME_SPEC = importlib.util.spec_from_file_location("eclab_wan_access_runtime", _RUNTIME_PATH)
+assert _RUNTIME_SPEC is not None and _RUNTIME_SPEC.loader is not None
+runtime = importlib.util.module_from_spec(_RUNTIME_SPEC)
+sys.modules[_RUNTIME_SPEC.name] = runtime
+_RUNTIME_SPEC.loader.exec_module(runtime)
+
+WanAccessError = runtime.WanAccessError
+configure_dhcp_addressing = runtime.configure_dhcp_addressing
+configure_interface = runtime.configure_interface
+configure_nat = runtime.configure_nat
+dnsmasq_arguments = runtime.dnsmasq_arguments
+parse_dhcp_config = runtime.parse_dhcp_config
+start_dhcp = runtime.start_dhcp
 
 
 class ParseDhcpConfigTest(unittest.TestCase):
@@ -71,7 +82,7 @@ class ParseDhcpConfigTest(unittest.TestCase):
 
 
 class ConfigureTest(unittest.TestCase):
-    @patch("engulf_clab_containers_core.wan_access_runtime._run")
+    @patch.object(runtime, "_run")
     def test_interface_is_brought_up_without_dhcp(self, run) -> None:
         run.side_effect = lambda *args, **kwargs: CompletedProcess(args, 0, b"", b"")
 
@@ -80,7 +91,7 @@ class ConfigureTest(unittest.TestCase):
         commands = [item.args for item in run.call_args_list]
         self.assertEqual(commands, [("ip", "link", "set", "eth1", "up")])
 
-    @patch("engulf_clab_containers_core.wan_access_runtime._run")
+    @patch.object(runtime, "_run")
     def test_dhcp_addressing_assigns_gateway(self, run) -> None:
         run.side_effect = lambda *args, **kwargs: CompletedProcess(args, 0, b"", b"")
         config = parse_dhcp_config({"ECLAB_DHCP_SUBNET": "198.19.0.0/24"})
@@ -94,7 +105,7 @@ class ConfigureTest(unittest.TestCase):
             commands,
         )
 
-    @patch("engulf_clab_containers_core.wan_access_runtime._run")
+    @patch.object(runtime, "_run")
     def test_nat_masquerades_all_lab_traffic_out_eth0(self, run) -> None:
         run.side_effect = lambda *args, **kwargs: CompletedProcess(args, 0, b"", b"")
 
@@ -126,7 +137,7 @@ class ConfigureTest(unittest.TestCase):
 
 
 class DnsmasqArgumentsTest(unittest.TestCase):
-    @patch("engulf_clab_containers_core.wan_access_runtime.subprocess.Popen")
+    @patch.object(runtime.subprocess, "Popen")
     def test_dhcp_process_starts_only_with_dhcp_config(self, popen) -> None:
         self.assertIsNone(start_dhcp(None, "eth1"))
         popen.assert_not_called()

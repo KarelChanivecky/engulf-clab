@@ -12,11 +12,12 @@ server, WAN, VPN, application proxy, DNS service, or SSH endpoint.
 - Every other discovered interface is lab-facing.
 
 Each VIP is exposed on every lab interface using proxy ARP for IPv4 or proxy
-NDP for IPv6. New traffic is translated, marked with its ingress-interface
-identity, forwarded through `eth0`, and masqueraded. Connection marks restore
-established and related replies, and one policy table per lab interface sends
-them back through the interface that received the request. TCP, UDP, ICMP, and
-other IP protocols share the mapping; there are no port-level listeners.
+NDP for IPv6. New traffic is translated, its connection is tagged with the
+ingress-interface identity, and the unmarked packet is forwarded through
+`eth0` and masqueraded. Established and related replies restore that connection
+mark onto the reply packet, and one policy table per lab interface sends them
+back through the interface that received the request. TCP, UDP, ICMP, and other
+IP protocols share the mapping; there are no port-level listeners.
 
 ## Mapping syntax
 

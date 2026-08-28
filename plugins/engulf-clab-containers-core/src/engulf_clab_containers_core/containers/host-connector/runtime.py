@@ -162,7 +162,8 @@ def _configure_family(
                 "--ctstate",
                 "NEW",
                 "-j",
-                "MARK",
+                # Keep the request packet unmarked so its route still uses eth0.
+                "CONNMARK",
                 "--set-mark",
                 str(mark),
             )
@@ -186,21 +187,6 @@ def _configure_family(
                 "ACCEPT",
             )
         _run(firewall, "-t", "filter", "-A", "ECLAB_FORWARD", "-i", interface, "-j", "DROP")
-    _run(
-        firewall,
-        "-t",
-        "mangle",
-        "-A",
-        "ECLAB_MARK",
-        "-m",
-        "mark",
-        "!",
-        "--mark",
-        "0",
-        "-j",
-        "CONNMARK",
-        "--save-mark",
-    )
     _run(
         firewall,
         "-t",

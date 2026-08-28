@@ -17,6 +17,9 @@ environment-driven, and reusable across labs. The fixed collection plugin ID is
 - Keep `wan-access` NAT independent from DHCP: forwarding and masquerade are
   unconditional, while gateway address assignment and `dnsmasq` require at
   least one supported `ECLAB_DHCP_*` variable.
+- In `host-connector`, record ingress identity directly on the connection. Do
+  not leave the corresponding mark on request packets: only restored reply
+  marks may select a lab-interface policy table.
 - Keep images generic. Addressing, routes, credentials, seeds, certificates,
   browser policy, proxy parents, and product-specific behavior belong in the
   consuming lab unless a documented safe development default is essential.

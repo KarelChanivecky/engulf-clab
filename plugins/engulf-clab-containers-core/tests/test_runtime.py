@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 import unittest
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import call, patch
 
-from engulf_clab_containers_core.runtime import ConnectorError, configure, parse_mappings
+_RUNTIME_PATH = (
+    Path(__file__).parents[1]
+    / "src/engulf_clab_containers_core/containers/host-connector/runtime.py"
+)
+_RUNTIME_SPEC = importlib.util.spec_from_file_location("eclab_host_connector_runtime", _RUNTIME_PATH)
+assert _RUNTIME_SPEC is not None and _RUNTIME_SPEC.loader is not None
+runtime = importlib.util.module_from_spec(_RUNTIME_SPEC)
+sys.modules[_RUNTIME_SPEC.name] = runtime
+_RUNTIME_SPEC.loader.exec_module(runtime)
+
+ConnectorError = runtime.ConnectorError
+configure = runtime.configure
+parse_mappings = runtime.parse_mappings
 
 
 class RuntimeTest(unittest.TestCase):
@@ -38,9 +53,9 @@ class RuntimeTest(unittest.TestCase):
                 }
             )
 
-    @patch("engulf_clab_containers_core.runtime._write_sysctl")
-    @patch("engulf_clab_containers_core.runtime._run")
-    @patch("engulf_clab_containers_core.runtime.socket.if_nametoindex")
+    @patch.object(runtime, "_write_sysctl")
+    @patch.object(runtime, "_run")
+    @patch.object(runtime.socket, "if_nametoindex")
     def test_every_non_management_interface_gets_vips_and_its_own_reply_route(
         self, interface_index, run, _write_sysctl
     ) -> None:
@@ -84,6 +99,46 @@ class RuntimeTest(unittest.TestCase):
                 "eth7",
                 "table",
                 "10009",
+            ),
+            commands,
+        )
+        self.assertIn(
+            (
+                "iptables",
+                "-t",
+                "mangle",
+                "-A",
+                "ECLAB_MARK",
+                "-i",
+                "eth1",
+                "-d",
+                "10.0.0.50",
+                "-m",
+                "conntrack",
+                "--ctstate",
+                "NEW",
+                "-j",
+                "CONNMARK",
+                "--set-mark",
+                "1002",
+            ),
+            commands,
+        )
+        self.assertNotIn(
+            (
+                "iptables",
+                "-t",
+                "mangle",
+                "-A",
+                "ECLAB_MARK",
+                "-m",
+                "mark",
+                "!",
+                "--mark",
+                "0",
+                "-j",
+                "CONNMARK",
+                "--save-mark",
             ),
             commands,
         )
