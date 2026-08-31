@@ -43,9 +43,12 @@ class _MirrorProvider:
 
 
 class ProvisionTest(unittest.TestCase):
+    @patch("engulf_docker_image_core.build._docker_image_exists", return_value=False)
     @patch("engulf_docker_image_core.build.subprocess.run")
     @patch("engulf_docker_image_core.build.shutil.which", return_value="/usr/bin/docker")
-    def test_default_pull_provisions_an_unclaimed_root(self, _which: Mock, run: Mock) -> None:
+    def test_default_pull_provisions_an_unclaimed_root(
+        self, _which: Mock, run: Mock, exists: Mock
+    ) -> None:
         api = Mock(spec=InvocationAPI)
         api.leases.return_value = nullcontext()
 
@@ -56,12 +59,33 @@ class ProvisionTest(unittest.TestCase):
 
         self.assertEqual(outcome.external, ())
         self.assertEqual(outcome.pulled, ("example/app:1",))
+        exists.assert_called_once_with("example/app:1")
         run.assert_called_once_with(("docker", "pull", "example/app:1"), check=True)
 
+    @patch("engulf_docker_image_core.build._docker_image_exists", return_value=True)
+    @patch("engulf_docker_image_core.build.subprocess.run")
+    @patch("engulf_docker_image_core.build.shutil.which", return_value="/usr/bin/docker")
+    def test_default_pull_reuses_an_existing_local_root(
+        self, _which: Mock, run: Mock, exists: Mock
+    ) -> None:
+        api = Mock(spec=InvocationAPI)
+        api.leases.return_value = nullcontext()
+
+        outcome = provision_image_graph(
+            ImageBuildGraph((ImageRequirement("example/local:1"),)),
+            api=api,
+        )
+
+        self.assertEqual(outcome.pulled, ())
+        self.assertEqual(outcome.reused, ("example/local:1",))
+        exists.assert_called_once_with("example/local:1")
+        run.assert_not_called()
+
+    @patch("engulf_docker_image_core.build._docker_image_exists", return_value=False)
     @patch("engulf_docker_image_core.build.subprocess.run")
     @patch("engulf_docker_image_core.build.shutil.which", return_value="/usr/bin/docker")
     def test_failed_mirror_falls_back_without_reprobing_provider(
-        self, _which: Mock, run: Mock
+        self, _which: Mock, run: Mock, _exists: Mock
     ) -> None:
         mirror = _MirrorProvider()
         run.side_effect = (

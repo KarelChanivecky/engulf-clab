@@ -138,9 +138,12 @@ class DockerPullRecipe:
 
     recipe_kind: ClassVar[str] = "pull"
     source: str
+    only_if_missing: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source", canonical_image_reference(self.source))
+        if type(self.only_if_missing) is not bool:
+            raise TypeError("pull only_if_missing must be a boolean")
 
 
 @dataclass(frozen=True, slots=True)

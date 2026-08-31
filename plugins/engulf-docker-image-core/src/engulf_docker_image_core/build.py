@@ -27,6 +27,7 @@ class ImageBuildOutcome:
     built: tuple[str, ...]
     external: tuple[str, ...]
     pulled: tuple[str, ...] = ()
+    reused: tuple[str, ...] = ()
 
 
 def docker_build_command(image: ResolvedImage) -> tuple[str, ...]:
@@ -186,6 +187,7 @@ def build_resolved_graph(
 
     pending = set(builds)
     succeeded: set[str] = set()
+    reused: set[str] = set()
     failed: dict[str, str] = {}
     direct_failures: list[ImageBuildFailure] = []
     lease_images = set(builds)
@@ -243,14 +245,22 @@ def build_resolved_graph(
                         "building %s with vrnetlab builder %s", image, recipe.builder
                     )
                 elif isinstance(recipe, DockerPullRecipe):
-                    api.logger.info("pulling %s from %s", image, recipe.source)
+                    if recipe.only_if_missing:
+                        api.logger.info(
+                            "using local %s when present, otherwise pulling it",
+                            image,
+                        )
+                    else:
+                        api.logger.info("pulling %s from %s", image, recipe.source)
                 else:
                     api.logger.info("provisioning %s with %s recipe", image, recipe.recipe_kind)
             results = _build_batch(tuple(builds[image] for image in ready), max_workers)
-            for item, error in results:
+            for item, error, used_local in results:
                 image = item.image
                 if error is None:
                     succeeded.add(image)
+                    if used_local:
+                        reused.add(image)
                 else:
                     failed[image] = error
                     assert item.provision is not None
@@ -272,25 +282,31 @@ def build_resolved_graph(
             failures=tuple(direct_failures),
         )
     built = tuple(sorted(image for image in succeeded if not _is_pull(builds[image])))
-    pulled = tuple(sorted(image for image in succeeded if _is_pull(builds[image])))
-    return ImageBuildOutcome(graph, built, external, pulled)
+    pulled = tuple(
+        sorted(
+            image
+            for image in succeeded
+            if _is_pull(builds[image]) and image not in reused
+        )
+    )
+    return ImageBuildOutcome(graph, built, external, pulled, tuple(sorted(reused)))
 
 
 def _build_batch(
     images: tuple[ResolvedImage, ...], max_workers: int
-) -> tuple[tuple[ResolvedImage, str | None], ...]:
+) -> tuple[tuple[ResolvedImage, str | None, bool], ...]:
     with ThreadPoolExecutor(max_workers=min(max_workers, len(images))) as executor:
-        futures: tuple[tuple[ResolvedImage, Future[None]], ...] = tuple(
+        futures: tuple[tuple[ResolvedImage, Future[bool]], ...] = tuple(
             (image, executor.submit(_build_image, image)) for image in images
         )
-        results: list[tuple[ResolvedImage, str | None]] = []
+        results: list[tuple[ResolvedImage, str | None, bool]] = []
         for image, future in futures:
             try:
-                future.result()
+                used_local = future.result()
             except ImageBuildError as error:
-                results.append((image, str(error)))
+                results.append((image, str(error), False))
             else:
-                results.append((image, None))
+                results.append((image, None, used_local))
         return tuple(results)
 
 
@@ -308,7 +324,7 @@ def _vrnetlab_lock(builder: Path) -> threading.Lock:
         return _VRNETLAB_LOCKS.setdefault(key, threading.Lock())
 
 
-def _build_image(image: ResolvedImage) -> None:
+def _build_image(image: ResolvedImage) -> bool:
     if image.provision is None:
         raise ImageBuildError("external images cannot be provisioned directly")
     recipe = image.provision.recipe
@@ -325,11 +341,13 @@ def _build_image(image: ResolvedImage) -> None:
                 else str(error)
             )
             raise ImageBuildError(reason) from error
-        return
+        return False
     try:
         if isinstance(recipe, DockerfileRecipe):
             commands: tuple[tuple[str, ...], ...] = (docker_build_command(image),)
         elif isinstance(recipe, DockerPullRecipe):
+            if recipe.only_if_missing and _docker_image_exists(image.image):
+                return True
             commands = docker_pull_commands(image)
         else:
             # The recipe protocol is open; this executor only understands the
@@ -339,6 +357,7 @@ def _build_image(image: ResolvedImage) -> None:
             )
         for command in commands:
             subprocess.run(command, check=True)
+        return False
     except subprocess.CalledProcessError as error:
         raise ImageBuildError(f"exit code {error.returncode}") from error
     except OSError as error:

@@ -50,8 +50,10 @@ def provision_image_graph(
             ImageProviderResponse.offer(
                 ImageProvision(
                     requirement.canonical_reference,
-                    DockerPullRecipe(requirement.canonical_reference),
-                    origin="default Docker registry pull",
+                    DockerPullRecipe(
+                        requirement.canonical_reference, only_if_missing=True
+                    ),
+                    origin="local Docker image or default registry pull",
                 ),
                 authority=ProvisionAuthority.FALLBACK,
             ),

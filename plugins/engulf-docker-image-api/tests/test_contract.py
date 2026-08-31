@@ -70,8 +70,14 @@ class ContractTest(unittest.TestCase):
 
         assert response.provision is not None
         self.assertEqual(response.provision.recipe.source, "mirror.local/example/root:latest")
+        self.assertFalse(response.provision.recipe.only_if_missing)
         self.assertEqual(response.authority, ProvisionAuthority.PREFERRED)
         self.assertTrue(response.fallback_on_failure)
+
+        local_first = DockerPullRecipe("example/root", only_if_missing=True)
+        self.assertTrue(local_first.only_if_missing)
+        with self.assertRaisesRegex(TypeError, "must be a boolean"):
+            DockerPullRecipe("example/root", only_if_missing=1)  # type: ignore[arg-type]
 
     def test_terminal_rejections_cannot_be_offers(self) -> None:
         with self.assertRaisesRegex(ValueError, "terminal rejection"):

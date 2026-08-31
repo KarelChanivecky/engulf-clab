@@ -16,6 +16,9 @@ Use `provision_image_graph` for end-to-end execution. It adds a low-authority
 selected graph, and retries resolution without a failed offer when that offer
 allows fallback. This supports a preferred local-mirror pull followed by the
 ordinary image reference without registry probes during provider discovery.
+The built-in ordinary-reference fallback inspects the exact local tag while
+executing: an existing image satisfies the requirement, while a missing image
+is pulled. Preferred provider recipes keep their declared execution behavior.
 Provider responses are cached across execution retries.
 
 Dockerfile analysis follows literal `FROM` instructions, ignores prior-stage
@@ -27,7 +30,9 @@ dependencies are combined with discovered bases.
 `build_resolved_graph` executes every selected build or pull recipe on every
 invocation. Dependencies finish before their consumers, independent branches
 may run in parallel, and leases cover every output tag and mirror pull source.
-Docker's layer cache is the only freshness policy. No images are removed
+Docker's layer cache remains the freshness policy for builds; the built-in
+missing-only pull fallback may reuse an existing exact local tag. Outcomes
+report that case in `reused`, separately from `pulled`. No images are removed
 afterward. Dockerfile recipes may not enable `--pull`; their base images must be
 supplied through the graph.
 

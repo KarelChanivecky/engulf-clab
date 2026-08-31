@@ -18,7 +18,9 @@ while still allowing a more explicit provider to override it.
 `ImageProvision` supplies either a `DockerfileRecipe` or `DockerPullRecipe` and
 optional explicit dependencies. A pull recipe may name a mirror source;
 execution pulls that source and retags it as
-the required image. The core package also discovers literal Dockerfile `FROM`
+the required image. `only_if_missing=True` lets execution first accept an
+existing local target; it defaults to false so provider mirror recipes continue
+to refresh from their selected source. The core package also discovers literal Dockerfile `FROM`
 dependencies. Providers are attributed by the dispatcher, not by values
 supplied by the provider itself.
 

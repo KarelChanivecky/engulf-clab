@@ -15,10 +15,11 @@ agents do not need to open it merely to discover that recursive building exists.
 Install it directly or through `engulf-clab-all-plugins`. A normal topology
 continues to use ordinary literal node images. Providers are ranked by declared
 authority, then plugin priority and ID. An unclaimed image receives the built-in
-low-authority pull offer, so the dispatcher provisions every root and literal
-Dockerfile base instead of delegating that work to Containerlab or `docker
-build`. Providers should not probe registries while answering; the selected
-pull operation is the availability check.
+low-authority local-or-pull offer: the scheduler accepts the exact local tag
+when present and pulls it only when missing. The dispatcher therefore
+provisions every root and literal Dockerfile base instead of delegating that
+work to Containerlab or `docker build`. Providers should not probe registries
+while answering; availability checks happen only during selected execution.
 
 When a preferred mirror/cache offer fails during execution, resolution runs
 again without that exact offer and selects the next eligible provision. A

@@ -98,7 +98,7 @@ PLUGIN_SCHEMA = (
         implies=(
             "active providers are queried for the root and every statically discoverable literal Dockerfile FROM base",
             "selected recipes build dependency-first on every deploy and rely on Docker's layer cache",
-            "unclaimed literal images use the low-authority Docker pull fallback",
+            "unclaimed literal images use an exact local tag when present and otherwise use the low-authority Docker pull fallback",
             "the derived topology sets provisioned roots to image-pull-policy Never",
             "node images unresolved after parser expansion and dynamic FROM expressions fail before Containerlab runs",
         ),
@@ -205,7 +205,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
         del api
         return (
             "  Docker image providers are resolved recursively before deploy.\n"
-            "  Unclaimed literal images use docker pull; failed preferred sources fall back.\n"
+            "  Unclaimed literal images use an exact local tag or pull when missing.\n"
             "  Provisioned roots use image-pull-policy Never in the derived topology.\n"
             "  Node YAML env fields:\n"
             "    ECLAB_IMAGE_PARAM_name  Parameter for this node image only\n"

@@ -15,4 +15,6 @@ manager, core resolver, discovery, and skill tests.
 Keep recursive roots, literal `FROM` dependencies, dependency-first execution,
 cache behavior, ranked fallback, and derived pull-policy behavior directly
 visible in the compact `PluginSchema` capability surface.
+The low-authority fallback must accept an exact local tag before attempting a
+registry pull; higher-authority provider recipes retain their declared policy.
 `USAGE.md` may elaborate on them but must not be their only discovery path.

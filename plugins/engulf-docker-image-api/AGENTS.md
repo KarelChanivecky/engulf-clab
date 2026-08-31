@@ -9,4 +9,6 @@
   between requirements.
 - Keep authority, terminal rejection, and execution fallback policy explicit in
   responses; never make registry availability checks part of discovery.
+- Keep `DockerPullRecipe.only_if_missing` explicit and default it to false so
+  provider-authored mirror pulls retain their existing always-pull behavior.
 - Update exports, docs, and direct-consumer tests with every contract change.

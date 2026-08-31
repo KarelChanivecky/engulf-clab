@@ -9,7 +9,8 @@
   mutators and before writer serialization.
 - Build only in `prepare_call`; keep analysis side-effect free.
 - Provision every literal root through ranked offers, including the low-authority
-  pull fallback, then force `image-pull-policy: Never` only in the derived topology.
+  local-or-pull fallback, then force `image-pull-policy: Never` only in the
+  derived topology.
 - Accept source image expressions after the parser eagerly resolves them from
   the effective call environment; reject only expressions still unresolved in
   the materialized topology because they prevent complete graph ownership.
