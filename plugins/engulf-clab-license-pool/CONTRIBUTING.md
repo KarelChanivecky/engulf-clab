@@ -32,8 +32,10 @@ through the shared topology editor.
   `sticky`, `round-robin`, and `least-recently-used`.
 - Use the shared topology editor to point only the derived topology at a copy.
   Never edit the selected YAML or consume a pool license in place.
-- Release one workspace only after successful destroy. Preserve destroy-all
-  semantics and remove only generated license copies owned by this plugin.
+- Record newly created claims and copies in invocation context before later
+  preparation can fail. On any unsuccessful deploy outcome, roll back exactly
+  that set while preserving pre-existing retry claims. Release one workspace
+  after successful destroy and preserve destroy-all semantics.
 - Freeze prompts must accept one file, directory pool, or `$VARIABLE`, with
   node-specific noninteractive values before the global value. Never log the
   resolved path or content as a diagnostic secret.

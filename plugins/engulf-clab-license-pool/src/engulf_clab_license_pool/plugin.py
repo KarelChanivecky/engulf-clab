@@ -45,6 +45,7 @@ from engulf_executable_wrapper_api import (
 
 _FILE = "license-pools.json"
 _STATE_VERSION = 2
+_INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
 _NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
 _LEGACY_STATE_DIRECTORY = ".engulf-clab"
 
@@ -139,6 +140,7 @@ PLUGIN_SCHEMA = (
         ),
         implies=(
             "a successful deploy copies the selected license into lab-local state",
+            "an unsuccessful deploy rolls back claims and copies created by that invocation",
         ),
         examples=("$ROUTER_LICENSE_POOL", "__ECLAB_LICENSE_PROMPT__"),
     )
@@ -230,6 +232,12 @@ class LicenseContract:
         return f"{self.license_environment}_{node}"
 
 
+@dataclass(frozen=True, slots=True)
+class _InvocationAllocation:
+    claims: tuple[tuple[str, str, str], ...] = ()
+    copies: tuple[str, ...] = ()
+
+
 def license_contract(application: ApplicationMetadata) -> LicenseContract:
     short_name = getattr(application, "short_product_name", None)
     product = getattr(application, "product", None)
@@ -259,8 +267,11 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         ),
         SCHEMA_PLUGIN_DEPENDENCY,
     )
-    context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
-    context_writes = SCHEMA_CONTEXTS
+    context_reads = (
+        frozenset({TOPOLOGY_CONTEXT, _INVOCATION_ALLOCATION_CONTEXT})
+        | SCHEMA_CONTEXTS
+    )
+    context_writes = frozenset({_INVOCATION_ALLOCATION_CONTEXT}) | SCHEMA_CONTEXTS
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
@@ -287,7 +298,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             f"  {contract.license_environment}_<NODE> remains the per-node prompt override.\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
             "  Deploy logs each selected license basename with its node; source paths stay private.\n"
-            "  Successful destroy releases claims and removes copied lab licenses."
+            "  Failed deploy rolls back new claims; successful destroy releases workspace claims."
         )
 
     def analyze_call(
@@ -316,22 +327,48 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             tuple(sorted({_lease(pool) for _node, pool, _clamp, _claim in requests}))
         ):
             state = api.state(StateScope.USER)
-            assigned = _claim(state, requests, strategy)
-        assigned.update({claim: source for claim, source in direct.values()})
-        mutation = editor(api, self.plugin_id)
-        selections = [(node, claim) for node, _pool, _clamp, claim in requests]
-        selections.extend((node, claim) for node, (claim, _source) in direct.items())
-        for node, claim in selections:
-            source = Path(assigned[claim])
-            copied = _copy_to_lab(source, session.path.parent, claim, contract)
-            api.logger.info(
-                "selected license basename=%r for node=%r",
-                source.name,
-                node,
+            assigned, created_claims = _claim_with_created(state, requests, strategy)
+        allocation = _InvocationAllocation(claims=created_claims)
+        try:
+            api.set_context(_INVOCATION_ALLOCATION_CONTEXT, allocation)
+            assigned.update({claim: source for claim, source in direct.values()})
+            mutation = editor(api, self.plugin_id)
+            selections = [(node, claim) for node, _pool, _clamp, claim in requests]
+            selections.extend(
+                (node, claim) for node, (claim, _source) in direct.items()
             )
-            mutation.modify(("topology", "nodes", node, "license"), str(copied))
+            for node, claim in selections:
+                source = Path(assigned[claim])
+                target = _copy_path(session.path.parent, claim, source.name, contract)
+                if not target.exists():
+                    allocation = _InvocationAllocation(
+                        claims=allocation.claims,
+                        copies=(*allocation.copies, str(target)),
+                    )
+                    api.set_context(_INVOCATION_ALLOCATION_CONTEXT, allocation)
+                copied = _copy_to_lab(source, session.path.parent, claim, contract)
+                api.logger.info(
+                    "selected license basename=%r for node=%r",
+                    source.name,
+                    node,
+                )
+                mutation.modify(("topology", "nodes", node, "license"), str(copied))
+        except BaseException:
+            self._rollback_deploy(api, allocation)
+            raise
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
+        if event.wrapper_args and event.wrapper_args[0] == "deploy":
+            if (
+                isinstance(allocation, _InvocationAllocation)
+                and (
+                    event.outcome.kind is not OutcomeKind.COMPLETED
+                    or event.outcome.exit_code != 0
+                )
+            ):
+                self._rollback_deploy(api, allocation)
+            return
         if (
             not event.wrapper_args
             or event.wrapper_args[0] != "destroy"
@@ -356,6 +393,17 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 workspace.root / _LEGACY_STATE_DIRECTORY / "licenses",
                 ignore_errors=True,
             )
+
+    def _rollback_deploy(
+        self, api: InvocationAPI, allocation: _InvocationAllocation
+    ) -> None:
+        pools = tuple(sorted({pool for pool, _path, _claim in allocation.claims}))
+        with api.leases(tuple(_lease(pool) for pool in pools)):
+            _release_claims(api.state(StateScope.USER), allocation.claims)
+        for value in allocation.copies:
+            target = Path(value)
+            target.unlink(missing_ok=True)
+            _remove_empty_copy_parents(target.parent)
 
 
 def _requests(
@@ -464,10 +512,20 @@ def _claim(
     requests: list[tuple[str, str, str | None, str]],
     strategy: LicenseStrategy | str = LicenseStrategy.LEAST_RECENTLY_USED,
 ) -> dict[str, str]:
+    assigned, _created = _claim_with_created(state, requests, strategy)
+    return assigned
+
+
+def _claim_with_created(
+    state: Any,
+    requests: list[tuple[str, str, str | None, str]],
+    strategy: LicenseStrategy | str = LicenseStrategy.LEAST_RECENTLY_USED,
+) -> tuple[dict[str, str], tuple[tuple[str, str, str], ...]]:
     strategy = _coerce_strategy(strategy)
     with state.transaction() as locked:
         registry = _load(locked)
         out = {}
+        created: list[tuple[str, str, str]] = []
         for _node, pool, clamp, claim in requests:
             entry = registry["pools"].setdefault(pool, _new_pool_entry())
             _validate_pool_entry(entry)
@@ -502,11 +560,12 @@ def _claim(
                 if choice is None:
                     raise LicensePoolError(f"no available licenses in pool {pool}")
             allocations[choice] = claim
+            created.append((pool, choice, claim))
             history[choice] = claim
             _record_use(entry, choice)
             out[claim] = choice
         locked.write_text(_FILE, json.dumps(registry, sort_keys=True) + "\n")
-        return out
+        return out, tuple(created)
 
 
 def _license_strategy(environ: Mapping[str, str]) -> LicenseStrategy:
@@ -643,6 +702,20 @@ def _release_workspace(state: Any, workspace: str) -> None:
         locked.write_text(_FILE, json.dumps(registry, sort_keys=True) + "\n")
 
 
+def _release_claims(
+    state: Any, claims: tuple[tuple[str, str, str], ...]
+) -> None:
+    if not claims:
+        return
+    with state.transaction() as locked:
+        registry = _load(locked)
+        for pool, path, claim in claims:
+            entry = registry["pools"].get(pool)
+            if isinstance(entry, dict) and entry["allocations"].get(path) == claim:
+                del entry["allocations"][path]
+        locked.write_text(_FILE, json.dumps(registry, sort_keys=True) + "\n")
+
+
 def _release_all(state: Any) -> None:
     with state.transaction() as locked:
         registry = _load(locked)
@@ -658,13 +731,28 @@ def _lease(pool: str) -> str:
 def _copy_to_lab(
     source: Path, lab_dir: Path, claim: str, contract: LicenseContract
 ) -> Path:
-    target_dir = (
+    target = _copy_path(lab_dir, claim, source.name, contract)
+    target_dir = target.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return target
+
+
+def _copy_path(
+    lab_dir: Path, claim: str, filename: str, contract: LicenseContract
+) -> Path:
+    return (
         lab_dir
         / contract.state_directory
         / "licenses"
         / hashlib.sha256(claim.encode()).hexdigest()
+        / filename
     )
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / source.name
-    shutil.copy2(source, target)
-    return target
+
+
+def _remove_empty_copy_parents(directory: Path) -> None:
+    for candidate in (directory, directory.parent):
+        try:
+            candidate.rmdir()
+        except OSError:
+            break

@@ -78,8 +78,10 @@ workspaces cannot claim the same file. The selected source is copied beneath:
 
 Only the temporary topology receives that copy's path. The source YAML, pool
 file, and license contents are unchanged. Pool/file identities are retained in
-user state, but license contents are not. An allocation made before a later
-deploy failure stays claimed for retry stability.
+user state, but license contents are not. A failed, preempted, interrupted, or
+cancelled deploy rolls back the claims and lab copies first created by that
+invocation. A retry that reused an existing claim does not release that claim
+when it fails.
 
 A successful `destroy` releases that workspace and removes its generated
 copies. `destroy -a` or `destroy --all` clears every recorded allocation but

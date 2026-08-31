@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 
 from engulf_api import ApplicationMetadata, InvocationAPI, StateScope
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
@@ -23,9 +23,12 @@ from engulf_clab_license_pool.plugin import (
 )
 from engulf_clab_schema_api import OptionKind, register_schema_arguments
 from engulf_executable_wrapper_api import (
+    AfterCallEvent,
     ArgumentRegistry,
     CallMode,
+    CallOutcome,
     CompletionContext,
+    OutcomeKind,
     PreparedCallEvent,
     Shell,
     invoke_provider,
@@ -327,6 +330,225 @@ class LicenseSelectionLoggingTestCase(unittest.TestCase):
             )
             rendered_calls = repr(api.logger.info.call_args_list)
             self.assertNotIn(str(root), rendered_calls)
+
+
+class LicenseDeployRollbackTestCase(unittest.TestCase):
+    def _api(
+        self,
+        session: TopologySession,
+        user_state: MemoryState,
+        workspace: Path,
+    ) -> tuple[Mock, dict[str, object]]:
+        contexts: dict[str, object] = {}
+        api = Mock(spec=InvocationAPI)
+        api.application = ApplicationMetadata(
+            application_id="engulf-clab",
+            display_name="eclab",
+            vendor="Engulf",
+            product="eclab",
+            short_product_name="eclab",
+            version="1.0",
+        )
+        api.require_context.return_value = session
+        api.state.side_effect = lambda scope: (
+            SimpleNamespace(root=workspace)
+            if scope is StateScope.WORKSPACE
+            else user_state
+        )
+        api.leases.return_value = nullcontext()
+        api.set_context.side_effect = lambda key, value: contexts.__setitem__(
+            key, value
+        )
+        api.get_context.side_effect = lambda key, default=None: contexts.get(
+            key, default
+        )
+        return api, contexts
+
+    def test_failed_preempted_and_signaled_deploy_roll_back_new_claim_and_copy(
+        self,
+    ) -> None:
+        outcomes = (
+            CallOutcome(OutcomeKind.COMPLETED, 70, process_started=True),
+            CallOutcome(
+                OutcomeKind.FRAMEWORK_FAILED,
+                70,
+                process_started=False,
+                error="later provider failed",
+            ),
+            CallOutcome(
+                OutcomeKind.PREEMPTED,
+                1,
+                process_started=False,
+                preempted_by="test",
+            ),
+            CallOutcome(
+                OutcomeKind.SIGNALED,
+                130,
+                process_started=True,
+                signal=2,
+            ),
+        )
+        for outcome in outcomes:
+            with (
+                self.subTest(outcome=outcome.kind),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                workspace = root / "lab"
+                workspace.mkdir()
+                pool = root / "pool"
+                pool.mkdir()
+                (pool / "router.lic").write_text("license", encoding="utf-8")
+                session = TopologySession(
+                    workspace / "lab.clab.yml",
+                    {
+                        "topology": {
+                            "nodes": {"router": {"license": "$ROUTER_POOL"}}
+                        }
+                    },
+                )
+                state = MemoryState()
+                api, _contexts = self._api(session, state, workspace)
+                environment = {"ROUTER_POOL": str(pool)}
+                plugin = LicensePoolPlugin()
+
+                plugin.prepare_call(
+                    PreparedCallEvent(
+                        "containerlab",
+                        ("deploy",),
+                        ("deploy", "-t", str(session.path)),
+                        CallMode.NORMAL,
+                        environment,
+                    ),
+                    api,
+                )
+                registry = json.loads(state.content["license-pools.json"])
+                self.assertEqual(
+                    len(registry["pools"][str(pool.resolve())]["allocations"]), 1
+                )
+                self.assertEqual(
+                    len(list((workspace / ".eclab" / "licenses").rglob("*.lic"))),
+                    1,
+                )
+
+                plugin.after_call(
+                    AfterCallEvent(
+                        "containerlab",
+                        ("deploy",),
+                        ("deploy", "-t", str(session.path)),
+                        CallMode.NORMAL,
+                        outcome,
+                        0.1,
+                        environment,
+                    ),
+                    api,
+                )
+
+                registry = json.loads(state.content["license-pools.json"])
+                self.assertEqual(
+                    registry["pools"][str(pool.resolve())]["allocations"], {}
+                )
+                self.assertEqual(
+                    list((workspace / ".eclab" / "licenses").rglob("*.lic")), []
+                )
+
+    def test_prepare_exception_rolls_back_before_propagating(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "lab"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "router.lic").write_text("license", encoding="utf-8")
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {
+                    "topology": {
+                        "nodes": {"router": {"license": "$ROUTER_POOL"}}
+                    }
+                },
+            )
+            state = MemoryState()
+            api, _contexts = self._api(session, state, workspace)
+
+            with (
+                patch(
+                    "engulf_clab_license_pool.plugin.shutil.copy2",
+                    side_effect=OSError("copy failed"),
+                ),
+                self.assertRaisesRegex(OSError, "copy failed"),
+            ):
+                LicensePoolPlugin().prepare_call(
+                    PreparedCallEvent(
+                        "containerlab",
+                        ("deploy",),
+                        ("deploy", "-t", str(session.path)),
+                        CallMode.NORMAL,
+                        {"ROUTER_POOL": str(pool)},
+                    ),
+                    api,
+                )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                registry["pools"][str(pool.resolve())]["allocations"], {}
+            )
+            self.assertEqual(
+                list((workspace / ".eclab" / "licenses").rglob("*.lic")), []
+            )
+
+    def test_failed_retry_preserves_preexisting_claim_and_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "lab"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "router.lic").write_text("license", encoding="utf-8")
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {
+                    "topology": {
+                        "nodes": {"router": {"license": "$ROUTER_POOL"}}
+                    }
+                },
+            )
+            state = MemoryState()
+            environment = {"ROUTER_POOL": str(pool)}
+            event = PreparedCallEvent(
+                "containerlab",
+                ("deploy",),
+                ("deploy", "-t", str(session.path)),
+                CallMode.NORMAL,
+                environment,
+            )
+            plugin = LicensePoolPlugin()
+
+            first_api, _first_contexts = self._api(session, state, workspace)
+            plugin.prepare_call(event, first_api)
+            second_api, _second_contexts = self._api(session, state, workspace)
+            plugin.prepare_call(event, second_api)
+            plugin.after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    ("deploy",),
+                    event.effective_args,
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 70, process_started=True),
+                    0.1,
+                    environment,
+                ),
+                second_api,
+            )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                len(registry["pools"][str(pool.resolve())]["allocations"]), 1
+            )
+            self.assertEqual(
+                len(list((workspace / ".eclab" / "licenses").rglob("*.lic"))),
+                1,
+            )
 
 
 if __name__ == "__main__":
