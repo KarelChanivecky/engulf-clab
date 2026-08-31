@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
+
 from engulf_api import BeforeGoalAPI, GoalResult, Invocation, InvocationAPI
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
@@ -20,8 +23,10 @@ from engulf_executable_wrapper_api import (
 
 from .session import (
     TOPOLOGY_CONTEXT,
+    WRITER_TEMP_PREFIX,
     TopologyError,
     TopologySession,
+    derived_topology_path,
     load_topology,
     topology_path_from_args,
 )
@@ -47,7 +52,9 @@ class TopologyPlugin(ExecutableWrapperPlugin):
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return None
         if event.wrapper_args[0] == "destroy":
-            return _destroy_topology_contribution(event.wrapper_args)
+            return _destroy_topology_contribution(
+                event.wrapper_args, event.environment
+            )
         if event.wrapper_args[0] != "deploy":
             return None
         try:
@@ -70,21 +77,83 @@ class TopologyPlugin(ExecutableWrapperPlugin):
         )
 
 
-def _destroy_topology_contribution(args: tuple[str, ...]) -> CallContribution | None:
-    """Select the source explicitly so Containerlab ignores writer residue."""
-    if _has_option(args[1:], ("-t", "--topo", "--topology", "--name")):
+def _destroy_topology_contribution(
+    args: tuple[str, ...], environment: Mapping[str, str]
+) -> CallContribution | None:
+    """Route destroy through the retained topology used for deploy when present."""
+    rest = tuple(args[1:])
+    if _has_option(rest, ("-a", "--all")):
         return None
+    name = _option_value(rest, "--name")
+    if name is not None:
+        matches = []
+        for candidate in Path.cwd().glob(f"{WRITER_TEMP_PREFIX}*.clab.yml"):
+            try:
+                document = load_topology(candidate, environment)
+            except TopologyError:
+                continue
+            if document.get("name") == name:
+                matches.append(candidate.resolve())
+        if len(matches) != 1:
+            return None
+        return CallContribution(
+            removals=frozenset(_option_indexes(args, "--name")),
+            additions=(
+                ArgumentAddition(
+                    ("-t", str(matches[0])), AdditionPlacement.BEFORE_SEPARATOR
+                ),
+            ),
+        )
     try:
-        topology = topology_path_from_args(tuple(args[1:]))
+        topology = topology_path_from_args(rest)
     except TopologyError:
         # Preserve Containerlab's native diagnostics for zero or multiple source
         # topologies. The useful special case is one source plus writer residue.
         return None
+    retained = derived_topology_path(topology)
+    target = retained if retained.is_file() else topology
+    explicit = _has_option(rest, ("-t", "--topo", "--topology"))
+    if explicit and target == topology:
+        return None
+    removals = frozenset(_topology_indexes(args)) if explicit else frozenset()
     return CallContribution(
+        removals=removals,
         additions=(
-            ArgumentAddition(("-t", str(topology)), AdditionPlacement.BEFORE_SEPARATOR),
+            ArgumentAddition(("-t", str(target)), AdditionPlacement.BEFORE_SEPARATOR),
         ),
     )
+
+
+def _topology_indexes(args: tuple[str, ...]) -> set[int]:
+    indexes: set[int] = set()
+    for index, value in enumerate(args):
+        if value in {"-t", "--topo", "--topology"}:
+            indexes.update((index, index + 1))
+        elif any(
+            value.startswith(prefix)
+            for prefix in ("-t=", "--topo=", "--topology=")
+        ):
+            indexes.add(index)
+    return {index for index in indexes if index < len(args)}
+
+
+def _option_indexes(args: tuple[str, ...], option: str) -> set[int]:
+    indexes: set[int] = set()
+    for index, value in enumerate(args):
+        if value == option:
+            indexes.update((index, index + 1))
+        elif value.startswith(f"{option}="):
+            indexes.add(index)
+    return {index for index in indexes if index < len(args)}
+
+
+def _option_value(args: tuple[str, ...], option: str) -> str | None:
+    for index, value in enumerate(args):
+        if value == option and index + 1 < len(args):
+            return args[index + 1]
+        if value.startswith(f"{option}="):
+            return value.removeprefix(f"{option}=")
+    return None
 
 
 def _has_option(args: tuple[str, ...], options: tuple[str, ...]) -> bool:

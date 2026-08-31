@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
     WRITER_TEMP_PREFIX,
     TopologySession,
+    derived_topology_path,
     topology_path_from_args,
 )
 from engulf_clab_schema_api import (
@@ -36,6 +36,7 @@ from engulf_executable_wrapper_api import (
     CallContribution,
     CallMode,
     ExecutableWrapperPlugin,
+    OutcomeKind,
     PreparedCallEvent,
 )
 
@@ -92,7 +93,7 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
             return None
         removals = _topology_indexes(event.wrapper_args)
         source = topology_path_from_args(tuple(event.wrapper_args[1:]))
-        target = source.parent / f"{_PREFIX}{uuid.uuid4().hex}.clab.yml"
+        target = derived_topology_path(source)
         return CallContribution(
             removals=frozenset(removals),
             additions=(
@@ -111,7 +112,6 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
         target = _generated_path(event.effective_args)
         if target is None:
             raise RuntimeError("generated topology argument is missing")
-        _sweep_stale_topologies(target.parent)
         descriptor, staged_name = tempfile.mkstemp(
             prefix=f"{target.name}.", dir=target.parent, text=True
         )
@@ -128,9 +128,19 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
             raise
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        if (
+            not event.wrapper_args
+            or event.wrapper_args[0] != "destroy"
+            or event.outcome.kind is not OutcomeKind.COMPLETED
+            or event.outcome.exit_code != 0
+        ):
+            return
         target = _generated_path(event.effective_args)
         if target is not None:
             target.unlink(missing_ok=True)
+        elif any(value in {"-a", "--all"} for value in event.wrapper_args[1:]):
+            for retained in Path.cwd().glob(f"{_PREFIX}*.clab.yml"):
+                retained.unlink(missing_ok=True)
 
 
 def _topology_indexes(args: tuple[str, ...]) -> set[int]:
@@ -151,24 +161,6 @@ def _generated_path(args: tuple[str, ...]) -> Path | None:
         if path.name.startswith(_PREFIX):
             return path
     return None
-
-
-def _sweep_stale_topologies(directory: Path) -> None:
-    """Remove leftover writer temp topology files before a fresh deploy.
-
-    A prior deploy that was killed before ``after_call`` could run leaves a
-    ``.engulf-clab-lab-*.clab.yml`` beside the source topology. On the next
-    deploy these stale files are neither the active input (the writer
-    generates a fresh path) nor needed for cleanup, so they are unlinked here
-    to keep the directory tidy and the parser's glob unambiguous. A file
-    matching the prefix that is actively in use (the staged path about to be
-    written) is skipped defensively, though that should not occur because
-    ``prepare_call`` runs before the staged file exists.
-    """
-    if not directory.is_dir():
-        return
-    for stale in directory.glob(f"{_PREFIX}*.clab.yml"):
-        stale.unlink(missing_ok=True)
 
 
 def _escape_rendered_dollars(value: Any) -> Any:

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import yaml
 from engulf_api import InvocationAPI
-from engulf_clab_lab_parser import TopologySession
+from engulf_clab_lab_parser import TopologySession, derived_topology_path
 from engulf_clab_lab_parser.environment import expand_environment
 from engulf_clab_lab_writer.plugin import TopologyCollectorPlugin
 from engulf_executable_wrapper_api import (
@@ -67,6 +67,11 @@ class TopologyCollectorPluginTest(unittest.TestCase):
             lab_directory.mkdir()
             topology = lab_directory / "lab.clab.yml"
             document = {
+                "name": "retained-lab",
+                "mgmt": {
+                    "network": "custom-management",
+                    "ipv4-subnet": "172.31.255.0/24",
+                },
                 "topology": {
                     "nodes": {
                         "ldap": {
@@ -106,6 +111,8 @@ class TopologyCollectorPluginTest(unittest.TestCase):
                 generated["topology"]["nodes"]["ldap"]["binds"],
                 ["configs/ldap_start.sh:/ldap_start.sh"],
             )
+            self.assertEqual(generated["mgmt"]["network"], "custom-management")
+            self.assertEqual(generated["mgmt"]["ipv4-subnet"], "172.31.255.0/24")
 
             plugin.after_call(
                 AfterCallEvent(
@@ -118,19 +125,28 @@ class TopologyCollectorPluginTest(unittest.TestCase):
                 ),
                 api,
             )
+            self.assertTrue(target.exists())
+
+            plugin.after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    ("destroy",),
+                    ("destroy", "-t", str(target)),
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 0, process_started=True),
+                    0.1,
+                ),
+                api,
+            )
             self.assertFalse(target.exists())
 
-    def test_prepare_call_sweeps_stale_temp_topologies(self) -> None:
+    def test_stable_topology_survives_redeploy_and_failed_destroy(self) -> None:
         with TemporaryDirectory() as directory:
             lab_directory = Path(directory) / "lab"
             lab_directory.mkdir()
             topology = lab_directory / "lab.clab.yml"
             document = {"topology": {"nodes": {"a": {"x": 1}}}}
             topology.write_text(yaml.safe_dump(document), encoding="utf-8")
-
-            # A stale temp file from a prior killed deploy sits beside the source.
-            stale = lab_directory / ".engulf-clab-lab-deadbeef.clab.yml"
-            stale.write_text("topology: {}\n", encoding="utf-8")
 
             plugin = TopologyCollectorPlugin()
             wrapper_args = ("deploy",)
@@ -141,27 +157,50 @@ class TopologyCollectorPluginTest(unittest.TestCase):
                 )
             assert contribution is not None
             target = Path(contribution.additions[0].args[1])
+            self.assertEqual(target, derived_topology_path(topology))
 
             api = Mock(spec=InvocationAPI)
             api.require_context.return_value = TopologySession(topology, document)
             effective_args = ("deploy", "-t", str(target))
 
-            self.assertTrue(stale.exists())
             plugin.prepare_call(
                 PreparedCallEvent(
                     "containerlab", wrapper_args, effective_args, CallMode.NORMAL
                 ),
                 api,
             )
-            # The stale temp file must be gone, the fresh target must exist.
-            self.assertFalse(stale.exists())
+            self.assertTrue(target.exists())
+
+            # A later deploy deterministically replaces the same retained path.
+            api.require_context.return_value = TopologySession(
+                topology, {"topology": {"nodes": {"b": {"x": 2}}}}
+            )
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab", wrapper_args, effective_args, CallMode.NORMAL
+                ),
+                api,
+            )
+            self.assertIn("b", yaml.safe_load(target.read_text())["topology"]["nodes"])
+
+            plugin.after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    ("destroy",),
+                    ("destroy", "-t", str(target)),
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 1, process_started=True),
+                    0.1,
+                ),
+                api,
+            )
             self.assertTrue(target.exists())
 
             plugin.after_call(
                 AfterCallEvent(
                     "containerlab",
-                    wrapper_args,
-                    effective_args,
+                    ("destroy",),
+                    ("destroy", "-t", str(target)),
                     CallMode.NORMAL,
                     CallOutcome(OutcomeKind.COMPLETED, 0, process_started=True),
                     0.1,
@@ -169,6 +208,25 @@ class TopologyCollectorPluginTest(unittest.TestCase):
                 api,
             )
             self.assertFalse(target.exists())
+
+    def test_successful_destroy_all_removes_retained_topologies(self) -> None:
+        with TemporaryDirectory() as directory, chdir(directory):
+            retained = Path(".engulf-clab-lab-0123456789abcdef.clab.yml")
+            retained.write_text("topology: {}\n", encoding="utf-8")
+
+            TopologyCollectorPlugin().after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    ("destroy", "--all"),
+                    ("destroy", "--all"),
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 0, process_started=True),
+                    0.1,
+                ),
+                Mock(spec=InvocationAPI),
+            )
+
+            self.assertFalse(retained.exists())
 
 
 if __name__ == "__main__":

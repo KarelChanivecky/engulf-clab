@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -24,6 +25,12 @@ _PATTERNS = ("*.clab.yml", "*.clab.yaml", "clab.yml", "clab.yaml", "topology.yml
 # Kept here as the single source of truth so the writer imports it rather than
 # duplicating the prefix and risking drift.
 WRITER_TEMP_PREFIX = ".engulf-clab-lab-"
+
+
+def derived_topology_path(source: Path) -> Path:
+    """Return the stable writer path associated with one source topology."""
+    identity = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:16]
+    return source.resolve().parent / f"{WRITER_TEMP_PREFIX}{identity}.clab.yml"
 
 class TopologyError(RuntimeError): pass
 

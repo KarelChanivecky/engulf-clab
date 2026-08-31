@@ -1,20 +1,22 @@
 # Plugin Instructions
 
-This collector runs after topology mutators, writes only a temporary derived
-YAML file, and always attempts cleanup in `after_call()`.
+This collector runs after topology mutators and retains one stable derived YAML
+file until Containerlab successfully destroys the lab.
 
 - Keep plugin ID `engulf_clab.lab_writer`, priority `-100`, parser dependency,
   and topology-context read stable.
 - Activate only for deploy. During analysis, remove all source topology option
   tokens and contribute exactly one generated `-t` pair before the separator.
-- Place the target beside the source topology with an unguessable
-  `.engulf-clab-lab-*.clab.yml` name so relative paths retain source semantics.
+- Place the target beside the source topology at the deterministic
+  `.engulf-clab-lab-<source-id>.clab.yml` path so relative paths retain source
+  semantics and Containerlab labels keep a usable recovery topology.
 - In preparation, materialize once, write a same-directory staged file, and
   publish atomically. Escape every rendered dollar before serialization so
   Containerlab's own environment pass cannot expand the topology a second
   time. Remove the staged file on every exception.
-- In postprocessing, unlink only a path recognizable as this invocation's
-  generated topology. Tolerate missing files and preserve the wrapped outcome.
+- Retain the generated topology after deploy, including failed or interrupted
+  deploys that may have created partial host state. Unlink it only after a
+  successful destroy routed through that file.
 - Never write, rename, or delete the selected source topology. Do not own feature
   mutation logic, state, leases, or runtime help.
 - Keep this contributor reference's argv/integration contract and `USAGE.md`'s
@@ -32,12 +34,15 @@ topologies.
 
 A mutator depends on the parser before itself and the writer after itself,
 records operations under its exact plugin ID, and never writes a competing
-derived topology. The writer materializes once during preparation, doubles
+derived topology. The writer deterministically maps a resolved source path to
+one retained derived path, materializes once during preparation, doubles
 dollar signs in every string key/value to preserve the parser's already
 rendered values through Containerlab's substitution pass, preserves YAML key
 order where possible, and owns only its recognizable generated and staged
-paths. Feature-specific state, leases, validation, and mutation logic remain
-with the mutator.
+paths. A redeploy atomically replaces that same path. Deploy postprocessing
+retains it; successful destroy postprocessing removes it after Containerlab has
+used the full node and management configuration. Feature-specific state,
+leases, validation, and mutation logic remain with the mutator.
 
 ## Validation
 

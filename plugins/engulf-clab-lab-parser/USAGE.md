@@ -44,12 +44,16 @@ For deploy and other filesystem-mutating features, zero or multiple matches
 require an explicit path. URL and stdin topologies are valid Containerlab
 inputs but cannot use this mutation pipeline.
 
-Hidden `.engulf-clab-lab-*.clab.yml` writer outputs are ignored during implicit
-selection. For destroy, an explicit topology or `--name` is left unchanged. If
-neither is supplied and one source exists, eclab passes that source explicitly
-so a stale generated file cannot make Containerlab selection ambiguous. With
-zero or multiple sources, Containerlab retains control of the destroy
-diagnostic.
+Hidden `.engulf-clab-lab-*.clab.yml` writer outputs are ignored during ordinary
+implicit source selection. For destroy by source, eclab prefers the stable
+derived topology retained from deploy, including when the original source was
+passed explicitly. That preserves the actual mutated node and management
+configuration needed for complete host cleanup. If no retained file exists,
+implicit destroy passes the single source explicitly and explicit source
+selection is unchanged. A name that uniquely matches a retained topology is
+routed through that file; otherwise name and all-labs selection remain under
+Containerlab's label-based handling. With zero or multiple sources Containerlab
+retains control of the diagnostic.
 
 YAML is loaded safely and must have a top-level mapping. Containerlab remains
 responsible for the base schema and semantic validation; each feature plugin

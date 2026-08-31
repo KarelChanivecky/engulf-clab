@@ -8,7 +8,11 @@ from unittest.mock import Mock
 
 from engulf_api import InvocationAPI
 from engulf_clab_lab_parser.plugin import TopologyPlugin
-from engulf_clab_lab_parser.session import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser.session import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    derived_topology_path,
+)
 from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallMode,
@@ -68,7 +72,38 @@ class TopologyPluginTest(unittest.TestCase):
         assert contribution is not None
         self.assertEqual(contribution.additions[0].args, ("-t", str(topology)))
 
-    def test_destroy_preserves_explicit_topology_or_name_selection(self) -> None:
+    def test_destroy_selects_retained_topology_for_implicit_and_explicit_source(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+            retained = derived_topology_path(topology)
+            retained.write_text("topology: {}\n", encoding="utf-8")
+            plugin = TopologyPlugin()
+
+            with chdir(root):
+                implicit = plugin.analyze_call(
+                    BeforeCallEvent("containerlab", ("destroy",), CallMode.NORMAL),
+                    Mock(spec=InvocationAPI),
+                )
+                explicit = plugin.analyze_call(
+                    BeforeCallEvent(
+                        "containerlab",
+                        ("destroy", "--topology", str(topology)),
+                        CallMode.NORMAL,
+                    ),
+                    Mock(spec=InvocationAPI),
+                )
+
+        assert implicit is not None
+        assert explicit is not None
+        self.assertEqual(implicit.additions[0].args, ("-t", str(retained)))
+        self.assertEqual(explicit.additions[0].args, ("-t", str(retained)))
+        self.assertEqual(explicit.removals, frozenset({1, 2}))
+
+    def test_destroy_preserves_explicit_topology_without_retained_copy_or_name(self) -> None:
         plugin = TopologyPlugin()
         api = Mock(spec=InvocationAPI)
 
@@ -85,6 +120,27 @@ class TopologyPluginTest(unittest.TestCase):
                         BeforeCallEvent("containerlab", args, CallMode.NORMAL), api
                     )
                 )
+
+    def test_destroy_name_selects_unique_retained_topology(self) -> None:
+        with TemporaryDirectory() as directory, chdir(directory):
+            root = Path(directory)
+            retained = root / ".engulf-clab-lab-0123456789abcdef.clab.yml"
+            retained.write_text(
+                "name: selected\ntopology:\n  nodes: {}\n", encoding="utf-8"
+            )
+
+            contribution = TopologyPlugin().analyze_call(
+                BeforeCallEvent(
+                    "containerlab",
+                    ("destroy", "--name=selected"),
+                    CallMode.NORMAL,
+                ),
+                Mock(spec=InvocationAPI),
+            )
+
+        assert contribution is not None
+        self.assertEqual(contribution.removals, frozenset({1}))
+        self.assertEqual(contribution.additions[0].args, ("-t", str(retained)))
 
     def test_destroy_preserves_native_diagnostics_without_one_source(self) -> None:
         plugin = TopologyPlugin()

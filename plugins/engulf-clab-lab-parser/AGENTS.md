@@ -6,8 +6,10 @@ mutation API. Do not write topology files here.
 - Keep plugin ID `engulf_clab.lab_parser`, priority `100`, and context ID
   `engulf_clab.topology.session` stable for dependent distributions.
 - Parse and publish topology sessions only for deploy with a local filesystem
-  topology. For implicit destroy, contribute the single non-writer source as an
-  explicit topology while preserving explicit topology and name selection.
+  topology. For destroy by source, prefer its retained writer topology when it
+  exists; otherwise contribute the single non-writer source for implicit
+  selection. Resolve a unique retained topology for name selection and preserve
+  all-labs selection.
   Keep all selection and parse validation side-effect free; publish the session
   only in preparation.
 - Preserve all supported Containerlab topology option forms and deterministic

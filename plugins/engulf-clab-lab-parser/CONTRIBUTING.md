@@ -6,8 +6,10 @@ mutation API. Do not write topology files here.
 - Keep plugin ID `engulf_clab.lab_parser`, priority `100`, and context ID
   `engulf_clab.topology.session` stable for dependent distributions.
 - Parse and publish topology sessions only for deploy with a local filesystem
-  topology. For implicit destroy, contribute the single non-writer source as an
-  explicit topology while preserving explicit topology and name selection.
+  topology. For destroy by source, prefer its retained writer topology when it
+  exists; otherwise contribute the single non-writer source for implicit
+  selection. Resolve a unique retained topology for name selection and preserve
+  all-labs selection.
   Keep all selection and parse validation side-effect free; publish the session
   only in preparation.
 - Preserve all supported Containerlab topology option forms and deterministic
@@ -53,6 +55,10 @@ mutation.add(("topology", "nodes", "client", "labels", "role"), "client")
 environment in the raw source before safe YAML loading and requires a top-level
 mapping. Its optional environment mapping makes callback behavior explicit and
 tests deterministic; omitting it uses the current process environment.
+`derived_topology_path()` deterministically maps a resolved source topology to
+the hidden same-directory path retained by the writer. Destroy analysis uses
+that path when it exists, replacing an explicit source topology option or
+supplying it for implicit selection.
 
 `TopologySession.path` is the resolved source; `original` is a recursively
 frozen mapping/tuple view for immutable inspection; `original_document()`
