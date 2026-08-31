@@ -147,6 +147,29 @@ class LicenseStrategyTestCase(unittest.TestCase):
             )
             self.assertEqual(first, second)
 
+    def test_sticky_reuses_historical_claim_before_never_used_license(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            for name in ("a.lic", "b.lic"):
+                (pool / name).write_text(name, encoding="utf-8")
+            state = MemoryState()
+            workspace = "/labs/sticky"
+
+            first = _claim(
+                state,
+                [_request(pool, workspace)],
+                LicenseStrategy.STICKY,
+            )
+            _release_workspace(state, workspace)
+            second = _claim(
+                state,
+                [_request(pool, workspace)],
+                LicenseStrategy.STICKY,
+            )
+
+            self.assertEqual(_filename(first, workspace), "a.lic")
+            self.assertEqual(second, first)
+
     def test_round_robin_advances_through_sorted_pool_indices(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             pool = Path(directory)

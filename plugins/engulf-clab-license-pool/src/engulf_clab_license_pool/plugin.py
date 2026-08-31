@@ -659,7 +659,7 @@ def _select_available(
             if history.get(path) == claim and path not in entry["clamped"]
         ]
         normal = [path for path in free if path not in entry["clamped"]]
-        for candidates in (never, preferred, normal, free):
+        for candidates in (preferred, never, normal, free):
             if candidates:
                 return candidates[0]
         return None

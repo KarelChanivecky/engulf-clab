@@ -22,7 +22,8 @@ through the shared topology editor.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.
 - Preserve allocation preference, history, clamp exclusion, retry stability,
-  pool-local regular-file selection, and deterministic lab-copy paths.
+  pool-local regular-file selection, and deterministic lab-copy paths. Sticky
+  selection prefers the claim's historical file before a never-used file.
 - `least-recently-used` is the default strategy. Round-robin owns a pool-local
   sorted-file cursor; least-recently-used owns a monotonic pool-local use
   sequence. Every strategy reuses an active claim, excludes historical clamps

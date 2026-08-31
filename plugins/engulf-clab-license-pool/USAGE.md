@@ -46,7 +46,7 @@ fixed prefix across editions.
 
 | Strategy | Automatic selection | Persistent history |
 | --- | --- | --- |
-| `sticky` | Never-used free file, prior file for this claim, another non-clamped free file, then any free file. | Prior claim associations. |
+| `sticky` | Prior file for this claim, a never-used free file, another non-clamped free file, then any free file. | Prior claim associations. |
 | `round-robin` | Sort canonical pool files and scan from the saved next index, wrapping past claimed or historically clamped entries. | Next automatic index. |
 | `least-recently-used` | Default: choose the ordinary free file with the oldest pool-local use sequence; unseen files are oldest. | Monotonic use sequence per file. |
 
