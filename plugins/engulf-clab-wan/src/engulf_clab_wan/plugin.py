@@ -273,7 +273,7 @@ class WanPlugin(SchemaBackedPlugin):
         if command == "deploy":
             try:
                 topology_path = topology_path_from_args(tuple(rest))
-                topology_data = load_topology(topology_path)
+                topology_data = load_topology(topology_path, event.environment)
                 dhcp_wan_bridges(topology_data, wan_contract())
             except (WanError, OSError, subprocess.CalledProcessError) as error:
                 api.logger.error("%s", error)

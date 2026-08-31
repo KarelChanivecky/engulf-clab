@@ -109,11 +109,37 @@ class ImageBuildPluginTest(unittest.TestCase):
             api.require_context.return_value = session
             api.get_context.return_value = ()
 
-            with self.assertRaisesRegex(DockerImageError, "must be literal"):
+            with self.assertRaisesRegex(DockerImageError, "did not resolve to a literal"):
                 ImageBuildPlugin().prepare_call(
                     PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL),
                     api,
                 )
+
+    @patch("engulf_clab_image_build.plugin.provision_image_graph")
+    def test_containerlab_defaulted_image_is_expanded_before_provisioning(
+        self, provision: Mock
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            topology = Path(directory) / "lab.clab.yml"
+            topology.write_text(
+                "topology:\n"
+                "  nodes:\n"
+                "    fgt:\n"
+                "      image: ${FGT_IMAGE:=fgt:8.0.1.0203}\n",
+                encoding="utf-8",
+            )
+            session = TopologySession(topology, load_topology(topology, {}))
+            api = Mock()
+            api.require_context.return_value = session
+            api.get_context.return_value = ()
+
+            ImageBuildPlugin().prepare_call(
+                PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL),
+                api,
+            )
+
+        graph = provision.call_args.args[0]
+        self.assertEqual(graph.roots[0].reference, "fgt:8.0.1.0203")
 
     @patch("engulf_clab_image_build.plugin.provision_image_graph")
     def test_build_only_dockerfile_node_is_a_root_but_not_a_runtime_node(

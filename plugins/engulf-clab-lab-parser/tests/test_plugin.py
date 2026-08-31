@@ -7,12 +7,48 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock
 
 from engulf_api import InvocationAPI
-from engulf_executable_wrapper_api import BeforeCallEvent, CallMode
-
 from engulf_clab_lab_parser.plugin import TopologyPlugin
+from engulf_clab_lab_parser.session import TOPOLOGY_CONTEXT, TopologySession
+from engulf_executable_wrapper_api import (
+    BeforeCallEvent,
+    CallMode,
+    PreparedCallEvent,
+)
 
 
 class TopologyPluginTest(unittest.TestCase):
+    def test_prepare_expands_from_effective_call_environment(self) -> None:
+        with TemporaryDirectory() as directory:
+            topology = Path(directory) / "lab.clab.yml"
+            topology.write_text(
+                "topology:\n"
+                "  nodes:\n"
+                "    fgt:\n"
+                "      image: ${FGT_IMAGE:=fgt:default}\n",
+                encoding="utf-8",
+            )
+            api = Mock(spec=InvocationAPI)
+
+            TopologyPlugin().prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    ("deploy", "-t", str(topology)),
+                    ("deploy", "-t", str(topology)),
+                    CallMode.NORMAL,
+                    {"FGT_IMAGE": "fgt:from-event"},
+                ),
+                api,
+            )
+
+        api.set_context.assert_called_once()
+        context_id, session = api.set_context.call_args.args
+        self.assertEqual(context_id, TOPOLOGY_CONTEXT)
+        self.assertIsInstance(session, TopologySession)
+        self.assertEqual(
+            session.original_document()["topology"]["nodes"]["fgt"]["image"],
+            "fgt:from-event",
+        )
+
     def test_destroy_selects_source_while_ignoring_writer_residue(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

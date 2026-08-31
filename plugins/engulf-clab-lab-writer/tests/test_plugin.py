@@ -9,6 +9,8 @@ from unittest.mock import Mock
 import yaml
 from engulf_api import InvocationAPI
 from engulf_clab_lab_parser import TopologySession
+from engulf_clab_lab_parser.environment import expand_environment
+from engulf_clab_lab_writer.plugin import TopologyCollectorPlugin
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
     BeforeCallEvent,
@@ -18,10 +20,47 @@ from engulf_executable_wrapper_api import (
     PreparedCallEvent,
 )
 
-from engulf_clab_lab_writer.plugin import TopologyCollectorPlugin
-
 
 class TopologyCollectorPluginTest(unittest.TestCase):
+    def test_generated_topology_is_stable_through_containerlab_environment_pass(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "lab.clab.yml"
+            source.write_text("topology: {}\n", encoding="utf-8")
+            document = {
+                "topology": {
+                    "nodes": {
+                        "app": {
+                            "image": "$FGT_IMAGE",
+                            "env": {"PASSWORD": "cost$5", "KEY$": "value$OTHER"},
+                        }
+                    }
+                }
+            }
+            target = root / ".engulf-clab-lab-rendered.clab.yml"
+            api = Mock(spec=InvocationAPI)
+            api.require_context.return_value = TopologySession(source, document)
+            event = PreparedCallEvent(
+                "containerlab",
+                ("deploy",),
+                ("deploy", "-t", str(target)),
+                CallMode.NORMAL,
+            )
+
+            TopologyCollectorPlugin().prepare_call(event, api)
+            generated = target.read_text(encoding="utf-8")
+            after_containerlab = yaml.safe_load(
+                expand_environment(
+                    generated,
+                    {"FGT_IMAGE": "should-not-expand", "OTHER": "wrong"},
+                )
+            )
+
+        self.assertIn("$$FGT_IMAGE", generated)
+        self.assertEqual(after_containerlab, document)
+
     def test_generated_topology_preserves_source_directory(self) -> None:
         with TemporaryDirectory() as directory:
             lab_directory = Path(directory) / "lab"

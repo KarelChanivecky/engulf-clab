@@ -166,7 +166,7 @@ class DockerfilePlugin(SchemaBackedPlugin):
             f"    {prefix}_DOCKER_ARGS      Additional docker build arguments\n"
             f"    {BASE_NODE_ENV}  Build the image without deploying the node\n"
             "  The image-build dispatcher owns concurrency and recursive FROM resolution.\n"
-            "  The node image field is the literal built tag; variables are unsupported; "
+            "  The node image field must resolve to a literal built tag during parsing; "
             "--file and --tag are reserved."
         )
 
@@ -182,7 +182,10 @@ class DockerfilePlugin(SchemaBackedPlugin):
             return None
         try:
             topology_path = topology_path_from_args(tuple(rest))
-            build_requests_from_topology(topology_path, load_topology(topology_path))
+            build_requests_from_topology(
+                topology_path,
+                load_topology(topology_path, event.environment),
+            )
         except (DockerfileError, OSError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)

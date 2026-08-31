@@ -288,7 +288,7 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             if command != "deploy":
                 return CallContribution(removals=parsed.removals) if parsed.removals else None
             topology_path = topology_path_from_args(tuple(rest))
-            topology_data = load_topology(topology_path)
+            topology_data = load_topology(topology_path, event.environment)
             requests = build_requests_from_topology(
                 topology_path,
                 topology_data,

@@ -12,8 +12,10 @@ mutation API. Do not write topology files here.
   only in preparation.
 - Preserve all supported Containerlab topology option forms and deterministic
   one-file discovery. Reject ambiguous/missing selections instead of guessing.
-- Safe-load YAML and require a top-level mapping. Do not perform feature-specific
-  mutation or full Containerlab semantic validation here.
+- Expand Containerlab shell-style environment expressions from the effective
+  call environment before safe-loading YAML, then require a top-level mapping.
+  Preserve unset expressions and escaped dollars exactly as Containerlab does.
+  Do not perform feature-specific mutation or full semantic validation here.
 - Keep the recursively frozen original, deep-copy access, copied operation
   values, owner attribution, path validation, delete precedence, conflict
   detection, and deterministic materialization phases.

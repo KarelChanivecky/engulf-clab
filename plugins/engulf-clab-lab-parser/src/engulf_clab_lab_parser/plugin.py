@@ -51,7 +51,10 @@ class TopologyPlugin(ExecutableWrapperPlugin):
         if event.wrapper_args[0] != "deploy":
             return None
         try:
-            load_topology(topology_path_from_args(tuple(event.wrapper_args[1:])))
+            load_topology(
+                topology_path_from_args(tuple(event.wrapper_args[1:])),
+                event.environment,
+            )
         except (TopologyError, OSError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)
@@ -61,7 +64,10 @@ class TopologyPlugin(ExecutableWrapperPlugin):
         if not event.wrapper_args or event.wrapper_args[0] != "deploy":
             return
         path = topology_path_from_args(tuple(event.wrapper_args[1:]))
-        api.set_context(TOPOLOGY_CONTEXT, TopologySession(path, load_topology(path)))
+        api.set_context(
+            TOPOLOGY_CONTEXT,
+            TopologySession(path, load_topology(path, event.environment)),
+        )
 
 
 def _destroy_topology_contribution(args: tuple[str, ...]) -> CallContribution | None:

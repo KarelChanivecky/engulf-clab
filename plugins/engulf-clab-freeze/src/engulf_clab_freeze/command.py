@@ -164,7 +164,7 @@ def freeze(
             "destroy the lab before freezing; generated license copies exist"
         )
 
-    source = load_topology(topology_path)
+    source = load_topology(topology_path, current_environment)
     patterns = _ignore_patterns(source_root, application_name)
     excluded_paths = set(ignored_archives)
     excluded_paths.add(Path(state_directory))

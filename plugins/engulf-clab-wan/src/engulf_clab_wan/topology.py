@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,11 @@ from engulf_clab_lab_parser.session import (
 from .errors import WanError
 
 
-def load_topology(path: Path) -> dict[str, Any]:
+def load_topology(
+    path: Path, environment: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     try:
-        return load_parsed_topology(path)
+        return load_parsed_topology(path, environment)
     except TopologyError as error:
         raise WanError(str(error)) from error
 

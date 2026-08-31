@@ -152,7 +152,7 @@ class ConfigurationTest(unittest.TestCase):
                 }
                 with self.assertRaisesRegex(
                     DockerfileError,
-                    "image tag must be literal and must not use variable syntax",
+                    "image tag did not resolve to a literal during parsing",
                 ):
                     build_requests_from_topology(Path("/lab/lab.clab.yml"), data)
 

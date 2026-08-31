@@ -59,7 +59,7 @@ class PluginHelpTest(unittest.TestCase):
         self.assertIn("ECLAB_DOCKERFILE", help_text)
         self.assertIn("ECLAB_DOCKER_BASE_NODE", help_text)
         self.assertNotIn("FCLAB_DOCKERFILE", help_text)
-        self.assertIn("literal built tag; variables are unsupported", help_text)
+        self.assertIn("resolve to a literal built tag during parsing", help_text)
         self.assertIn("image-build dispatcher owns concurrency", help_text)
 
     def test_prepare_contributes_materialized_topology_recipe(self) -> None:

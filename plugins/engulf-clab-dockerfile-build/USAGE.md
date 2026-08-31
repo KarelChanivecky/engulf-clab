@@ -50,10 +50,10 @@ boundary; prefer topology-relative packaged inputs.
 | `ECLAB_DOCKER_ARGS` | Extra shell-quoted `docker build` arguments. |
 | `ECLAB_DOCKER_BASE_NODE` | Boolean string; build the image but omit this node from the derived deploy topology. |
 
-The `ECLAB` prefix is fixed across editions. The node `image` must be a literal
-Docker tag; Containerlab variable forms such as `$TAG`, `${TAG}`, and
-`${TAG:-dev}` are rejected because the plugin builds the image before
-Containerlab expands topology variables.
+The `ECLAB` prefix is fixed across editions. The node `image` must resolve to a
+literal Docker tag during the shared parser's eager Containerlab-compatible
+environment expansion. Forms such as `$TAG`, `${TAG}`, and `${TAG:-dev}` are
+supported when they resolve; any expression still present afterward is rejected.
 
 Because Containerlab node environment values are strings, quote the marker as
 `"true"`. The accepted boolean spellings are `true`, `false`, `1`, `0`, `yes`,

@@ -24,6 +24,13 @@ writing a fresh temporary topology, `prepare_call()` sweeps any leftover
 process crash, and `after_call()` removes the generated file. The parser also
 ignores these files during implicit topology selection.
 
+The parser has already expanded Containerlab environment expressions before
+plugins inspect the topology. The writer escapes dollar signs in rendered
+string keys and values so Containerlab's own substitution stage preserves that
+result instead of expanding it a second time. This also keeps escaped dollars,
+unresolved placeholders, and literal `$` characters inside environment values
+stable through the generated file.
+
 The writer requires the `engulf_clab.topology.session` context and must remain
 after every topology mutator in preprocessing; otherwise later deferred
 operations would not reach Containerlab. Missing, ambiguous, duplicate, stdin,

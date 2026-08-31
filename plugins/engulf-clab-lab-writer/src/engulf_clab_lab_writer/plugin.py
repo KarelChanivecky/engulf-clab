@@ -4,8 +4,9 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from engulf_api import (
     BeforeGoalAPI,
     DependencyPosition,
@@ -116,7 +117,11 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
         )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                yaml.safe_dump(session.materialize(), handle, sort_keys=False)
+                yaml.safe_dump(
+                    _escape_rendered_dollars(session.materialize()),
+                    handle,
+                    sort_keys=False,
+                )
             Path(staged_name).replace(target)
         except BaseException:
             Path(staged_name).unlink(missing_ok=True)
@@ -164,3 +169,16 @@ def _sweep_stale_topologies(directory: Path) -> None:
         return
     for stale in directory.glob(f"{_PREFIX}*.clab.yml"):
         stale.unlink(missing_ok=True)
+
+
+def _escape_rendered_dollars(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("$", "$$")
+    if isinstance(value, dict):
+        return {
+            _escape_rendered_dollars(key): _escape_rendered_dollars(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_escape_rendered_dollars(item) for item in value]
+    return value

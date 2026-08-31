@@ -241,7 +241,7 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
 
         try:
             topology_path = topology_path_from_args(tuple(rest))
-            topology_data = load_topology(topology_path)
+            topology_data = load_topology(topology_path, event.environment)
             if not topology_needs_vrnetlab(topology_data):
                 api.logger.debug(
                     "no nodes declare %s; vrnetlab checkout is not needed",

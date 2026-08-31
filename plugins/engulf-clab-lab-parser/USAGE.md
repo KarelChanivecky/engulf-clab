@@ -8,8 +8,21 @@ Install it through a topology-aware feature plugin, directly with `python -m pip
 install engulf-clab-lab-parser`, or through `engulf-clab-all-plugins`.
 
 For deploy, eclab loads one local YAML source and lets feature plugins record
-changes against an immutable original. The writer later applies those changes
-to a temporary topology; the selected source file is never modified.
+changes against an immutable original. Before YAML decoding, the parser eagerly
+expands environment expressions from the effective Containerlab call
+environment. Every analyzer and mutator therefore sees the same rendered
+values, including image provisioning plugins that run before Containerlab. The
+writer later applies plugin changes to a temporary topology; the selected
+source file is never modified.
+
+The supported syntax matches Containerlab: `$VAR`, `${VAR}`, `${VAR-default}`,
+`${VAR:-default}`, `${VAR=default}`, `${VAR:=default}`, `${VAR+alternative}`,
+`${VAR:+alternative}`, and `$$` escaping. As in Containerlab, unset plain
+variables remain recognizable instead of silently becoming empty, while a
+defaulted expression such as `${FGT_IMAGE:=fgt:8.0.1.0203}` becomes a literal
+before downstream processing. Expansion occurs in the raw YAML, so quote an
+expression when its rendered value must remain a YAML string rather than a
+boolean, number, or null.
 
 ## Topology selection
 

@@ -131,7 +131,7 @@ def build_requests_from_topology(
             raise DockerfileError(f"node {node.name} sets {dockerfile_key} but has no image tag")
         if _IMAGE_VARIABLE_SYNTAX.search(image):
             raise DockerfileError(
-                f"node {node.name} image tag must be literal and must not use variable syntax: "
+                f"node {node.name} image tag did not resolve to a literal during parsing: "
                 f"{image}"
             )
         dockerfile = _resolve_path(

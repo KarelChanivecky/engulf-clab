@@ -152,7 +152,7 @@ class ContainersPlugin(SchemaBackedPlugin):
             ):
                 return None
             path = topology_path_from_args(tuple(event.wrapper_args[1:]))
-            topology_edits(load_topology(path), containers)
+            topology_edits(load_topology(path, event.environment), containers)
         except (ContainersError, OSError, RuntimeError) as error:
             api.logger.error("%s", error)
             return CallContribution(preempt_exit_code=1)

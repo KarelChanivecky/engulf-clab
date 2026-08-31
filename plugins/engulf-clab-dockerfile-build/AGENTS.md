@@ -31,9 +31,9 @@ mutators can affect declarations, then append only immutable graph values.
 - Resolve relative paths from the topology directory and validate file/directory
   roles. Do not require the Dockerfile to be inside the context for ordinary
   user declarations; Docker decides whether the selected combination is valid.
-- Reject Containerlab variable syntax in a configured image tag during
-  analysis. The builder consumes raw topology values before Containerlab's
-  variable expansion, so every built tag must be literal.
+- Accept source image expressions after the shared parser eagerly expands them
+  from the effective call environment. Reject only an image tag still containing
+  variable syntax after expansion, because every built output tag must be literal.
 - Keep marked base nodes as explicit image roots and delete them only from the
   derived deploy topology after their recipes have been captured.
 - Treat `ECLAB_DOCKER_BASE_NODE` as a string-encoded boolean and require the

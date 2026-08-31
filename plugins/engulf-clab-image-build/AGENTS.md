@@ -10,7 +10,9 @@
 - Build only in `prepare_call`; keep analysis side-effect free.
 - Provision every literal root through ranked offers, including the low-authority
   pull fallback, then force `image-pull-policy: Never` only in the derived topology.
-- Reject dynamic image references that prevent complete graph ownership.
+- Accept source image expressions after the parser eagerly resolves them from
+  the effective call environment; reject only expressions still unresolved in
+  the materialized topology because they prevent complete graph ownership.
 - Preserve the legacy Docker build jobs option and environment fallback.
 - Keep essential recursive image behavior in primary schema metadata; do not
   hide it exclusively behind a packaged usage reference.

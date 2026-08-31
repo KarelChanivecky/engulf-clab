@@ -58,10 +58,13 @@ provisioning, the derived topology sets every literal root's
 `image-pull-policy` to `Never`; the source topology is not changed. Images and
 Docker cache state are retained after destroy.
 
-The plugin requires literal node image values and statically resolvable
-Dockerfile `FROM` values so it can own the complete provisioning graph. The host
-`docker` command and daemon authorization are required for every deploy that has
-an image root.
+The plugin requires node image values to be literal after the shared parser's
+eager Containerlab-compatible environment expansion. Source expressions such
+as `${FGT_IMAGE:=fgt:8.0.1.0203}` are supported; an expression left unresolved
+after parsing still fails so the plugin can own the complete provisioning
+graph. Dockerfile `FROM` values must likewise be statically resolvable. The host
+`docker` command and daemon authorization are required for every deploy that
+has an image root.
 
 ## Troubleshooting
 

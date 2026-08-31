@@ -100,7 +100,7 @@ PLUGIN_SCHEMA = (
             "selected recipes build dependency-first on every deploy and rely on Docker's layer cache",
             "unclaimed literal images use the low-authority Docker pull fallback",
             "the derived topology sets provisioned roots to image-pull-policy Never",
-            "dynamic node images and unresolved dynamic FROM expressions fail before Containerlab runs",
+            "node images unresolved after parser expansion and dynamic FROM expressions fail before Containerlab runs",
         ),
     )
     .annotate(
@@ -302,7 +302,7 @@ def _topology_image_roots(document: dict[str, Any]) -> tuple[ImageRequirement, .
             continue
         if _VARIABLE_IMAGE.search(image):
             raise DockerImageError(
-                f"node {name} image must be literal for end-to-end provisioning: {image}"
+                f"node {name} image did not resolve to a literal for end-to-end provisioning: {image}"
             )
         environment = node.get("env", {})
         if not isinstance(environment, dict):

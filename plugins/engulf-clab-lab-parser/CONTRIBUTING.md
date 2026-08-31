@@ -12,8 +12,10 @@ mutation API. Do not write topology files here.
   only in preparation.
 - Preserve all supported Containerlab topology option forms and deterministic
   one-file discovery. Reject ambiguous/missing selections instead of guessing.
-- Safe-load YAML and require a top-level mapping. Do not perform feature-specific
-  mutation or full Containerlab semantic validation here.
+- Expand Containerlab shell-style environment expressions from the effective
+  call environment before safe-loading YAML, then require a top-level mapping.
+  Preserve unset expressions and escaped dollars exactly as Containerlab does.
+  Do not perform feature-specific mutation or full semantic validation here.
 - Keep the recursively frozen original, deep-copy access, copied operation
   values, owner attribution, path validation, delete precedence, conflict
   detection, and deterministic materialization phases.
@@ -47,8 +49,10 @@ mutation.add(("topology", "nodes", "client", "labels", "role"), "client")
 ```
 
 `topology_path_from_args()` recognizes separate and equals forms of `-t`,
-`--topo`, and `--topology`. `load_topology()` uses safe YAML loading and
-requires a top-level mapping.
+`--topo`, and `--topology`. `load_topology()` expands the effective call
+environment in the raw source before safe YAML loading and requires a top-level
+mapping. Its optional environment mapping makes callback behavior explicit and
+tests deterministic; omitting it uses the current process environment.
 
 `TopologySession.path` is the resolved source; `original` is a recursively
 frozen mapping/tuple view for immutable inspection; `original_document()`

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,9 +31,11 @@ def topology_path_from_args(args: tuple[str, ...], cwd: Path | None = None) -> P
         raise DockerfileError(str(error)) from error
 
 
-def load_topology(path: Path) -> dict[str, Any]:
+def load_topology(
+    path: Path, environment: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     try:
-        return load_parsed_topology(path)
+        return load_parsed_topology(path, environment)
     except TopologyError as error:
         raise DockerfileError(str(error)) from error
 

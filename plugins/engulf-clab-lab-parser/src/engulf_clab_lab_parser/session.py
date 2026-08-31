@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import copy
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from engulf_api import InvocationAPI
+
+from .environment import EnvironmentExpansionError, expand_environment
 
 TOPOLOGY_CONTEXT = "engulf_clab.topology.session"
 PathPart = str | int
@@ -42,11 +45,15 @@ def topology_path_from_args(args: tuple[str, ...], cwd: Path | None = None) -> P
     if len(matches) != 1: raise TopologyError("pass exactly one topology with -t, --topo, or --topology")
     return matches[0]
 
-def load_topology(path: Path) -> dict[str, Any]:
+def load_topology(
+    path: Path, environment: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     if not path.is_file(): raise TopologyError(f"topology file does not exist: {path}")
     try:
-        with path.open(encoding="utf-8") as handle: data = yaml.safe_load(handle)
-    except (OSError, yaml.YAMLError) as error: raise TopologyError(f"could not parse topology {path}: {error}") from error
+        source = path.read_text(encoding="utf-8")
+        rendered = expand_environment(source, os.environ if environment is None else environment)
+        data = yaml.safe_load(rendered)
+    except (OSError, EnvironmentExpansionError, yaml.YAMLError) as error: raise TopologyError(f"could not parse topology {path}: {error}") from error
     if not isinstance(data, dict): raise TopologyError("topology file must contain a YAML mapping")
     return data
 
@@ -67,7 +74,8 @@ class TopologyEditor:
 
 class TopologySession:
     def __init__(self, path: Path, original: dict[str, Any]) -> None:
-        self.path, self.original, self._data, self._operations = path, _freeze(original), original, []
+        self.path, self.original, self._data = path, _freeze(original), original
+        self._operations: list[_Operation] = []
     def editor(self, owner: str) -> TopologyEditor: return TopologyEditor(self, owner)
     def original_document(self) -> dict[str, Any]: return copy.deepcopy(self._data)
     def _record(self, owner: str, kind: str, path: YamlPath, value: Any = None) -> None:
@@ -108,9 +116,13 @@ def _delete(root: Any, path: YamlPath) -> None:
     elif isinstance(parent, list) and isinstance(key, int) and 0 <= key < len(parent): del parent[key]
 def _modify(root: Any, path: YamlPath, value: Any) -> None:
     parent, key = _parent(root, path, True)
-    if isinstance(parent, dict): parent[key] = value
-    elif isinstance(parent, list) and isinstance(key, int) and 0 <= key < len(parent): parent[key] = value
-    else: raise TopologyError(f"invalid YAML modification path {path}")
+    if isinstance(parent, dict):
+        parent[key] = value
+        return
+    if isinstance(parent, list) and isinstance(key, int) and 0 <= key < len(parent):
+        parent[key] = value
+        return
+    raise TopologyError(f"invalid YAML modification path {path}")
 def _add(root: Any, path: YamlPath, value: Any) -> None:
     parent, key = _parent(root, path, True)
     if isinstance(parent, dict):
