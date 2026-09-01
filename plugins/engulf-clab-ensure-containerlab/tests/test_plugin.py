@@ -21,7 +21,12 @@ from engulf_clab_schema_api import (
     ContainerlabSourceHint,
     ContainerlabSourceKind,
 )
-from engulf_executable_wrapper_api import AfterCallEvent, CallMode, PreparedCallEvent
+from engulf_executable_wrapper_api import (
+    AfterCallEvent,
+    CallMode,
+    PreparationFailedEvent,
+    PreparedCallEvent,
+)
 
 from engulf_clab_ensure_containerlab.containerlab import executable
 from engulf_clab_ensure_containerlab.plugin import EnsureContainerlabPlugin
@@ -151,6 +156,68 @@ class PluginLifecycleTest(unittest.TestCase):
 
         ensure.assert_not_called()
         api.state.assert_not_called()
+
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
+    @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_dependencies")
+    @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
+    def test_prepare_failure_in_later_plugin_restores_path(
+        self,
+        ensure: Mock,
+        _dependencies: Mock,
+        _publish: Mock,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            binary = Path(directory) / "containerlab"
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            ensure.return_value = binary
+            api = Mock(spec=InvocationAPI)
+            api.lease.return_value = nullcontext()
+            original_path = os.environ.get("PATH")
+            plugin = EnsureContainerlabPlugin()
+
+            plugin.prepare_call(
+                PreparedCallEvent("containerlab", (), (), CallMode.NORMAL),
+                api,
+            )
+            plugin.prepare_failed(
+                PreparationFailedEvent(
+                    "containerlab",
+                    (),
+                    (),
+                    CallMode.NORMAL,
+                    "later plugin failed",
+                ),
+                api,
+            )
+
+        self.assertEqual(os.environ.get("PATH"), original_path)
+
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
+    @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_dependencies")
+    @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
+    def test_restores_an_absent_path_exactly(
+        self,
+        ensure: Mock,
+        _dependencies: Mock,
+        _publish: Mock,
+    ) -> None:
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            binary = Path(directory) / "containerlab"
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            ensure.return_value = binary
+            api = Mock(spec=InvocationAPI)
+            api.lease.return_value = nullcontext()
+            plugin = EnsureContainerlabPlugin()
+
+            plugin.prepare_call(
+                PreparedCallEvent("containerlab", (), (), CallMode.NORMAL),
+                api,
+            )
+            plugin.after_call(Mock(spec=AfterCallEvent), api)
+
+            self.assertNotIn("PATH", os.environ)
 
 
 if __name__ == "__main__":

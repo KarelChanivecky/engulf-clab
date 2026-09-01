@@ -16,9 +16,9 @@ topology:
   nodes:
     router:
       image: vrnetlab/vr-router:latest
-      uuid: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
       license: $ROUTER_LICENSES
       env:
+        FOS_UUID: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
         ECLAB_LIC_CLAMP: serial-0001.lic
 ```
 
@@ -31,7 +31,7 @@ eclab deploy -t lab.clab.yml \
 | Input | Meaning |
 | --- | --- |
 | `license: $POOL_NAME` | Allocate from the directory named by that invocation variable. |
-| `uuid` | Recommended stable node identity; node name is the fallback. |
+| `env.FOS_UUID` | Recommended stable node identity; node name is the fallback. |
 | `env.ECLAB_LIC_CLAMP` | Require one exact pool filename/path; fails when absent or claimed. |
 | `--eclab-license-pool-strategy` | Per-invocation `sticky`, `round-robin`, or `least-recently-used`. |
 | `ECLAB_LICENSE_POOL_STRATEGY` | Persistent strategy default; `sticky` when unset. |

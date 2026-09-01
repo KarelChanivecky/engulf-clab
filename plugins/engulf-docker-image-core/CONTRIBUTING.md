@@ -13,5 +13,9 @@ The built-in unclaimed-image fallback uses a missing-only pull recipe: inspect
 the exact canonical target under its image lease, reuse it when present, and
 pull only when absent. Provider-authored pull recipes remain always-pull unless
 they explicitly request missing-only behavior.
+Archive recipes load with `docker load`, parse the reported `Loaded image:` and
+`Loaded image ID:` lines as the only retag sources, and fail a source that the
+load did not report and Docker does not already hold. Their outcomes are
+classified as `loaded`, not `built`.
 Test direct library use and the Engulf goal adapter. Run eclab adapter and
 container-provider tests after changing shared behavior.

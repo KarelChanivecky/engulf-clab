@@ -49,7 +49,7 @@ make check-skill
 ```
 
 Schema or compiler changes require the `engulf-clab-schema-api` suite and
-`engulf-clab-develop-lab-skill` regeneration checks.
+`engulf-clab-develop-eclab-lab` regeneration checks.
 
 Use `./build.sh` in this directory for a distribution build, and `git diff --check`
 before committing. Never run real deploy/destroy, Docker builds, Git clones, or

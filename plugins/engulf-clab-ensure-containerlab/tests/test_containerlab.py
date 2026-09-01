@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from engulf_clab_schema_api import ContainerlabSourceKind
 
 from engulf_clab_ensure_containerlab.containerlab import (
+    build_version_flags,
     containerlab_source_hint,
     enable_sudoless,
     ensure_binary,
@@ -153,10 +154,15 @@ class EnsureContainerlabTest(unittest.TestCase):
             resolved = ensure_repo_binary(checkout)
 
         self.assertEqual(resolved, checkout / "bin" / "containerlab")
-        run.assert_called_once_with(
-            ("go", "build", "-o", str(checkout / "bin" / "containerlab"), "."),
-            cwd=checkout,
+        run.assert_called_once()
+        argv, kwargs = run.call_args
+        # Version provenance is stamped in between `build` and `-o`; assert the
+        # command's shape so the flags stay free to change.
+        self.assertEqual(argv[0][:2], ("go", "build"))
+        self.assertEqual(
+            argv[0][-3:], ("-o", str(checkout / "bin" / "containerlab"), ".")
         )
+        self.assertEqual(kwargs, {"cwd": checkout})
 
     @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which", return_value=None)
     def test_missing_go_fails_before_build(self, _which: Mock) -> None:
@@ -186,3 +192,67 @@ class EnsureContainerlabTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuildVersionFlagsTest(unittest.TestCase):
+    """A plain `go build` leaves the binary reporting 0.0.0 / none / unknown."""
+
+    @staticmethod
+    def _checkout(directory: str, module: str = "github.com/srl-labs/containerlab") -> Path:
+        checkout = Path(directory)
+        (checkout / "go.mod").write_text(f"module {module}\n\ngo 1.24\n", encoding="utf-8")
+        return checkout
+
+    def test_symbols_use_the_module_path_declared_by_the_checkout(self) -> None:
+        """A fork that renames its module must be stamped, not silently skipped."""
+        with TemporaryDirectory() as directory:
+            checkout = self._checkout(directory, module="example.com/fork/containerlab")
+
+            with patch(
+                "engulf_clab_ensure_containerlab.containerlab._git_output",
+                return_value=None,
+            ):
+                flags = build_version_flags(checkout)
+
+        self.assertEqual(len(flags), 1)
+        self.assertIn("example.com/fork/containerlab/cmd.date=", flags[0])
+        self.assertNotIn("srl-labs", flags[0])
+
+    def test_git_describe_and_commit_are_stamped_when_available(self) -> None:
+        with TemporaryDirectory() as directory:
+            checkout = self._checkout(directory)
+
+            with patch(
+                "engulf_clab_ensure_containerlab.containerlab._git_output",
+                side_effect=("v0.74.3-30-gabc1234", "abc1234"),
+            ):
+                flags = build_version_flags(checkout)
+
+        self.assertIn("cmd.Version=v0.74.3-30-gabc1234", flags[0])
+        self.assertIn("cmd.commit=abc1234", flags[0])
+
+    def test_a_checkout_without_go_mod_is_built_unstamped(self) -> None:
+        """Provenance is best effort: never fail a build to stamp a version."""
+        with TemporaryDirectory() as directory:
+            self.assertEqual(build_version_flags(Path(directory)), ())
+
+    @patch("engulf_clab_ensure_containerlab.containerlab.executable", return_value=True)
+    @patch("engulf_clab_ensure_containerlab.containerlab._run")
+    @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which", return_value="/usr/bin/go")
+    def test_the_build_command_carries_the_flags(
+        self, _which: Mock, run: Mock, _executable: Mock
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            checkout = self._checkout(directory)
+
+            with patch(
+                "engulf_clab_ensure_containerlab.containerlab._git_output",
+                return_value="abc1234",
+            ):
+                ensure_repo_binary(checkout, rebuild=True)
+
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], "go")
+        self.assertEqual(argv[1], "build")
+        self.assertTrue(argv[2].startswith("-ldflags="))
+        self.assertIn("-o", argv)

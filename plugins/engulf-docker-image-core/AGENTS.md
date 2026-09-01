@@ -8,6 +8,9 @@
 - Execute every selected build recipe. Provider pull recipes refresh normally;
   the built-in fallback first accepts an existing local target and pulls only
   when it is missing.
+- Execute archive recipes with `docker load` and retag from the references the
+  load reports. Never pick a member of a multi-image archive implicitly, and
+  never inspect the archive's format here.
 - Keep the default pull offer low-authority and retry failed fallible offers
   without re-running provider callbacks.
 - Acquire all tag leases on the callback thread and never pass APIs to workers.

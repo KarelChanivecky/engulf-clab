@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
@@ -43,6 +44,22 @@ def invocation_api() -> Mock:
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    def test_dependencies_are_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        group = project["entry-points"][
+            "engulf.plugins.v1.dependency.engulf_clab_ensure_vrnetlab"
+        ]
+
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.lab_parser": "preprocess=before; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        self.assertNotIn("plugin_dependencies", EnsureVrnetlabPlugin.__dict__)
+
     def test_failed_goal_acknowledges_published_source_context(self) -> None:
         plugin = EnsureVrnetlabPlugin()
         api = Mock(spec=AfterGoalAPI)

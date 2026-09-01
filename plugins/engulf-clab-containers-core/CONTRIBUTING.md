@@ -3,7 +3,15 @@
 Recipes in this package are declarative `ContainerDefinition` values. Keep all
 Docker build inputs inside the typed package and make runtime behavior generic,
 environment-driven, and reusable across labs. The fixed collection plugin ID is
-`eclab.containers`, which owns its image namespace.
+`eclab.containers`, which owns its image namespace. The executable-wrapper
+adapter keeps that ID, while the separate Docker-image-goal adapter uses
+`eclab.containers.images`; its provider still serves the `eclab.containers/*`
+image namespace.
+
+- Keep manager and schema ordering in the
+  `engulf.plugins.v1.dependency.eclab_containers` entry-point group. The manager
+  and schema dependencies run after this collection registers its declarations.
+  Never restore class-level `plugin_dependencies`; Engulf 1.2 rejects them.
 
 - Import only stable API packages. Publish the same recipes through the eclab
   collection adapter and the generic Docker-image goal adapter; neither may

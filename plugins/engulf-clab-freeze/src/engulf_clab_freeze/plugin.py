@@ -8,7 +8,6 @@ from engulf_api import (
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PathBase,
     PluginSchema,
@@ -83,7 +82,6 @@ class FreezePlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.freeze"
     schema = PLUGIN_SCHEMA
     priority = 200
-    plugin_dependencies = (SCHEMA_PLUGIN_DEPENDENCY,)
     context_reads = SCHEMA_CONTEXTS
     context_writes = SCHEMA_CONTEXTS
 

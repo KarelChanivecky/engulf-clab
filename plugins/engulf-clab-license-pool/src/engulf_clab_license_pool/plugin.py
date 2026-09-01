@@ -14,17 +14,14 @@ from typing import Any, cast
 from engulf_api import (
     ApplicationMetadata,
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
     StateScope,
 )
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     ExplainedValue,
     LifecycleStage,
     PathBase,
@@ -40,6 +37,7 @@ from engulf_executable_wrapper_api import (
     CallMode,
     HelpAPI,
     OutcomeKind,
+    PreparationFailedEvent,
     PreparedCallEvent,
 )
 
@@ -48,6 +46,15 @@ _STATE_VERSION = 2
 _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
 _NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
 _LEGACY_STATE_DIRECTORY = ".engulf-clab"
+# Allocation identity rides on the node environment rather than a top-level
+# `uuid:` field. Containerlab's own schema has no `uuid` node property, so a
+# topology carrying one is rejected by every subcommand that validates the raw
+# document (graph, inspect, destroy) even though deploy accepted it. `env` is a
+# field Containerlab already defines, so identity survives schema validation
+# everywhere. The name is deliberately not edition-prefixed: it is the same
+# variable the guest uses for its own UUID, so the license and the VM it is
+# bound to cannot disagree.
+UUID_ENVIRONMENT = "FOS_UUID"
 
 # Fixed across every edition, matching engulf-clab-wan's LABEL_PREFIX
 # convention: topology labels/env vars must stay portable regardless of the
@@ -92,8 +99,8 @@ PLUGIN_SCHEMA = (
         "Select a license pool with $NAME or request a frozen-lab license prompt.",
         values=ValueType.STRING,
     )
-    .add_node_prop(
-        "uuid",
+    .add_node_var(
+        UUID_ENVIRONMENT,
         "Set a stable node identity for repeatable license allocation.",
         values=ValueType.UUID,
     )
@@ -145,7 +152,7 @@ PLUGIN_SCHEMA = (
         examples=("$ROUTER_LICENSE_POOL", "__ECLAB_LICENSE_PROMPT__"),
     )
     .annotate(
-        "uuid",
+        UUID_ENVIRONMENT,
         commands=("deploy",),
         implies=("stable allocation identity across node renames",),
     )
@@ -254,22 +261,8 @@ class LicensePoolPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.license_pool"
     schema = PLUGIN_SCHEMA
     priority = 60
-    plugin_dependencies = (
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.lab_writer",
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_reads = (
-        frozenset({TOPOLOGY_CONTEXT, _INVOCATION_ALLOCATION_CONTEXT})
-        | SCHEMA_CONTEXTS
+        frozenset({TOPOLOGY_CONTEXT, _INVOCATION_ALLOCATION_CONTEXT}) | SCHEMA_CONTEXTS
     )
     context_writes = frozenset({_INVOCATION_ALLOCATION_CONTEXT}) | SCHEMA_CONTEXTS
 
@@ -286,7 +279,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         return (
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
-            "    uuid: <stable-uuid>         Recommended stable allocation identity\n"
+            f"    env.{UUID_ENVIRONMENT}: <uuid>     Recommended stable allocation identity\n"
             f"    env.{contract.clamp_environment}: file   Require this available pool filename/path\n"
             f"    license: {contract.prompt_marker}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
             "  --eclab-license-pool-strategy STRATEGY\n"
@@ -313,6 +306,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         if not isinstance(session, TopologySession):
             raise LicensePoolError("invalid shared topology session")
         topology = session.original_document()
+        _warn_legacy_uuid(api, topology)
         workspace = api.state(StateScope.WORKSPACE).root
         contract = license_contract(api.application)
         strategy = _license_strategy(event.environment)
@@ -354,18 +348,26 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 )
                 mutation.modify(("topology", "nodes", node, "license"), str(copied))
         except BaseException:
+            # Engulf never sends prepare_failed to the plugin that raised, so this
+            # attempt's claims and copies are released here. BaseException rather
+            # than Exception: an interrupt is not an Exception and would otherwise
+            # strand a claimed license on Ctrl-C.
             self._rollback_deploy(api, allocation)
             raise
+
+    def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
+        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+            return
+        allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
+        if isinstance(allocation, _InvocationAllocation):
+            self._rollback_deploy(api, allocation)
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if event.wrapper_args and event.wrapper_args[0] == "deploy":
-            if (
-                isinstance(allocation, _InvocationAllocation)
-                and (
-                    event.outcome.kind is not OutcomeKind.COMPLETED
-                    or event.outcome.exit_code != 0
-                )
+            if isinstance(allocation, _InvocationAllocation) and (
+                event.outcome.kind is not OutcomeKind.COMPLETED
+                or event.outcome.exit_code != 0
             ):
                 self._rollback_deploy(api, allocation)
             return
@@ -379,20 +381,19 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             return
         with api.lease("license-pool-registry"):
             state = api.state(StateScope.USER)
+            contract = license_contract(api.application)
             if any(value in {"-a", "--all"} for value in event.wrapper_args[1:]):
+                # Read the claimed workspaces before releasing them: afterwards the
+                # registry no longer records which labs hold copied licenses, and
+                # releasing the registry alone would leave every copy on disk.
+                roots = _claimed_workspaces(state)
                 _release_all(state)
+                for root in roots:
+                    _remove_license_copies(Path(root), contract)
                 return
             workspace = api.state(StateScope.WORKSPACE)
             _release_workspace(state, str(workspace.root))
-            contract = license_contract(api.application)
-            shutil.rmtree(
-                workspace.root / contract.state_directory / "licenses",
-                ignore_errors=True,
-            )
-            shutil.rmtree(
-                workspace.root / _LEGACY_STATE_DIRECTORY / "licenses",
-                ignore_errors=True,
-            )
+            _remove_license_copies(workspace.root, contract)
 
     def _rollback_deploy(
         self, api: InvocationAPI, allocation: _InvocationAllocation
@@ -437,9 +438,11 @@ def _requests(
             raise LicensePoolError(
                 f"node {name} {contract.clamp_environment} must be a string"
             )
-        identity = node.get("uuid", name)
+        identity = env.get(UUID_ENVIRONMENT, name) if isinstance(env, dict) else name
         if not isinstance(identity, str) or not identity:
-            raise LicensePoolError(f"node {name} uuid must be a nonempty string")
+            raise LicensePoolError(
+                f"node {name} {UUID_ENVIRONMENT} must be a nonempty string"
+            )
         result.append((str(name), str(pool), clamp, f"{workspace}:{identity}"))
     return result
 
@@ -459,9 +462,16 @@ def _prompt_requests(
         if not isinstance(node, dict) or node.get("license") != contract.prompt_marker:
             continue
         node_name = str(name)
-        identity = node.get("uuid", node_name)
+        node_env = node.get("env", {})
+        identity = (
+            node_env.get(UUID_ENVIRONMENT, node_name)
+            if isinstance(node_env, dict)
+            else node_name
+        )
         if not isinstance(identity, str) or not identity:
-            raise LicensePoolError(f"node {node_name} uuid must be a nonempty string")
+            raise LicensePoolError(
+                f"node {node_name} {UUID_ENVIRONMENT} must be a nonempty string"
+            )
         claim = f"{workspace}:{identity}"
         key = contract.node_license_environment(node_name)
         value = environ.get(key) or environ.get(contract.license_environment)
@@ -702,9 +712,7 @@ def _release_workspace(state: Any, workspace: str) -> None:
         locked.write_text(_FILE, json.dumps(registry, sort_keys=True) + "\n")
 
 
-def _release_claims(
-    state: Any, claims: tuple[tuple[str, str, str], ...]
-) -> None:
+def _release_claims(state: Any, claims: tuple[tuple[str, str, str], ...]) -> None:
     if not claims:
         return
     with state.transaction() as locked:
@@ -714,6 +722,53 @@ def _release_claims(
             if isinstance(entry, dict) and entry["allocations"].get(path) == claim:
                 del entry["allocations"][path]
         locked.write_text(_FILE, json.dumps(registry, sort_keys=True) + "\n")
+
+
+def _warn_legacy_uuid(api: InvocationAPI, data: dict[str, Any]) -> None:
+    """Warn about a topology still carrying the removed top-level `uuid:` field.
+
+    Allocation identity moved to node ``env``. Staying silent would quietly change
+    which license a node claims, so name the nodes and the replacement instead.
+    """
+    nodes = data.get("topology", {}).get("nodes", {})
+    if not isinstance(nodes, dict):
+        return
+    stale = sorted(
+        str(name)
+        for name, node in nodes.items()
+        if isinstance(node, dict) and "uuid" in node
+    )
+    if stale:
+        api.logger.warning(
+            "ignoring the removed node field 'uuid' on %s; "
+            "move the value to env.%s to keep the same license allocation",
+            ", ".join(stale),
+            UUID_ENVIRONMENT,
+        )
+
+
+def _claimed_workspaces(state: Any) -> tuple[str, ...]:
+    """Return every workspace root the registry currently records a claim for.
+
+    Allocations are stored as ``"<workspace root>:<node>"``, matching the prefix
+    match `_release_workspace` uses, so the root is everything before the last
+    separator.
+    """
+    with state.transaction() as locked:
+        registry = _load(locked)
+        roots = {
+            claim.rsplit(":", 1)[0]
+            for entry in registry["pools"].values()
+            for claim in entry["allocations"].values()
+            if ":" in claim
+        }
+    return tuple(sorted(roots))
+
+
+def _remove_license_copies(root: Path, contract: Any) -> None:
+    """Delete only the copy directories this plugin creates inside one workspace."""
+    for directory in (contract.state_directory, _LEGACY_STATE_DIRECTORY):
+        shutil.rmtree(root / directory / "licenses", ignore_errors=True)
 
 
 def _release_all(state: Any) -> None:

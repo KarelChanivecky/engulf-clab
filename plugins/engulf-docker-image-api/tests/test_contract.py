@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from engulf_docker_image_api import (
+    DockerArchiveRecipe,
     DockerfileRecipe,
     DockerPullRecipe,
     ImageBuildGraph,
@@ -79,6 +80,21 @@ class ContractTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "must be a boolean"):
             DockerPullRecipe("example/root", only_if_missing=1)  # type: ignore[arg-type]
 
+    def test_archive_recipe_keeps_an_absolute_path_and_canonical_source(self) -> None:
+        recipe = DockerArchiveRecipe(Path("/images/root.tar.gz"), "vendor/root")
+
+        self.assertEqual(recipe.archive, Path("/images/root.tar.gz"))
+        self.assertEqual(recipe.source, "vendor/root:latest")
+        self.assertFalse(recipe.only_if_missing)
+        self.assertIsNone(DockerArchiveRecipe(Path("/images/root.tar.gz")).source)
+
+        with self.assertRaisesRegex(ValueError, "must be absolute"):
+            DockerArchiveRecipe(Path("images/root.tar.gz"))
+        with self.assertRaisesRegex(TypeError, "must be a boolean"):
+            DockerArchiveRecipe(
+                Path("/images/root.tar.gz"), only_if_missing=1  # type: ignore[arg-type]
+            )
+
     def test_terminal_rejections_cannot_be_offers(self) -> None:
         with self.assertRaisesRegex(ValueError, "terminal rejection"):
             ImageProviderResponse(
@@ -93,6 +109,7 @@ class ContractTest(unittest.TestCase):
         recipes = (
             DockerfileRecipe(Path("/work/Dockerfile"), Path("/work")),
             DockerPullRecipe("example/root"),
+            DockerArchiveRecipe(Path("/images/root.tar.gz")),
             VrnetlabBuildRecipe(
                 Path("/images/root.qcow2"), Path("/vrnetlab/vendor/router"), "example/root"
             ),
@@ -108,9 +125,10 @@ class ContractTest(unittest.TestCase):
         kinds = {
             DockerfileRecipe.recipe_kind,
             DockerPullRecipe.recipe_kind,
+            DockerArchiveRecipe.recipe_kind,
             VrnetlabBuildRecipe.recipe_kind,
         }
-        self.assertEqual(len(kinds), 3)
+        self.assertEqual(len(kinds), 4)
 
     def test_provision_rejects_values_outside_the_recipe_protocol(self) -> None:
         for bad in (None, "dockerfile", object(), 42):

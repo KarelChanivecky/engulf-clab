@@ -4,20 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-mcp"
-version = "0.1.0"
-description = "Privileged local MCP control plane for engulf-clab"
+version = "0.1.2"
+description = "Privileged local MCP control plane for engulf-clab (requires Python 3.14+)"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-clab>=0.1,<0.2",
+    "engulf-clab>=0.3.0,<0.4",
     "engulf-plugin-list>=0.1,<0.2",
     "mcp>=1.26,<2",
     "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
-all-plugins = ["engulf-clab-all-plugins>=0.1,<0.2"]
+all-plugins = ["engulf-clab-all-plugins>=0.3.1,<0.4"]
 
 [project.scripts]
 eclab-mcp = "engulf_clab_mcp.bridge:main"

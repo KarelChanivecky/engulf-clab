@@ -10,7 +10,7 @@ wrapper and separately publishable Engulf plugin packages.
 - `mcp-server/` contains the separately publishable local privileged control
   service and unprivileged stdio bridge.
 - `plugins/engulf-clab-schema-api/`, `plugins/engulf-clab-schema/`, and
-  `plugins/engulf-clab-develop-lab-skill/` own runtime schema declaration,
+  `plugins/engulf-clab-develop-eclab-lab/` own runtime schema declaration,
   compilation, and generated Codex skill installation respectively.
 - `CONTRIBUTING.md` is the human-facing development and validation guide;
   `skills/README.md` documents the runtime-generated skill lifecycle.
@@ -41,13 +41,73 @@ engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
 engulf.plugins.v1.application.engulf_clab
 ```
 
-- Plugin packages should declare `engulf-api>=1.0,<2` and
-  `engulf-executable-wrapper-api>=1.0,<2`; plugin code imports neither runtime
-  package.
+- Plugin packages should declare `engulf-api>=1.2,<2` and
+  `engulf-executable-wrapper-api>=1.2,<2`; plugin code imports neither runtime
+  package. `1.2` is the floor for packaging-declared plugin dependencies and the
+  `prepare_failed()` unwind callback.
+- Declare plugin ordering in packaging, never in code. Engulf 0.2 rejects a
+  plugin that sets `plugin_dependencies` and loads the edges from the
+  distribution's dependency entry-point group instead:
+
+```toml
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_example"]
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+```
+
+  The group name is the declaring plugin's ID with dots replaced by underscores,
+  each entry name is the plugin depended on, and the value sets both positions
+  (`before`, `after`, or `none`). Assert the declaration in the package's own
+  tests so a refactor cannot silently drop an ordering edge.
 - Derive adapters from `ExecutableWrapperPlugin`. `analyze_call()` must be
   side-effect free and returns an immutable `CallContribution`; put external
   work in `prepare_call()` and cleanup in `after_call()`. These callbacks use
   `InvocationAPI`.
+- A plugin whose `prepare_call()` mutates host state, claims a shared resource,
+  or copies files must unwind that work on both failure paths. Roll back only
+  what this invocation created: record it in a private invocation context, and
+  never release a claim that a previous successful deploy still owns. Plugins
+  that only write invocation context need no unwind, since context is discarded
+  with the invocation.
+  - **A later plugin failed**: `prepare_failed()` runs, in reverse preparation
+    order, for every plugin that already prepared. The goal dispatches
+    `prepare_call()` one plugin at a time and tracks progress itself, so this
+    covers anything that ends the phase — a raised exception, `SystemExit`, and
+    a `KeyboardInterrupt` arriving mid-preparation all unwind identically.
+  - **This plugin itself failed**: `prepare_failed()` is *never* dispatched to
+    the plugin that raised, so every recipient knows it prepared fully without
+    inspecting the event. Release this attempt's partial work in a failure
+    handler inside `prepare_call()`:
+
+```python
+try:
+    ...  # claim resources, tracking what this attempt claimed
+except BaseException:
+    release(claimed)
+    raise
+```
+
+    `BaseException`, not `Exception`: an interrupt is not an `Exception`, so a
+    narrow catch strands this plugin's own work even though every plugin before
+    it unwinds. A failure handler, not `finally`: cleanup here is conditional on
+    failing, and `finally` needs a `prepared` flag that every early `return` must
+    set — miss one and it releases what a successful preparation just built. The
+    bare `raise` keeps the wide catch clear of blind-except lint, so the correct
+    shape is also the one a linter accepts.
+  - The two paths differ in lock state, so one shared helper cannot serve both.
+    Inside `prepare_call()` the leases that callback took are still held, because
+    `deactivate()` has not run. By the time `prepare_failed()` is dispatched the
+    preparing callback was deactivated and `release_active()` freed them, and a
+    lease context carried over from that activation would fail `require_current`.
+    Keep the lease-acquiring entry point separate from the release itself, and
+    call the release directly from `prepare_call()`. Acquiring there raises
+    `RuntimeError: nested or overlapping resource leases are not allowed`, which
+    then replaces the real failure in `PluginCallbackError.error` and is what
+    every downstream plugin sees in diagnostics.
+  - `after_call()` does not run when preparation fails, because no call was
+    attempted, and `after_goal()` still does not run on an interrupt. Keep
+    durable state recoverable by a later `destroy` or by a provisioning journal
+    replayed on the next run; preparation unwind is guaranteed, invocation-scoped
+    cleanup on interrupt is not.
 - Annotate `help()` with executable-wrapper `HelpAPI` and registration callbacks
   with `RegistrationAPI`. Emit diagnostics only through callback-bound
   `api.logger`; never configure logging or print operational messages directly.
@@ -104,7 +164,7 @@ example `engulf_clab.example`.
 
 ## Skill Package Requirements
 
-- Keep the static template in `plugins/engulf-clab-develop-lab-skill/skill/`
+- Keep the static template in `plugins/engulf-clab-develop-eclab-lab/skill/`
   concise and put runtime detail in the compiler-generated `references/` tree.
 - The bundled eclab generated-skill command, target, prompt, and pipeline are
   static and must be gated to callback-bound `short_product_name == "eclab"`.

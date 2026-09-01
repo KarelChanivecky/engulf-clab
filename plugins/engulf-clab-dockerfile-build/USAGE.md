@@ -6,7 +6,8 @@ through installed providers and runs Docker. Help, non-deploy commands, and
 topologies without a Dockerfile declaration do not add recipes.
 
 Install with `python -m pip install engulf-clab-dockerfile-build`; it is also
-included in `engulf-clab-all-plugins`.
+included in `engulf-clab-all-plugins`. Version 0.3.0 and later requires the
+Engulf 1.2 plugin APIs used for packaging-declared dependency ordering.
 
 ## Configuration
 
@@ -83,6 +84,9 @@ Every marked base node is an explicit graph root, so it builds even when no
 runtime node references it. Its deletion happens only in the derived deploy
 topology, after recipe extraction and before image resolution and writer
 serialization. Build-only images and Docker cache state remain after destroy.
+The preparation step changes only invocation-scoped topology and image-graph
+context; if a later plugin cannot prepare, Engulf discards that invocation and
+there is no Docker resource from this adapter to roll back.
 
 `ECLAB_DOCKER_ARGS` must not enable `--pull`. Base-image selection and fallback
 belong to the image graph, including configured mirror pull providers.

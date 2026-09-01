@@ -14,6 +14,7 @@ PACKAGES := \
 	engulf-clab-ensure-vrnetlab \
 	engulf-clab-image-build \
 	engulf-clab-dockerfile-build \
+	engulf-clab-image-archive \
 	engulf-clab-containers \
 	engulf-clab-containers-core \
 	engulf-clab-vrnetlab-build \
@@ -39,6 +40,7 @@ DIR_engulf-clab-ensure-containerlab := plugins/engulf-clab-ensure-containerlab
 DIR_engulf-clab-ensure-vrnetlab := plugins/engulf-clab-ensure-vrnetlab
 DIR_engulf-clab-image-build := plugins/engulf-clab-image-build
 DIR_engulf-clab-dockerfile-build := plugins/engulf-clab-dockerfile-build
+DIR_engulf-clab-image-archive := plugins/engulf-clab-image-archive
 DIR_engulf-clab-containers := plugins/engulf-clab-containers
 DIR_engulf-clab-containers-core := plugins/engulf-clab-containers-core
 DIR_engulf-clab-vrnetlab-build := plugins/engulf-clab-vrnetlab-build
@@ -79,7 +81,7 @@ check-skill:
 	@$(PYTHON) -m pytest -q \
 		plugins/engulf-clab-schema-api/tests \
 		plugins/engulf-clab-schema/tests \
-		plugins/engulf-clab-develop-lab-skill/tests
+		plugins/engulf-clab-develop-eclab-lab/tests
 
 # --- Per-package build / publish rules --------------------------------------
 #

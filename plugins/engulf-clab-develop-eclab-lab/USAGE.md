@@ -9,7 +9,9 @@ eclab install-develop-eclab-lab-skill ~/.codex
 ```
 
 Install the skill distribution into the same environment as the wrapper, since
-Engulf discovers plugins from the wrapper's environment.
+Engulf discovers plugins from the wrapper's environment. Version 0.2.0 and later
+requires the Engulf 1.2 plugin APIs used for packaging-declared dependency
+ordering.
 
 Pass the configuration root that contains `skills/`, not the skills directory.
 Base eclab installs `~/.codex/skills/develop-eclab-lab`. The command is also an

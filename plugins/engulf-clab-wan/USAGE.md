@@ -8,7 +8,8 @@ bridge does not use this plugin, require root because of it, or change host
 networking.
 
 Install with `python -m pip install engulf-clab-wan`, or through
-`engulf-clab-all-plugins`.
+`engulf-clab-all-plugins`. Version 0.2.0 and later requires the Engulf 1.2
+plugin APIs used for packaging-declared dependency ordering.
 
 ## Configuration
 
@@ -75,6 +76,12 @@ Claims are keyed by canonical topology workspace. Another workspace may share
 an identically configured bridge; incompatible settings for the same name fail.
 Host work is serialized, and an interrupted provisioning journal is rolled back
 before the bridge is claimed again.
+
+If a later plugin cannot prepare the deploy, Containerlab never runs and the
+plugin releases the bridges that same invocation just claimed, restoring the
+workspace to the claims it held beforehand. Bridges an earlier successful deploy
+still owns are left in place, so a failed redeploy does not disconnect a running
+lab. Releasing those remains the job of `destroy`.
 
 Successful destroy releases the current workspace. On the last release, the
 plugin stops only its verified DHCP process, removes only its marked rules and

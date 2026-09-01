@@ -250,9 +250,9 @@ topology:
   nodes:
     router:
       image: example/router:dev
-      uuid: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
       license: $ROUTER_LICENSES
       env:
+        FOS_UUID: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
         ECLAB_DOCKERFILE: router/Dockerfile
         ECLAB_DOCKER_CTX: router
   links: []

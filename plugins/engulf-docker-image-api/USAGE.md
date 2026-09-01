@@ -15,14 +15,23 @@ resolver selects higher authority before provider priority and provider ID. A
 terminal rejection blocks equal- or lower-authority offers for a namespace
 while still allowing a more explicit provider to override it.
 
-`ImageProvision` supplies either a `DockerfileRecipe` or `DockerPullRecipe` and
-optional explicit dependencies. A pull recipe may name a mirror source;
+`ImageProvision` supplies a recipe and optional explicit dependencies. A
+`DockerfileRecipe` builds, a `DockerPullRecipe` may name a mirror source;
 execution pulls that source and retags it as
 the required image. `only_if_missing=True` lets execution first accept an
 existing local target; it defaults to false so provider mirror recipes continue
 to refresh from their selected source. The core package also discovers literal Dockerfile `FROM`
 dependencies. Providers are attributed by the dispatcher, not by values
 supplied by the provider itself.
+
+`DockerArchiveRecipe` names an absolute path to a `docker save` archive,
+optionally compressed. Execution loads it and retags the result as the required
+image. Leave `source` unset when the archive already carries the required
+reference or holds exactly one image; set it to pick one reference out of a
+multi-image archive, which is never chosen implicitly. `only_if_missing=True`
+accepts an existing local target instead of reloading the archive.
+`VrnetlabBuildRecipe` names a source artifact and the vrnetlab builder directory
+that produces the image.
 
 Providers should answer from configuration and local metadata without probing a
 registry. Set `fallback_on_failure=True` when a failed mirror or cache pull may

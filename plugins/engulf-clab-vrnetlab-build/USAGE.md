@@ -5,6 +5,12 @@ image provider (`org.engulf.docker.vrnetlab-build`) so the image-build graph
 provisions opted-in nodes' tags by building rather than pulling. Docker, `make`,
 QEMU, and the selected vrnetlab builder's prerequisites must be available.
 
+The installed distribution exposes the executable-wrapper adapter as
+`engulf_clab.vrnetlab_build` and its separate Docker-image adapter as
+`org.engulf.docker.vrnetlab-build`. Both adapters share the same provider for one
+invocation; provider requests are discarded after the attempted call or if
+preparation fails, so a later invocation cannot reuse stale topology requests.
+
 Install with `python -m pip install engulf-clab-vrnetlab-build`, or through
 `engulf-clab-all-plugins`; its vrnetlab checkout dependency is installed
 automatically.

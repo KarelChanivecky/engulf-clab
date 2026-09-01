@@ -39,6 +39,12 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   `prepare_call()` alongside `engulf_clab.vrnetlab.path`; do not clone or update
   merely to produce the early hint. Failed goals acknowledge an early hint in
   `after_goal()` when preprocessing stopped before the terminal generator.
+- Declare the hard parser/schema dependencies and their preprocessing order in
+  distribution entry-point metadata. Do not declare plugin dependencies in code.
+- A prepared checkout and its update metadata are durable user-scoped cache, while
+  published contexts are invocation-scoped. Do not remove either in
+  `prepare_failed()` when a later plugin fails; this plugin retains no transient or
+  process-global resource that needs preparation unwind.
 - `StateStore.path()` is used for the checkout directory because Git requires
   a filesystem path. Direct checkout operations therefore bypass managed-file
   atomic writes; clone into a temporary sibling and rename only after validating

@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
     StateScope,
     WorkspaceState,
 )
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PluginSchema,
     Privilege,
@@ -31,6 +29,7 @@ from engulf_executable_wrapper_api import (
     CallMode,
     HelpAPI,
     OutcomeKind,
+    PreparationFailedEvent,
     PreparedCallEvent,
 )
 
@@ -45,11 +44,23 @@ from .networks import (
     DEFAULT_SUBNET,
     cleanup_dhcp_wan_bridges,
     dhcp_wan_bridges,
+    release_workspace_bridges,
     setup_dhcp_wan_bridges,
     wan_contract,
 )
-from .registry import workspace_bridge_names
+from .registry import bridge_metadata_for_workspace, workspace_bridge_names
 from .topology import load_topology, topology_path_from_args
+
+_INVOCATION_BRIDGES_CONTEXT = "engulf_clab.wan.invocation_bridges"
+
+
+@dataclass(frozen=True)
+class _InvocationBridges:
+    """Bridges this invocation newly claimed, and what the workspace held before."""
+
+    retained: tuple[str, ...]
+    claimed: tuple[str, ...]
+
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.wan", package="engulf_clab_wan")
@@ -218,21 +229,10 @@ class WanPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.wan"
     schema = PLUGIN_SCHEMA
     priority = 50
-    plugin_dependencies = (
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.lab_writer",
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
+    context_reads = (
+        frozenset({TOPOLOGY_CONTEXT, _INVOCATION_BRIDGES_CONTEXT}) | SCHEMA_CONTEXTS
     )
-    context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
-    context_writes = SCHEMA_CONTEXTS
+    context_writes = frozenset({_INVOCATION_BRIDGES_CONTEXT}) | SCHEMA_CONTEXTS
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
@@ -285,6 +285,17 @@ class WanPlugin(SchemaBackedPlugin):
         if command == "deploy":
             self._setup_before_deploy(api, event.environment)
 
+    def prepare_failed(
+        self, event: PreparationFailedEvent, api: InvocationAPI
+    ) -> None:
+        """Release only the bridges this invocation claimed when preparation unwinds."""
+        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+            return
+        claimed = api.get_context(_INVOCATION_BRIDGES_CONTEXT)
+        if isinstance(claimed, _InvocationBridges):
+            with use_logger(api.logger):
+                self._rollback_deploy(api, claimed)
+
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return
@@ -319,18 +330,35 @@ class WanPlugin(SchemaBackedPlugin):
             bridges = dhcp_wan_bridges(topology_data, contract)
             if not bridges:
                 return
+            workspace = api.state(StateScope.WORKSPACE)
+            retained = tuple(workspace_bridge_names(workspace))
             with (
                 use_logger(api.logger),
                 api.leases(self._bridge_leases(bridge.name for bridge in bridges)),
             ):
                 api.logger.info("using topology %s", topology_path)
-                setup_dhcp_wan_bridges(
-                    topology_data,
-                    api.state(StateScope.WORKSPACE),
-                    api.state(StateScope.USER),
-                    contract,
-                    environment,
-                )
+                try:
+                    setup_dhcp_wan_bridges(
+                        topology_data,
+                        workspace,
+                        api.state(StateScope.USER),
+                        contract,
+                        environment,
+                    )
+                except BaseException:
+                    # Engulf unwinds every plugin before this one, whatever ends
+                    # preparation, but never this one: its own partial work is its
+                    # own to release. BaseException rather than Exception, so an
+                    # interrupt does not strand a live bridge.
+                    # setup_dhcp_wan_bridges provisions bridge by bridge, so
+                    # record what it did claim before releasing it. The leases are
+                    # still held here, so this calls _release_claims and never
+                    # _rollback_deploy.
+                    self._release_claims(
+                        api, self._record_claims(api, workspace, retained)
+                    )
+                    raise
+                self._record_claims(api, workspace, retained)
                 mutation = editor(api, self.plugin_id)
                 topology = topology_data.get("topology", {})
                 nodes = topology.get("nodes", {}) if isinstance(topology, dict) else {}
@@ -360,6 +388,62 @@ class WanPlugin(SchemaBackedPlugin):
     def _bridge_leases(names: Iterable[str]) -> tuple[str, ...]:
         bridge_names = tuple(f"wan-bridge:{name}" for name in sorted(set(names)))
         return (*bridge_names, "sysctl:net.ipv4.ip_forward") if bridge_names else ()
+
+    @staticmethod
+    def _record_claims(
+        api: InvocationAPI,
+        workspace: WorkspaceState,
+        retained: tuple[str, ...],
+    ) -> _InvocationBridges:
+        """Publish and return the bridges this invocation added to the retained set."""
+        try:
+            current = tuple(workspace_bridge_names(workspace))
+        except (WanError, OSError) as error:
+            # This also runs while a setup failure unwinds. Reporting a metadata
+            # read error here would replace the more actionable original cause,
+            # and destroy still cleans up from the workspace metadata on disk.
+            api.logger.warning("could not record claimed WAN bridges: %s", error)
+            return _InvocationBridges(retained=retained, claimed=())
+        claimed = tuple(name for name in current if name not in retained)
+        recorded = _InvocationBridges(retained=retained, claimed=claimed)
+        api.set_context(_INVOCATION_BRIDGES_CONTEXT, recorded)
+        # Only preparation unwind reads this record, so a deploy that prepares
+        # cleanly would otherwise trip the runtime's unused-context diagnostic.
+        api.get_context(_INVOCATION_BRIDGES_CONTEXT)
+        return recorded
+
+    def _rollback_deploy(
+        self, api: InvocationAPI, claimed: _InvocationBridges
+    ) -> None:
+        """Release this invocation's bridges while holding no lease yet."""
+        if not claimed.claimed:
+            return
+        with api.leases(self._bridge_leases(claimed.claimed)):
+            self._release_claims(api, claimed)
+
+    def _release_claims(
+        self, api: InvocationAPI, claimed: _InvocationBridges
+    ) -> None:
+        """Release this invocation's bridges, leaving a previous deploy's intact.
+
+        The caller must already hold the bridge leases; Engulf rejects nested
+        lease acquisition, so this never takes them itself.
+        """
+        if not claimed.claimed:
+            return
+        workspace = api.state(StateScope.WORKSPACE)
+        try:
+            release_workspace_bridges(
+                claimed.claimed, workspace, api.state(StateScope.USER)
+            )
+        finally:
+            # Leave the workspace owning exactly what it owned before this
+            # invocation; a retry must not see the rolled-back claims.
+            bridge_metadata_for_workspace(workspace, list(claimed.retained))
+            api.set_context(
+                _INVOCATION_BRIDGES_CONTEXT,
+                _InvocationBridges(retained=claimed.retained, claimed=()),
+            )
 
     def _cleanup_workspace(self, api: InvocationAPI, workspace: WorkspaceState) -> None:
         names = workspace_bridge_names(workspace)

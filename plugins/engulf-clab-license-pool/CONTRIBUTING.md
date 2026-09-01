@@ -24,7 +24,7 @@ through the shared topology editor.
 - Preserve allocation preference, history, clamp exclusion, retry stability,
   pool-local regular-file selection, and deterministic lab-copy paths. Sticky
   selection prefers the claim's historical file before a never-used file.
-- Keep `sticky` as the compatibility default. Round-robin owns a pool-local
+- Keep `least-recently-used` as the default. Round-robin owns a pool-local
   sorted-file cursor; least-recently-used owns a monotonic pool-local use
   sequence. Every strategy reuses an active claim, excludes historical clamps
   while an ordinary choice remains, and records explicit clamp use.
@@ -34,9 +34,13 @@ through the shared topology editor.
 - Use the shared topology editor to point only the derived topology at a copy.
   Never edit the selected YAML or consume a pool license in place.
 - Record newly created claims and copies in invocation context before later
-  preparation can fail. On any unsuccessful deploy outcome, roll back exactly
-  that set while preserving pre-existing retry claims. Release one workspace
-  after successful destroy and preserve destroy-all semantics.
+  preparation can fail. Roll back exactly that set in `prepare_failed` when a
+  later preparer raises, inside `prepare_call` when this plugin itself raises,
+  and after any unsuccessful attempted deploy, while preserving pre-existing
+  retry claims. Release one workspace after successful destroy and preserve
+  destroy-all semantics.
+- Declare parser, writer, and schema ordering only in the package dependency
+  entry-point group; do not restore `plugin_dependencies` on the plugin object.
 - Freeze prompts must accept one file, directory pool, or `$VARIABLE`, with
   node-specific noninteractive values before the global value. Never log the
   resolved path or content as a diagnostic secret.

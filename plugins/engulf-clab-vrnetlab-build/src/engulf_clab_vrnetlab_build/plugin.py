@@ -4,16 +4,13 @@ import subprocess
 
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
     RegistrationAPI,
     StateScope,
 )
 from engulf_clab_ensure_vrnetlab import (
-    ENSURE_VRNETLAB_PLUGIN_ID,
     LABEL_PREFIX,
     VRNETLAB_PATH_CONTEXT,
     vrnetlab_image_path_env,
@@ -22,7 +19,6 @@ from engulf_clab_ensure_vrnetlab import (
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PathBase,
     PluginSchema,
@@ -38,6 +34,7 @@ from engulf_docker_image_api import (
     register_image_provider,
 )
 from engulf_executable_wrapper_api import (
+    AfterCallEvent,
     ArgumentRegistry,
     BeforeCallEvent,
     CallContribution,
@@ -45,6 +42,7 @@ from engulf_executable_wrapper_api import (
     CompletionCandidate,
     CompletionContext,
     HelpAPI,
+    PreparationFailedEvent,
     PreparedCallEvent,
 )
 
@@ -60,8 +58,10 @@ from .options import IMAGE_OPTION, complete_image_option, parse_image_options
 from .provider import VRNETLAB_PROVIDER_ID, VrnetlabBuildProvider
 from .topology import load_topology, topology_path_from_args
 
+PLUGIN_ID = "engulf_clab.vrnetlab_build"
+
 PLUGIN_SCHEMA = (
-    PluginSchema("engulf_clab.vrnetlab_build", package="engulf_clab_vrnetlab_build")
+    PluginSchema(PLUGIN_ID, package="engulf_clab_vrnetlab_build")
     .add_node_prop(
         "image",
         "Use a lab-unique requested image tag so independently launched labs do not share it.",
@@ -178,27 +178,9 @@ PLUGIN_SCHEMA = (
 
 
 class VrnetlabPlugin(SchemaBackedPlugin):
-    plugin_id = "engulf_clab.vrnetlab_build"
+    plugin_id = PLUGIN_ID
     schema = PLUGIN_SCHEMA
     priority = 75
-    plugin_dependencies = (
-        PluginDependency(
-            ENSURE_VRNETLAB_PLUGIN_ID,
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.image_build",
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_reads = (
         frozenset({VRNETLAB_PATH_CONTEXT, TOPOLOGY_CONTEXT, IMAGE_PROVIDER_CONTEXT})
         | SCHEMA_CONTEXTS
@@ -309,14 +291,14 @@ class VrnetlabPlugin(SchemaBackedPlugin):
         return CallContribution(removals=parsed.removals) if parsed.removals else None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        parsed = parse_image_options(event.wrapper_args)
-        if not parsed.arguments:
-            return
-        command, *_ = parsed.arguments
-        if command != "deploy":
-            return
-
         try:
+            parsed = parse_image_options(event.wrapper_args)
+            if not parsed.arguments:
+                return
+            command, *_ = parsed.arguments
+            if command != "deploy":
+                return
+
             session = api.require_context(TOPOLOGY_CONTEXT)
             if not isinstance(session, TopologySession):
                 raise VrnetlabError("invalid shared topology session")
@@ -351,7 +333,24 @@ class VrnetlabPlugin(SchemaBackedPlugin):
                 )
         except (VrnetlabError, OSError, subprocess.CalledProcessError) as error:
             api.logger.error("%s", error)
+            self._provider.clear()
             raise
+        except BaseException:
+            # A plugin whose own prepare callback raises does not receive
+            # prepare_failed, so discard any map refreshed by this attempt here.
+            # BaseException rather than Exception keeps an interrupt covered; a
+            # failure handler rather than `finally` keeps the early returns above
+            # safe, since they are success paths that must retain the map.
+            self._provider.clear()
+            raise
+
+    def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
+        del event, api
+        self._provider.clear()
+
+    def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        del event, api
+        self._provider.clear()
 
 
 def _deploy_completion(context: CompletionContext) -> bool:

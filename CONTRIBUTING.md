@@ -25,7 +25,7 @@ documentation, schema declarations, and tests agree.
 | `mcp-server/` | Provides the stdio bridge, privileged daemon, installer, and systemd unit. | `engulf-clab-mcp` |
 | `plugins/engulf-clab-schema-api/` | Stable plugin schema declaration and invocation-state contract. | `engulf-clab-schema-api` |
 | `plugins/engulf-clab-schema/` | Compiles Containerlab and active-plugin schemas at runtime. | `engulf-clab-schema` |
-| `plugins/engulf-clab-develop-lab-skill/` | Installs and refreshes the static base eclab generated skill. | `engulf-clab-develop-eclab-lab` |
+| `plugins/engulf-clab-develop-eclab-lab/` | Installs and refreshes the static base eclab generated skill. | `engulf-clab-develop-eclab-lab` |
 | `plugins/engulf-docker-image-api/` | Stable application-neutral graph and provider contract. | `engulf-docker-image-api` |
 | `plugins/engulf-docker-image-core/` | Recursive resolver, Dockerfile analyzer, scheduler, and reusable goal. | `engulf-docker-image-core` |
 
@@ -89,14 +89,46 @@ Follow these lifecycle rules:
    `prepare_call()` after all analyzers accept the invocation.
 4. Perform outcome-dependent cleanup in `after_call()`. Cleanup must tolerate a
    partially prepared call and preserve the wrapped command's result.
-5. Use `InvocationAPI` only during its active callback. Do not retain API, state,
+5. Unwind `prepare_call()` side effects on both failure paths. Release only what
+   this invocation created — track it in a private invocation context — so a
+   failed redeploy never tears down resources a previous successful deploy still
+   owns. A plugin that writes only invocation context needs no unwind, because
+   context dies with the invocation.
+   - `prepare_failed()` covers a *later* plugin failing; it runs in reverse
+     preparation order for every plugin that already prepared. The goal prepares
+     one plugin at a time and tracks progress itself, so an exception,
+     `SystemExit`, and a mid-preparation Ctrl-C all unwind the same plugins.
+   - It is never dispatched to the plugin that raised, so every recipient knows
+     it prepared fully. A `prepare_call()` that has already changed something
+     undoes this attempt's partial work in an `except BaseException:` handler
+     that re-raises. `BaseException`, not `Exception`, or an interrupt strands
+     your own work while every plugin before you unwinds. A failure handler, not
+     `finally`, because the cleanup is conditional on failing: `finally` needs a
+     flag that every early `return` must set, and a missed one releases what a
+     successful preparation just built. The bare `raise` keeps the wide catch
+     clear of blind-except lint.
+   - The two paths differ in lock state, so a single shared helper cannot serve
+     both. Inside `prepare_call()` that callback's leases are still held;
+     by `prepare_failed()` the callback was deactivated and they were released.
+     Keep the lease-acquiring entry point separate from the release, and call the
+     release directly from `prepare_call()` — acquiring there raises a nested-lease
+     `RuntimeError` that masks the real failure in the diagnostics every
+     downstream plugin sees.
+   - `after_call()` does not run when preparation fails, and `after_goal()` still
+     does not run on an interrupt, so durable resources must stay recoverable by
+     a later `destroy` or a replayed provisioning journal.
+     `engulf-clab/tests/test_preparation_unwind.py` pins every one of these
+     behaviors against the installed runtime.
+6. Use `InvocationAPI` only during its active callback. Do not retain API, state,
    or lease handles on a plugin instance.
-6. Emit operational diagnostics through callback-bound `api.logger`. Do not
+7. Emit operational diagnostics through callback-bound `api.logger`. Do not
    configure logging or print from a runtime plugin.
-7. Acquire `api.lease()` or `api.leases()` around long-lived shared resources.
+8. Acquire `api.lease()` or `api.leases()` around long-lived shared resources.
    Keep `StateStore.transaction()` blocks short and never hold one while running
    an external command.
-8. Declare context reads/writes and hard ordering dependencies. Do not rely on
+9. Declare context reads/writes in code. Declare hard ordering dependencies in
+   the distribution's `engulf.plugins.v1.dependency.<plugin_id>` entry-point
+   group — Engulf 0.2 rejects `plugin_dependencies` set in code. Do not rely on
    priority alone when correctness requires another plugin.
 
 The canonical workspace is the selected topology's directory. Calls without a
@@ -136,9 +168,10 @@ Every new directory under `plugins/` requires:
   `engulf-clab-all-plugins` — keep a single reference `README.md` instead,
   because their README is the API reference rather than an operator guide;
 - `py.typed` when the package exposes typed Python interfaces;
-- compatible `engulf-api>=1.0,<2` and
-  `engulf-executable-wrapper-api>=1.0,<2` dependencies for runtime plugins;
-- both required entry-point declarations for a discoverable plugin;
+- compatible `engulf-api>=1.2,<2` and
+  `engulf-executable-wrapper-api>=1.2,<2` dependencies for runtime plugins;
+- both required entry-point declarations for a discoverable plugin, plus a
+  dependency entry-point group when the plugin needs a hard ordering edge;
 - a dependency in `engulf-clab-all-plugins` when it is part of the maintained
   default catalog; and
 - unit tests that isolate Docker, Git, QEMU, host networking, and other external

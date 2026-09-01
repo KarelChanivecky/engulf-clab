@@ -13,13 +13,19 @@ checkout.
 
 - Goal catalog: `engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper`
 - Application declaration: `engulf.plugins.v1.application.engulf_clab`
+- Docker-image goal adapter: `engulf.plugins.v1.goal.v1.org_engulf_docker_image`
+  (`org.engulf.docker.vrnetlab-build`)
 - Plugin import package: `engulf_clab_vrnetlab_build`
-- Plugin ID: `engulf_clab.vrnetlab_build`
+- Executable-wrapper plugin ID: `engulf_clab.vrnetlab_build`
+- Docker-image adapter and provider ID: `org.engulf.docker.vrnetlab-build`
 - Prepared-checkout context ID: `engulf_clab.vrnetlab.path`
 - Required producer plugin ID: `engulf_clab.ensure_vrnetlab`
 
 Plugin code imports `engulf_api`, not `engulf`. It derives from
 `SchemaBackedPlugin`, which remains an executable-wrapper plugin adapter.
+Keep these adapters separate: each entry-point name must equal that adapter's
+`plugin_id`. Wrapper ordering belongs in the package metadata dependency group,
+not on the Python class.
 
 ## Development Notes
 
@@ -66,6 +72,10 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
 - State handles are invocation-bound. Obtain and consume the store inside the
   active callback and never retain it on the plugin instance. Keep validation in
   side-effect-free `analyze_call()` and image work in `prepare_call()`.
+- Treat the shared provider's refreshed request map as invocation state. Clear it
+  after every attempted call, when a later preparer fails, and from this plugin's
+  own preparation exception paths; Engulf does not call `prepare_failed` on the
+  preparer that raised.
 - Do not discover or clone vrnetlab here. The hard ensure-vrnetlab dependency
   owns `VRNETLAB_DIR`, managed provisioning, and context publication. Keep the
   dependency edge and consume only the published context path.

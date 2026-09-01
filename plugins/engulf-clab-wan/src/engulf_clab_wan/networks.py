@@ -682,6 +682,10 @@ def setup_dhcp_wan_bridges(
                     ) from error
                 raise
         claims.append(bridge.name)
+        # Record each claim as it is made. A later bridge in this loop may fail,
+        # and the workspace metadata is what destroy and preparation unwind use
+        # to find the claims that must still be released.
+        bridge_metadata_for_workspace(workspace, claims)
     bridge_metadata_for_workspace(workspace, claims)
 
 
@@ -764,14 +768,18 @@ def cleanup_entry(state: StateStore, entry: dict[str, Any]) -> None:
         info(f"leaving pre-existing Linux bridge {name}")
 
 
-def cleanup_dhcp_wan_bridges(workspace: WorkspaceState, user_state: StateStore) -> None:
-    names = workspace_bridge_names(workspace)
-    if not names:
-        info(f"no DHCP WAN metadata found for workspace {workspace.root}")
-        restore_ip_forwarding_if_unused(user_state)
-        workspace.destroy()
-        return
+def release_workspace_bridges(
+    names: Sequence[str],
+    workspace: WorkspaceState,
+    user_state: StateStore,
+) -> None:
+    """Release the named claims for one workspace, keeping its state store intact.
 
+    Preparation unwind releases only the bridges a failed invocation added, so it
+    must not discard workspace state that a previous successful deploy still owns.
+    """
+    if not names:
+        return
     require_root(names)
     require_commands(["ip", "iptables", "sh"])
     info(f"cleaning up {len(names)} DHCP WAN bridge(s) for {workspace.root}")
@@ -788,4 +796,15 @@ def cleanup_dhcp_wan_bridges(workspace: WorkspaceState, user_state: StateStore) 
             failures.append(f"{name}: {error}")
     if failures:
         raise WanError("DHCP WAN bridge cleanup failed: " + "; ".join(failures))
+
+
+def cleanup_dhcp_wan_bridges(workspace: WorkspaceState, user_state: StateStore) -> None:
+    names = workspace_bridge_names(workspace)
+    if not names:
+        info(f"no DHCP WAN metadata found for workspace {workspace.root}")
+        restore_ip_forwarding_if_unused(user_state)
+        workspace.destroy()
+        return
+
+    release_workspace_bridges(names, workspace, user_state)
     workspace.destroy()

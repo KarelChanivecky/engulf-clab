@@ -57,7 +57,9 @@ Docker's layer and pull caches decide whether work can be reused. Build output
 tags and mirror pull sources are leased for the invocation. After successful
 provisioning, the derived topology sets every literal root's
 `image-pull-policy` to `Never`; the source topology is not changed. Images and
-Docker cache state are retained after destroy.
+Docker cache state are retained after destroy and after a later plugin fails
+during preparation. The scheduler releases its leases before returning, and
+this adapter creates no other transient resource that needs failure cleanup.
 
 The plugin requires node image values to be literal after the shared parser's
 eager Containerlab-compatible environment expansion. Source expressions such

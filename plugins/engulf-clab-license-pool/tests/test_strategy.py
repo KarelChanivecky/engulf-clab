@@ -12,6 +12,7 @@ from unittest.mock import Mock, call, patch
 from engulf_api import ApplicationMetadata, InvocationAPI, StateScope
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_license_pool.plugin import (
+    _STATE_VERSION,
     LICENSE_POOL_STRATEGY_ENVIRONMENT,
     PLUGIN_SCHEMA,
     LicensePoolError,
@@ -20,6 +21,9 @@ from engulf_clab_license_pool.plugin import (
     _claim,
     _license_strategy,
     _release_workspace,
+    _requests,
+    _warn_legacy_uuid,
+    license_contract,
 )
 from engulf_clab_schema_api import OptionKind, register_schema_arguments
 from engulf_executable_wrapper_api import (
@@ -29,6 +33,7 @@ from engulf_executable_wrapper_api import (
     CallOutcome,
     CompletionContext,
     OutcomeKind,
+    PreparationFailedEvent,
     PreparedCallEvent,
     Shell,
     invoke_provider,
@@ -387,17 +392,11 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
         )
         return api, contexts
 
-    def test_failed_preempted_and_signaled_deploy_roll_back_new_claim_and_copy(
+    def test_unsuccessful_call_outcomes_roll_back_new_claim_and_copy(
         self,
     ) -> None:
         outcomes = (
             CallOutcome(OutcomeKind.COMPLETED, 70, process_started=True),
-            CallOutcome(
-                OutcomeKind.FRAMEWORK_FAILED,
-                70,
-                process_started=False,
-                error="later provider failed",
-            ),
             CallOutcome(
                 OutcomeKind.PREEMPTED,
                 1,
@@ -424,11 +423,7 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
                 (pool / "router.lic").write_text("license", encoding="utf-8")
                 session = TopologySession(
                     workspace / "lab.clab.yml",
-                    {
-                        "topology": {
-                            "nodes": {"router": {"license": "$ROUTER_POOL"}}
-                        }
-                    },
+                    {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}},
                 )
                 state = MemoryState()
                 api, _contexts = self._api(session, state, workspace)
@@ -475,6 +470,54 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
                     list((workspace / ".eclab" / "licenses").rglob("*.lic")), []
                 )
 
+    def test_later_preparation_failure_rolls_back_new_claim_and_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "lab"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "router.lic").write_text("license", encoding="utf-8")
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}},
+            )
+            state = MemoryState()
+            api, _contexts = self._api(session, state, workspace)
+            environment = {"ROUTER_POOL": str(pool)}
+            plugin = LicensePoolPlugin()
+            wrapper_args = ("deploy",)
+            effective_args = ("deploy", "-t", str(session.path))
+
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    wrapper_args,
+                    effective_args,
+                    CallMode.NORMAL,
+                    environment,
+                ),
+                api,
+            )
+            plugin.prepare_failed(
+                PreparationFailedEvent(
+                    "containerlab",
+                    wrapper_args,
+                    effective_args,
+                    CallMode.NORMAL,
+                    "later plugin failed",
+                    failed_plugin_id="engulf_clab.lab_writer",
+                    environment=environment,
+                ),
+                api,
+            )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(registry["pools"][str(pool.resolve())]["allocations"], {})
+            self.assertEqual(
+                list((workspace / ".eclab" / "licenses").rglob("*.lic")), []
+            )
+
     def test_prepare_exception_rolls_back_before_propagating(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -485,11 +528,7 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
             (pool / "router.lic").write_text("license", encoding="utf-8")
             session = TopologySession(
                 workspace / "lab.clab.yml",
-                {
-                    "topology": {
-                        "nodes": {"router": {"license": "$ROUTER_POOL"}}
-                    }
-                },
+                {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}},
             )
             state = MemoryState()
             api, _contexts = self._api(session, state, workspace)
@@ -513,9 +552,54 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
                 )
 
             registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(registry["pools"][str(pool.resolve())]["allocations"], {})
             self.assertEqual(
-                registry["pools"][str(pool.resolve())]["allocations"], {}
+                list((workspace / ".eclab" / "licenses").rglob("*.lic")), []
             )
+
+    def test_interrupt_rolls_back_before_propagating(self) -> None:
+        """Ctrl-C during this plugin's own prepare_call must not strand a claim.
+
+        An interrupt unwinds every plugin that prepared before this one, but the
+        plugin that raised never receives prepare_failed. The except BaseException
+        handler in prepare_call is the only thing releasing this attempt's claim, and an
+        interrupt is not an Exception, so narrowing it leaks one license per
+        interrupted deploy.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "lab"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "router.lic").write_text("license", encoding="utf-8")
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}},
+            )
+            state = MemoryState()
+            api, _contexts = self._api(session, state, workspace)
+
+            with (
+                patch(
+                    "engulf_clab_license_pool.plugin.shutil.copy2",
+                    side_effect=KeyboardInterrupt(),
+                ),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                LicensePoolPlugin().prepare_call(
+                    PreparedCallEvent(
+                        "containerlab",
+                        ("deploy",),
+                        ("deploy", "-t", str(session.path)),
+                        CallMode.NORMAL,
+                        {"ROUTER_POOL": str(pool)},
+                    ),
+                    api,
+                )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(registry["pools"][str(pool.resolve())]["allocations"], {})
             self.assertEqual(
                 list((workspace / ".eclab" / "licenses").rglob("*.lic")), []
             )
@@ -530,11 +614,7 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
             (pool / "router.lic").write_text("license", encoding="utf-8")
             session = TopologySession(
                 workspace / "lab.clab.yml",
-                {
-                    "topology": {
-                        "nodes": {"router": {"license": "$ROUTER_POOL"}}
-                    }
-                },
+                {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}},
             )
             state = MemoryState()
             environment = {"ROUTER_POOL": str(pool)}
@@ -576,3 +656,190 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DestroyAllCleanupTestCase(unittest.TestCase):
+    """`destroy --all` must clear the registry *and* every workspace's copies."""
+
+    @staticmethod
+    def _destroy(*args: str) -> AfterCallEvent:
+        wrapper_args = ("destroy", *args)
+        return AfterCallEvent(
+            binary="containerlab",
+            wrapper_args=wrapper_args,
+            effective_args=wrapper_args,
+            mode=CallMode.NORMAL,
+            outcome=CallOutcome(OutcomeKind.COMPLETED, 0, process_started=True),
+            duration_seconds=0.1,
+        )
+
+    def _api(self, user_state: MemoryState, workspace: Path) -> Mock:
+        api = Mock(spec=InvocationAPI)
+        api.application = ApplicationMetadata(
+            application_id="engulf-clab",
+            display_name="eclab",
+            vendor="Engulf",
+            product="eclab",
+            short_product_name="eclab",
+            version="1.0",
+        )
+        api.state.side_effect = lambda scope: (
+            SimpleNamespace(root=workspace)
+            if scope is StateScope.WORKSPACE
+            else user_state
+        )
+        api.lease.return_value = nullcontext()
+        api.leases.return_value = nullcontext()
+        return api
+
+    def _seed(self, root: Path, pool: Path, names: tuple[str, ...]) -> MemoryState:
+        """Claim one license per workspace and place its copy on disk."""
+        state = MemoryState()
+        allocations = {}
+        for name in names:
+            workspace = root / name
+            copies = workspace / ".eclab" / "licenses"
+            copies.mkdir(parents=True)
+            (copies / "router.lic").write_text("license", encoding="utf-8")
+            allocations[str(pool / f"{name}.lic")] = f"{workspace}:router"
+        state.content["license-pools.json"] = json.dumps(
+            {
+                "version": _STATE_VERSION,
+                "pools": {
+                    str(pool): {
+                        "allocations": allocations,
+                        "history": {},
+                        "clamped": [],
+                        "last_used": {},
+                        "round_robin_index": 0,
+                        "usage_sequence": 0,
+                    },
+                },
+            }
+        )
+        return state
+
+    def test_destroy_all_removes_copies_from_every_claimed_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pool = root / "pool"
+            pool.mkdir()
+            state = self._seed(root, pool, ("first", "second"))
+            api = self._api(state, root / "first")
+
+            LicensePoolPlugin().after_call(self._destroy("--all"), api)
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(registry["pools"][str(pool)]["allocations"], {})
+            for name in ("first", "second"):
+                self.assertFalse(
+                    (root / name / ".eclab" / "licenses").exists(),
+                    f"{name} kept its copied licenses",
+                )
+
+    def test_ordinary_destroy_only_touches_the_current_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pool = root / "pool"
+            pool.mkdir()
+            state = self._seed(root, pool, ("first", "second"))
+            api = self._api(state, root / "first")
+
+            LicensePoolPlugin().after_call(self._destroy(), api)
+
+            self.assertFalse((root / "first" / ".eclab" / "licenses").exists())
+            self.assertTrue(
+                (root / "second" / ".eclab" / "licenses").exists(),
+                "an unrelated workspace lost its copied licenses",
+            )
+
+
+class AllocationIdentityTestCase(unittest.TestCase):
+    """Identity rides on node `env`, which Containerlab's own schema accepts.
+
+    A top-level `uuid:` node field is not part of the Containerlab schema, so a
+    topology carrying one is rejected by every subcommand that validates the raw
+    document even though deploy accepted it.
+    """
+
+    _APPLICATION = ApplicationMetadata(
+        application_id="engulf-clab",
+        display_name="eclab",
+        vendor="Engulf",
+        product="eclab",
+        short_product_name="eclab",
+        version="1.0",
+    )
+
+    def test_schema_declares_no_node_level_uuid_property(self) -> None:
+        options = PLUGIN_SCHEMA.snapshot(self._APPLICATION).options
+        properties = {o.name for o in options if o.kind is OptionKind.PROPERTY}
+        variables = {o.name for o in options if o.kind is OptionKind.NODE_VAR}
+
+        self.assertNotIn("uuid", properties)
+        self.assertIn("FOS_UUID", variables)
+
+    def test_identity_comes_from_the_node_environment(self) -> None:
+        topology = {
+            "topology": {
+                "nodes": {
+                    "router": {
+                        "license": "$ROUTER_POOL",
+                        "env": {"FOS_UUID": "stable-identity"},
+                    }
+                }
+            }
+        }
+        contract = license_contract(self._APPLICATION)
+
+        with tempfile.TemporaryDirectory() as pool:
+            requests = _requests(
+                topology, {"ROUTER_POOL": pool}, Path("/ws"), contract
+            )
+
+        self.assertEqual(
+            [claim for _n, _p, _c, claim in requests], ["/ws:stable-identity"]
+        )
+
+    def test_identity_falls_back_to_the_node_name(self) -> None:
+        topology = {
+            "topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}
+        }
+        contract = license_contract(self._APPLICATION)
+
+        with tempfile.TemporaryDirectory() as pool:
+            requests = _requests(
+                topology, {"ROUTER_POOL": pool}, Path("/ws"), contract
+            )
+
+        self.assertEqual([claim for _n, _p, _c, claim in requests], ["/ws:router"])
+
+
+class LegacyUuidWarningTestCase(unittest.TestCase):
+    def test_a_topology_still_using_uuid_is_named_in_a_warning(self) -> None:
+        api = Mock(spec=InvocationAPI)
+        topology = {
+            "topology": {
+                "nodes": {
+                    "router": {"uuid": "old-identity"},
+                    "switch": {"env": {"FOS_UUID": "new-identity"}},
+                }
+            }
+        }
+
+        _warn_legacy_uuid(api, topology)
+
+        api.logger.warning.assert_called_once()
+        message = api.logger.warning.call_args.args
+        self.assertIn("router", message[1])
+        self.assertNotIn("switch", message[1])
+        self.assertEqual(message[2], "FOS_UUID")
+
+    def test_a_migrated_topology_warns_about_nothing(self) -> None:
+        api = Mock(spec=InvocationAPI)
+
+        _warn_legacy_uuid(
+            api, {"topology": {"nodes": {"router": {"env": {"FOS_UUID": "x"}}}}}
+        )
+
+        api.logger.warning.assert_not_called()

@@ -12,7 +12,12 @@ provider recursion and Docker execution.
 
 - Goal catalog: `engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper`
 - Application declaration: `engulf.plugins.v1.application.engulf_clab`
+- Dependency declaration: `engulf.plugins.v1.dependency.engulf_clab_dockerfile_build`
 - Plugin ID: `engulf_clab.dockerfile_build`
+
+Declare the lab-parser, image-build, and schema ordering edges only in the
+package entry-point metadata. Do not restore `plugin_dependencies` on the
+plugin class; Engulf 0.2 rejects code-declared dependencies.
 
 Use the fixed `ECLAB` prefix (`config.LABEL_PREFIX`). Do not derive it from
 `api.application.short_product_name`/`product` — labels must stay portable
@@ -42,6 +47,8 @@ mutators can affect declarations, then append only immutable graph values.
 - Let `engulf-docker-image-core` coalesce definitions, inspect `FROM`, select
   providers, acquire leases, schedule workers, and aggregate failures. Do not
   duplicate that policy in this adapter.
+- Preparation changes only invocation-scoped topology and image-graph context.
+  It acquires no external resource, so it needs no `prepare_failed` cleanup.
 - Do not delete built images on destroy. Docker caching and tag lifecycle are
   outside this plugin's cleanup responsibility.
 - Keep dynamic help, `USAGE.md` fields, prefix derivation, parser validation,

@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock
 
+import tomllib
 import yaml
 from engulf_api import InvocationAPI
 from engulf_clab_lab_parser import TopologySession, derived_topology_path
@@ -17,11 +18,28 @@ from engulf_executable_wrapper_api import (
     CallMode,
     CallOutcome,
     OutcomeKind,
+    PreparationFailedEvent,
     PreparedCallEvent,
 )
 
 
 class TopologyCollectorPluginTest(unittest.TestCase):
+    def test_dependencies_are_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        group = project["entry-points"][
+            "engulf.plugins.v1.dependency.engulf_clab_lab_writer"
+        ]
+
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.lab_parser": "preprocess=before; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        self.assertNotIn("plugin_dependencies", TopologyCollectorPlugin.__dict__)
+
     def test_generated_topology_is_stable_through_containerlab_environment_pass(
         self,
     ) -> None:
@@ -208,6 +226,75 @@ class TopologyCollectorPluginTest(unittest.TestCase):
                 api,
             )
             self.assertFalse(target.exists())
+
+    def test_later_preparation_failure_removes_new_topology(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "lab.clab.yml"
+            source.write_text("topology: {}\n", encoding="utf-8")
+            target = derived_topology_path(source)
+            wrapper_args = ("deploy",)
+            effective_args = ("deploy", "-t", str(target))
+            api = Mock(spec=InvocationAPI)
+            api.require_context.return_value = TopologySession(
+                source, {"topology": {"nodes": {"new": {}}}}
+            )
+            plugin = TopologyCollectorPlugin()
+
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab", wrapper_args, effective_args, CallMode.NORMAL
+                ),
+                api,
+            )
+            plugin.prepare_failed(
+                PreparationFailedEvent(
+                    "containerlab",
+                    wrapper_args,
+                    effective_args,
+                    CallMode.NORMAL,
+                    "later plugin failed",
+                ),
+                api,
+            )
+
+            self.assertFalse(target.exists())
+
+    def test_later_preparation_failure_restores_retained_topology(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "lab.clab.yml"
+            source.write_text("topology: {}\n", encoding="utf-8")
+            target = derived_topology_path(source)
+            previous = b"topology:\n  nodes:\n    retained: {}\n"
+            target.write_bytes(previous)
+            wrapper_args = ("deploy",)
+            effective_args = ("deploy", "-t", str(target))
+            api = Mock(spec=InvocationAPI)
+            api.require_context.return_value = TopologySession(
+                source, {"topology": {"nodes": {"replacement": {}}}}
+            )
+            plugin = TopologyCollectorPlugin()
+
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab", wrapper_args, effective_args, CallMode.NORMAL
+                ),
+                api,
+            )
+            self.assertNotEqual(target.read_bytes(), previous)
+            plugin.prepare_failed(
+                PreparationFailedEvent(
+                    "containerlab",
+                    wrapper_args,
+                    effective_args,
+                    CallMode.NORMAL,
+                    "later plugin failed",
+                ),
+                api,
+            )
+
+            self.assertEqual(target.read_bytes(), previous)
 
     def test_successful_destroy_all_removes_retained_topologies(self) -> None:
         with TemporaryDirectory() as directory, chdir(directory):

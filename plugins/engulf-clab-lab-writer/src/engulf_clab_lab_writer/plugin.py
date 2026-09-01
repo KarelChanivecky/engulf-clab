@@ -8,11 +8,9 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
 )
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
@@ -23,7 +21,6 @@ from engulf_clab_lab_parser import (
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PluginSchema,
     record_plugin_schema,
@@ -37,6 +34,7 @@ from engulf_executable_wrapper_api import (
     CallMode,
     ExecutableWrapperPlugin,
     OutcomeKind,
+    PreparationFailedEvent,
     PreparedCallEvent,
 )
 
@@ -64,16 +62,11 @@ PLUGIN_SCHEMA = (
 class TopologyCollectorPlugin(ExecutableWrapperPlugin):
     plugin_id = "engulf_clab.lab_writer"
     priority = -100
-    plugin_dependencies = (
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_reads = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
     context_writes = SCHEMA_CONTEXTS
+
+    def __init__(self) -> None:
+        self._prepared_targets: dict[Path, bytes | None] = {}
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
@@ -112,6 +105,7 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
         target = _generated_path(event.effective_args)
         if target is None:
             raise RuntimeError("generated topology argument is missing")
+        previous = target.read_bytes() if target.exists() else None
         descriptor, staged_name = tempfile.mkstemp(
             prefix=f"{target.name}.", dir=target.parent, text=True
         )
@@ -122,12 +116,29 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
                     handle,
                     sort_keys=False,
                 )
+            self._prepared_targets[target] = previous
             Path(staged_name).replace(target)
         except BaseException:
+            self._prepared_targets.pop(target, None)
             Path(staged_name).unlink(missing_ok=True)
             raise
 
+    def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
+        del api
+        target = _generated_path(event.effective_args)
+        if target is None or target not in self._prepared_targets:
+            return
+        previous = self._prepared_targets.pop(target)
+        if previous is None:
+            target.unlink(missing_ok=True)
+        else:
+            _replace_bytes(target, previous)
+
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        del api
+        target = _generated_path(event.effective_args)
+        if target is not None:
+            self._prepared_targets.pop(target, None)
         if (
             not event.wrapper_args
             or event.wrapper_args[0] != "destroy"
@@ -135,7 +146,6 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
             or event.outcome.exit_code != 0
         ):
             return
-        target = _generated_path(event.effective_args)
         if target is not None:
             target.unlink(missing_ok=True)
         elif any(value in {"-a", "--all"} for value in event.wrapper_args[1:]):
@@ -174,3 +184,16 @@ def _escape_rendered_dollars(value: Any) -> Any:
     if isinstance(value, list):
         return [_escape_rendered_dollars(item) for item in value]
     return value
+
+
+def _replace_bytes(target: Path, content: bytes) -> None:
+    descriptor, staged_name = tempfile.mkstemp(
+        prefix=f"{target.name}.", dir=target.parent
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+        Path(staged_name).replace(target)
+    except BaseException:
+        Path(staged_name).unlink(missing_ok=True)
+        raise

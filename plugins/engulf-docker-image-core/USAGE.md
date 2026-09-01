@@ -27,8 +27,17 @@ expression that cannot be resolved fails provisioning; provide its global build
 argument so the complete graph is known before execution. Explicit provision
 dependencies are combined with discovered bases.
 
-`build_resolved_graph` executes every selected build or pull recipe on every
-invocation. Dependencies finish before their consumers, independent branches
+An archive recipe is executed with `docker load`, then retagged when the archive
+does not already carry the target reference. A recipe that names no source
+requires the archive to carry the target or exactly one image; a multi-image
+archive fails with its loaded count rather than retagging an arbitrary member.
+Loads acquire the target tag's lease and the selected source's lease, and
+`only_if_missing=True` accepts an existing local target instead of reloading.
+Outcomes report loads in `loaded`, separately from `built`, `pulled`, and
+`reused`.
+
+`build_resolved_graph` executes every selected build, load, or pull recipe on
+every invocation. Dependencies finish before their consumers, independent branches
 may run in parallel, and leases cover every output tag and mirror pull source.
 Docker's layer cache remains the freshness policy for builds; the built-in
 missing-only pull fallback may reuse an existing exact local tag. Outcomes

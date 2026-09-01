@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engulf_api import BeforeGoalAPI, GoalResult, Invocation, PluginDependency
+from engulf_api import BeforeGoalAPI, GoalResult, Invocation
 from engulf_clab_containers_api import (
     ContainerBuildRecipe,
     ContainerCollectionPlugin,
@@ -13,7 +13,6 @@ from engulf_clab_containers_api import (
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     ExplainedValue,
     LifecycleStage,
     PluginSchema,
@@ -184,10 +183,6 @@ PLUGIN_SCHEMA = (
 
 
 class CoreContainerCollectionPlugin(ContainerCollectionPlugin):
-    plugin_dependencies: tuple[PluginDependency, ...] = (
-        *ContainerCollectionPlugin.plugin_dependencies,
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_reads = ContainerCollectionPlugin.context_reads | SCHEMA_CONTEXTS
     context_writes = ContainerCollectionPlugin.context_writes | SCHEMA_CONTEXTS
 
@@ -200,6 +195,6 @@ class CoreContainerCollectionPlugin(ContainerCollectionPlugin):
 _CONTAINERS = (HOST_CONNECTOR, WAN_ACCESS)
 plugin = CoreContainerCollectionPlugin("eclab.containers", _CONTAINERS)
 image_plugin = ImageProviderPlugin(
-    "eclab.containers",
+    "eclab.containers.images",
     ContainerImageProvider((RegisteredContainerCollection("eclab.containers", _CONTAINERS),)),
 )

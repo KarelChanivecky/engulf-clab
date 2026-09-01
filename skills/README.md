@@ -134,10 +134,14 @@ the generated skill contains operational guidance without implementation noise.
 Every explanation must be one line and at most 240 characters.
 
 The API signatures and validation rules are documented in
-`plugins/engulf-clab-schema-api/README.md`. Contributors must declare
-`SCHEMA_PLUGIN_DEPENDENCY`, include `SCHEMA_CONTEXTS` in their context contract,
-derive their executable-wrapper adapter from `SchemaBackedPlugin`, and call
-`record_plugin_schema(api, PLUGIN_SCHEMA)` from `before_goal`.
+`plugins/engulf-clab-schema-api/README.md`. Contributors must declare the schema
+ordering edge in their distribution's
+`engulf.plugins.v1.dependency.<plugin_id>` entry-point group, include
+`SCHEMA_CONTEXTS` in their context contract, derive their executable-wrapper
+adapter from `SchemaBackedPlugin`, and call
+`record_plugin_schema(api, PLUGIN_SCHEMA)` from `before_goal`. Engulf 0.2 rejects
+`plugin_dependencies` declared in code, and schema-api 2.0 removed the
+`SCHEMA_PLUGIN_DEPENDENCY` constant that used to express this edge.
 
 ## Validation
 

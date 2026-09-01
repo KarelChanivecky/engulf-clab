@@ -66,6 +66,7 @@ local_packages=(
     "plugins/engulf-clab-ensure-vrnetlab"
     "plugins/engulf-clab-image-build"
     "plugins/engulf-clab-dockerfile-build"
+    "plugins/engulf-clab-image-archive"
     "plugins/engulf-clab-containers"
     "plugins/engulf-clab-containers-core"
     "plugins/engulf-clab-vrnetlab-build"

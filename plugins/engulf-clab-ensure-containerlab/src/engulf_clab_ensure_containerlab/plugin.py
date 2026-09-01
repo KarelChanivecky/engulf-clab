@@ -12,7 +12,6 @@ from engulf_api import (
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     SCHEMA_SOURCE_CONTEXT,
     LifecycleStage,
     PathBase,
@@ -28,6 +27,7 @@ from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallContribution,
     HelpAPI,
+    PreparationFailedEvent,
     PreparedCallEvent,
 )
 
@@ -207,12 +207,12 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
     schema = PLUGIN_SCHEMA
     # Resolve the executable before every other plugin prepares host resources.
     priority = 110
-    plugin_dependencies = (SCHEMA_PLUGIN_DEPENDENCY,)
     context_reads = SCHEMA_CONTEXTS | frozenset({SCHEMA_SOURCE_CONTEXT})
     context_writes = SCHEMA_CONTEXTS | frozenset({SCHEMA_SOURCE_CONTEXT})
 
     def __init__(self) -> None:
         self._original_path: str | None = None
+        self._path_prepared = False
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
@@ -283,13 +283,27 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
             with use_logger(api.logger), api.lease(CONTAINERLAB_REPOSITORY_LEASE):
                 binary = ensure_binary(api.state(StateScope.USER), event.environment)
             publish_containerlab_source(api, resolved_containerlab_source(binary))
-            self._original_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = f"{binary.parent}{os.pathsep}{self._original_path}"
+            self._original_path = os.environ.get("PATH")
+            current_path = self._original_path or ""
+            os.environ["PATH"] = f"{binary.parent}{os.pathsep}{current_path}"
+            self._path_prepared = True
         except (EnsureContainerlabError, OSError) as error:
             api.logger.error("%s", error)
             raise
 
+    def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
+        del event, api
+        self._restore_path()
+
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
-        if self._original_path is not None:
-            os.environ["PATH"] = self._original_path
+        del event, api
+        self._restore_path()
+
+    def _restore_path(self) -> None:
+        if self._path_prepared:
+            if self._original_path is None:
+                os.environ.pop("PATH", None)
+            else:
+                os.environ["PATH"] = self._original_path
+            self._path_prepared = False
             self._original_path = None

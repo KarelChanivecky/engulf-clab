@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from engulf_api import InvocationAPI, RegistrationAPI, StateScope
-from engulf_clab_ensure_vrnetlab import ENSURE_VRNETLAB_PLUGIN_ID
 from engulf_clab_lab_parser import TopologySession
 from engulf_executable_wrapper_api import (
+    AfterCallEvent,
     ArgumentRegistry,
     BeforeCallEvent,
     CallMode,
     CompletionContext,
+    PreparationFailedEvent,
     PreparedCallEvent,
     Shell,
 )
@@ -32,9 +34,37 @@ class PluginLifecycleTest(unittest.TestCase):
         api.application.short_product_name = "eclab"
         return api
 
-    def test_ensure_vrnetlab_is_a_hard_preprocess_dependency(self) -> None:
-        dependency = VrnetlabPlugin().plugin_dependencies[0]
-        self.assertEqual(dependency.plugin_id, ENSURE_VRNETLAB_PLUGIN_ID)
+    def test_dependencies_and_adapters_are_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        entry_points = project["entry-points"]
+
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.dependency.engulf_clab_vrnetlab_build"],
+            {
+                "engulf_clab.ensure_vrnetlab": "preprocess=before; postprocess=none",
+                "engulf_clab.lab_parser": "preprocess=before; postprocess=none",
+                "engulf_clab.image_build": "preprocess=after; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        self.assertNotIn("plugin_dependencies", VrnetlabPlugin.__dict__)
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"],
+            {"engulf_clab.vrnetlab_build": "engulf_clab_vrnetlab_build:plugin"},
+        )
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.application.engulf_clab"],
+            {"engulf_clab.vrnetlab_build": "engulf_clab_vrnetlab_build:plugin"},
+        )
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.goal.v1.org_engulf_docker_image"],
+            {
+                "org.engulf.docker.vrnetlab-build": (
+                    "engulf_clab_vrnetlab_build:image_plugin"
+                )
+            },
+        )
 
     def test_help_identifies_node_environment_fields(self) -> None:
         help_text = VrnetlabPlugin().help(self.api())
@@ -366,13 +396,79 @@ topology:
         self.assertEqual(image_plugin.plugin_id, VRNETLAB_PROVIDER_ID)
         self.assertIs(image_plugin.provider, plugin._provider)
 
+    def test_adapters_have_distinct_goal_specific_identities(self) -> None:
+        from engulf_clab_vrnetlab_build import image_plugin, plugin
+
+        self.assertEqual(plugin.plugin_id, "engulf_clab.vrnetlab_build")
+        self.assertEqual(image_plugin.plugin_id, "org.engulf.docker.vrnetlab-build")
+        self.assertEqual(plugin.goal_requirement.goal_id, "org.engulf.executable-wrapper")
+        self.assertEqual(image_plugin.goal_requirement.goal_id, "org.engulf.docker-image")
+
+    def test_prepare_failure_in_later_plugin_clears_requests(self) -> None:
+        plugin = VrnetlabPlugin()
+        plugin._provider.refresh_requests([], checkout_context="/managed/vrnetlab")
+        with patch.object(plugin._provider, "clear", wraps=plugin._provider.clear) as clear:
+            plugin.prepare_failed(Mock(spec=PreparationFailedEvent), Mock())
+        clear.assert_called_once_with()
+
+    def test_after_call_clears_requests(self) -> None:
+        plugin = VrnetlabPlugin()
+        plugin._provider.refresh_requests([], checkout_context="/managed/vrnetlab")
+        with patch.object(plugin._provider, "clear", wraps=plugin._provider.clear) as clear:
+            plugin.after_call(Mock(spec=AfterCallEvent), Mock())
+        clear.assert_called_once_with()
+
+    def test_own_prepare_failure_clears_previous_requests(self) -> None:
+        plugin = VrnetlabPlugin()
+        plugin._provider.refresh_requests([], checkout_context="/old/vrnetlab")
+        api = self.api()
+        api.require_context.return_value = object()
+
+        with (
+            patch.object(plugin._provider, "clear", wraps=plugin._provider.clear) as clear,
+            self.assertRaisesRegex(VrnetlabError, "invalid shared topology session"),
+        ):
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    ("deploy",),
+                    ("deploy",),
+                    CallMode.NORMAL,
+                ),
+                api,
+            )
+
+        clear.assert_called_once_with()
+
+    def test_unexpected_own_prepare_failure_clears_previous_requests(self) -> None:
+        plugin = VrnetlabPlugin()
+        plugin._provider.refresh_requests([], checkout_context="/old/vrnetlab")
+
+        with (
+            patch(
+                "engulf_clab_vrnetlab_build.plugin.parse_image_options",
+                side_effect=RuntimeError("unexpected preparation failure"),
+            ),
+            patch.object(plugin._provider, "clear", wraps=plugin._provider.clear) as clear,
+            self.assertRaisesRegex(RuntimeError, "unexpected preparation failure"),
+        ):
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    ("deploy",),
+                    ("deploy",),
+                    CallMode.NORMAL,
+                ),
+                self.api(),
+            )
+
+        clear.assert_called_once_with()
+
     def test_prepare_call_precedes_image_build(self) -> None:
-        from engulf_api import DependencyPosition
         from engulf_clab_schema_api import LifecycleStage
 
         from engulf_clab_vrnetlab_build.plugin import PLUGIN_SCHEMA
 
-        plugin = VrnetlabPlugin()
         prepare_orderings = [
             entry
             for entry in PLUGIN_SCHEMA._ordering
@@ -384,15 +480,6 @@ topology:
                 break
         else:
             self.fail("schema ordering does not declare before engulf_clab.image_build")
-
-        dependency_ids = {
-            dependency.plugin_id: dependency for dependency in plugin.plugin_dependencies
-        }
-        self.assertIn("engulf_clab.image_build", dependency_ids)
-        self.assertIs(
-            dependency_ids["engulf_clab.image_build"].preprocess, DependencyPosition.AFTER
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

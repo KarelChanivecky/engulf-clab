@@ -1,4 +1,5 @@
 import json
+import tomllib
 from pathlib import Path
 from typing import Any, cast
 
@@ -7,6 +8,7 @@ from engulf_api import ApplicationMetadata, GoalResult, Invocation
 from engulf_clab_develop_lab_skill.plugin import (
     MARKER_NAME,
     PLUGIN_ID,
+    DevelopLabSkillPlugin,
     _installed_fingerprint,
     _is_eclab_application,
     _skip_automatic_refresh,
@@ -142,3 +144,14 @@ def test_eclab_collector_is_inactive_for_an_external_edition() -> None:
     plugin.register_arguments(cast(Any, UntouchedRegistry()), api)
     plugin.register_completions(cast(Any, UntouchedRegistry()), api)
     assert plugin.help(api) == ""
+
+
+def test_dependency_is_declared_in_package_metadata() -> None:
+    project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+    group = project["entry-points"][
+        "engulf.plugins.v1.dependency.engulf_clab_develop_lab_skill"
+    ]
+
+    assert group == {"engulf_clab.schema": "preprocess=after; postprocess=before"}
+    assert "plugin_dependencies" not in DevelopLabSkillPlugin.__dict__

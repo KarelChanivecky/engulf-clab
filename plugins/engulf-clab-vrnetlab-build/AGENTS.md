@@ -22,12 +22,17 @@ the discovered build requests, and the same provider instance backs both the
 - Docker-image goal adapter: `engulf.plugins.v1.goal.v1.org_engulf_docker_image`
   (`org.engulf.docker.vrnetlab-build`)
 - Plugin import package: `engulf_clab_vrnetlab_build`
-- Plugin ID: `engulf_clab.vrnetlab_build`
+- Executable-wrapper plugin ID: `engulf_clab.vrnetlab_build`
+- Docker-image adapter and provider ID: `org.engulf.docker.vrnetlab-build`
 - Prepared-checkout context ID: `engulf_clab.vrnetlab.path`
 - Required producer plugin ID: `engulf_clab.ensure_vrnetlab`
 
 Plugin code imports `engulf_api`, not `engulf`. It derives from
 `SchemaBackedPlugin`, which remains an executable-wrapper plugin adapter.
+The two goal adapters must keep distinct IDs and targets. Declare wrapper
+ordering in the distribution's
+`engulf.plugins.v1.dependency.engulf_clab_vrnetlab_build` entry-point group;
+never restore code-level `plugin_dependencies`.
 
 ## Development Notes
 
@@ -74,6 +79,10 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
 - State handles are invocation-bound. Obtain and consume the store inside the
   active callback and never retain it on the plugin instance. Keep validation in
   side-effect-free `analyze_call()` and image work in `prepare_call()`.
+- The provider request map is invocation-scoped even though both adapters share
+  its provider object. Clear it in `after_call`, in `prepare_failed` when a later
+  preparer raises, and inside every exception path of this plugin's own
+  `prepare_call` because the failing plugin does not receive `prepare_failed`.
 - Do not discover or clone vrnetlab here. The hard ensure-vrnetlab dependency
   owns `VRNETLAB_DIR`, managed provisioning, and context publication. Keep the
   dependency edge and consume only the published context path.

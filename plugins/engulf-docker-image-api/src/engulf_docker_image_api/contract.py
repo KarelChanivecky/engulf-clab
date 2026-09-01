@@ -147,6 +147,31 @@ class DockerPullRecipe:
 
 
 @dataclass(frozen=True, slots=True)
+class DockerArchiveRecipe:
+    """Load one image from a saved Docker image archive and retag it when needed.
+
+    The archive is a `docker save` stream, optionally compressed, named by an
+    absolute path. `source` names the reference inside the archive to retag as the
+    provisioned image; leave it unset when the archive already carries the required
+    reference or carries exactly one image. `only_if_missing=True` accepts an
+    existing local target instead of loading the archive again.
+    """
+
+    recipe_kind: ClassVar[str] = "archive"
+    archive: Path
+    source: str | None = None
+    only_if_missing: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.archive, Path) or not self.archive.is_absolute():
+            raise ValueError("Docker image archive path must be absolute")
+        if self.source is not None:
+            object.__setattr__(self, "source", canonical_image_reference(self.source))
+        if type(self.only_if_missing) is not bool:
+            raise TypeError("archive only_if_missing must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class VrnetlabBuildRecipe:
     """Build one image with a vrnetlab builder (`make` + retag) from a source disk/zip.
 

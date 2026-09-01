@@ -59,6 +59,40 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   checks.
 - Keep `analyze_call()` side-effect free. Host setup belongs in `prepare_call()`;
   post-destroy cleanup remains in `after_call()`.
+- Declare the parser, writer, and schema ordering edges only in the
+  `engulf.plugins.v1.dependency.engulf_clab_wan` package metadata. Do not
+  restore `plugin_dependencies` on the class; Engulf 0.2 rejects code-declared
+  dependencies.
+- `prepare_call()` claims real host bridges, so both failure paths must release
+  them. Release only the claims this invocation added: record the workspace's
+  pre-existing claims before setup, release the difference, and restore the
+  retained set. A redeploy over a live lab must never tear down bridges its
+  previous successful deploy still owns.
+- `prepare_failed()` handles a later plugin failing. The goal never dispatches it
+  to the plugin that raised, so `_setup_before_deploy()` also catches
+  `BaseException` and releases its own partial claims before re-raising. Keep
+  both paths; neither covers the other's case.
+- That in-`prepare_call()` release runs while the bridge leases are still held,
+  because the callback has not been deactivated yet. Call `_release_claims()`
+  there, never `_rollback_deploy()`: acquiring raises a nested-lease
+  `RuntimeError` that would replace the real provisioning failure in the
+  diagnostics. `prepare_failed()` runs after deactivation released those leases,
+  so it takes them again through `_rollback_deploy()`. The split is required, not
+  cosmetic.
+- An interrupt now unwinds preparation exactly as an exception does, so a bridge
+  claimed here is released when a *later* plugin is interrupted. This plugin's own
+  interrupt is still its own: that is what the `except BaseException` handler in
+  `_setup_before_deploy()` covers, and why it must not narrow to `Exception`.
+  Keep it a failure handler rather than `finally` — `_record_claims()` runs on
+  both paths, but the release must not. Keep the registry journal working
+  regardless; it is what recovers a bridge caught mid-provisioning on the next
+  deploy.
+- Use `release_workspace_bridges()` for unwind and `cleanup_dhcp_wan_bridges()`
+  for destroy. Only the destroy path may call `WorkspaceState.destroy()`;
+  unwind keeps the workspace state a previous deploy still owns.
+- `setup_dhcp_wan_bridges()` records each workspace claim as it is made. Keep
+  that incremental write: a bridge failing midway through the loop must still
+  leave the already-claimed bridges recoverable by destroy and unwind.
 - Keep runtime help, `USAGE.md` label/default tables, mismatched-prefix rejection,
   uplink selection, resource ownership, and cleanup semantics synchronized.
 - Run topology, registry, state, plugin, and Engulf integration tests. Mock

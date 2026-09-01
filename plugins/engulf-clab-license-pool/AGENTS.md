@@ -34,8 +34,12 @@ through the shared topology editor.
 - Use the shared topology editor to point only the derived topology at a copy.
   Never edit the selected YAML or consume a pool license in place.
 - On any unsuccessful deploy outcome, release only claims and copies first
-  created by that invocation; preserve pre-existing retry claims. Release one
-  workspace after successful destroy and preserve destroy-all semantics.
+  created by that invocation; preserve pre-existing retry claims. Use
+  `prepare_failed` when a later plugin fails preparation, and unwind this
+  plugin's own partial preparation before re-raising. Release one workspace
+  after successful destroy and preserve destroy-all semantics.
+- Keep parser, writer, and schema ordering in packaging dependency entry points,
+  never on the runtime plugin object.
 - Freeze prompts must accept one file, directory pool, or `$VARIABLE`, with
   node-specific noninteractive values before the global value. Never log the
   resolved path or content as a diagnostic secret.

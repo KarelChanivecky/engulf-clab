@@ -11,4 +11,7 @@
   responses; never make registry availability checks part of discovery.
 - Keep `DockerPullRecipe.only_if_missing` explicit and default it to false so
   provider-authored mirror pulls retain their existing always-pull behavior.
+- Keep `DockerArchiveRecipe` a descriptor: an absolute archive path, an optional
+  explicit source reference, and a missing-only flag. Never read, extract, or
+  validate archive contents in this package.
 - Update exports, docs, and direct-consumer tests with every contract change.

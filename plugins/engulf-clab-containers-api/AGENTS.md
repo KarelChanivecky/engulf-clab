@@ -10,6 +10,12 @@ discovery or topology mutation here.
   immutable tuples or mapping proxies during construction.
 - Preserve the plugin ID, context ID, manager dependency, namespace
   normalization, and before-goal registration contract.
+- Do not declare `plugin_dependencies` on `ContainerCollectionPlugin` or any
+  subclass. Engulf 0.2 rejects code-declared dependencies, and a base-class
+  attribute would fail every collection that inherits it. Each collection
+  distribution declares its own ordering edge on
+  `CONTAINER_MANAGER_PLUGIN_ID` in its
+  `engulf.plugins.v1.dependency.<plugin_id>` entry-point group.
 - Keep filesystem existence and topology work in the manager and Docker work in
   the neutral image core. The API may require absolute package asset paths but
   must not inspect or build them.

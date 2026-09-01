@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-ensure-vrnetlab"
-version = "0.1.6"
+version = "0.2.0"
 description = "Provision a vrnetlab checkout for engulf-clab build plugins"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.0,<2",
-    "engulf-executable-wrapper-api>=1.0,<2",
-    "engulf-clab-schema-api>=1.2,<2",
-    "engulf-clab-schema>=0.1,<0.2",
-    "engulf-clab-ensure-checkout>=0.1,<0.2",
-    "engulf-clab-lab-parser>=0.1.2,<0.2",
+    "engulf-api>=1.2,<2",
+    "engulf-executable-wrapper-api>=1.2,<2",
+    "engulf-clab-schema-api>=2.0.0,<3",
+    "engulf-clab-schema>=0.2.0,<0.3",
+    "engulf-clab-ensure-checkout>=0.2.0,<0.3",
+    "engulf-clab-lab-parser>=0.2.0,<0.3",
     "PyYAML>=6.0",
 ]
 
@@ -24,6 +24,10 @@ dependencies = [
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "engulf_clab.ensure_vrnetlab" = "engulf_clab_ensure_vrnetlab:plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_ensure_vrnetlab"]
+"engulf_clab.lab_parser" = "preprocess=before; postprocess=none"
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_ensure_vrnetlab"]

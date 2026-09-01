@@ -8,10 +8,8 @@ from types import MappingProxyType
 
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
-    PluginDependency,
 )
 from engulf_docker_image_api import (
     DockerfileRecipe,
@@ -245,13 +243,6 @@ class ContainerCollectionPlugin(ExecutableWrapperPlugin):
 
     context_reads = frozenset({CONTAINER_COLLECTION_CONTEXT})
     context_writes = frozenset({CONTAINER_COLLECTION_CONTEXT})
-    plugin_dependencies: tuple[PluginDependency, ...] = (
-        PluginDependency(
-            CONTAINER_MANAGER_PLUGIN_ID,
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-    )
 
     def __init__(self, plugin_id: str, containers: tuple[ContainerDefinition, ...]) -> None:
         collection = RegisteredContainerCollection(plugin_id, containers)

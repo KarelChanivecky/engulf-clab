@@ -18,10 +18,13 @@ feature plugins that need them.
 During side-effect-free deploy analysis the writer locates every token it will
 need; publication itself is atomic. YAML is first written to a unique staged
 file in the same directory and renamed only after serialization succeeds. A
-failure removes the staged file and prevents Containerlab from running. The
-derived file remains after deploy so the `clab-topo-file` container label keeps
-pointing to a readable topology containing the actual mutated nodes and
-management network. It is retained after failed or interrupted deploy too,
+failure removes the staged file and prevents Containerlab from running. If a
+later plugin fails during preparation, before Containerlab starts, the writer
+removes a newly created derived file or exactly restores the retained file that
+this preparation replaced. The derived file remains after deploy so the
+`clab-topo-file` container label keeps pointing to a readable topology containing
+the actual mutated nodes and management network. It is retained after failed or
+interrupted deploy too,
 because Containerlab may already have created partial host state. Destroy is
 routed through this retained file and removes it only after successful cleanup.
 The parser ignores these files during ordinary implicit source selection.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 import unittest
 from pathlib import Path
@@ -18,19 +19,25 @@ from engulf_clab import (
     ContainerlabApp,
     binary_path,
 )
+from engulf_clab import app as app_module
 from engulf_clab.cli import main
 from engulf_clab.workspace import workspace_root
 
 
 class PackageMetadataTest(unittest.TestCase):
     def test_requires_runtime_versions_with_source_completion_support(self) -> None:
+        """Engulf 0.2 reads plugin ordering from dependency entry-point groups.
+
+        An older runtime ignores those groups instead of failing, which would load
+        every plugin unordered, so the floor has to exclude the 0.1 line.
+        """
         metadata = tomllib.loads(
             (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
         )
 
-        self.assertIn("engulf>=0.1.2,<1", metadata["project"]["dependencies"])
+        self.assertIn("engulf>=0.2,<1", metadata["project"]["dependencies"])
         self.assertIn(
-            "engulf-executable-wrapper>=0.1.1,<1",
+            "engulf-executable-wrapper>=0.2,<1",
             metadata["project"]["dependencies"],
         )
 
@@ -46,6 +53,45 @@ class BinaryPathTest(unittest.TestCase):
     def test_falls_back_to_path_name_when_binary_is_absent(self) -> None:
         with patch.dict(os.environ, {"CONTAINERLAB_DIR": "/missing"}):
             self.assertEqual(binary_path(), "containerlab")
+
+    def test_finds_a_companion_binary_beside_the_console_script(self) -> None:
+        """An unactivated venv leaves its bin off PATH, which is the whole cause
+        of the `command not found: containerlab` exit 127.
+        """
+        with TemporaryDirectory() as directory:
+            bin_dir = Path(directory) / "bin"
+            bin_dir.mkdir()
+            companion = bin_dir / "containerlab"
+            companion.write_text("#!/bin/sh\n", encoding="utf-8")
+            companion.chmod(0o755)
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(app_module.sys, "executable", str(bin_dir / "python")),
+            ):
+                self.assertEqual(binary_path(), str(companion))
+
+    def test_a_companion_lookup_does_not_follow_the_interpreter_symlink(self) -> None:
+        """A venv python is normally a symlink to the system interpreter, so
+        resolving it would escape the environment and select a system binary.
+        """
+        with TemporaryDirectory() as directory:
+            system_bin = Path(directory) / "usr-bin"
+            system_bin.mkdir()
+            unrelated = system_bin / "containerlab"
+            unrelated.write_text("#!/bin/sh\n", encoding="utf-8")
+            unrelated.chmod(0o755)
+
+            venv_bin = Path(directory) / "venv-bin"
+            venv_bin.mkdir()
+            (system_bin / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (venv_bin / "python").symlink_to(system_bin / "python")
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(app_module.sys, "executable", str(venv_bin / "python")),
+            ):
+                self.assertEqual(binary_path(), "containerlab")
 
 
 class ContainerlabAppTest(unittest.TestCase):
@@ -101,3 +147,28 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VersionSourceTest(unittest.TestCase):
+    """The reported version identifies a build in a bug report, so it must come
+    from package metadata. A hand-maintained constant drifts from
+    `pyproject.toml` silently, which is exactly how 0.1.0 was still reported
+    against a 0.2.0 distribution.
+    """
+
+    def test_version_is_read_from_installed_package_metadata(self) -> None:
+        import importlib.metadata
+
+        from engulf_clab.app import VERSION
+
+        self.assertEqual(VERSION, importlib.metadata.version("engulf-clab"))
+
+    def test_no_hardcoded_version_literal_remains_in_the_module(self) -> None:
+        source = (
+            Path(__file__).parents[1] / "src" / "engulf_clab" / "app.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIsNone(
+            re.search(r'^VERSION\s*=\s*[\'"]\d', source, re.MULTILINE),
+            "VERSION must be derived from package metadata, not assigned a literal",
+        )

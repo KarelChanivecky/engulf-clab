@@ -45,6 +45,10 @@ commit and is checked out detached. A checkout without an origin remains at its
 current revision. Dirty worktrees are rejected. Non-Git checkouts are left
 alone, and an invalid existing managed path is never overwritten or repaired.
 
+The managed checkout and update metadata are durable user-scoped cache. They remain
+available if a later plugin cannot prepare the call; invocation-scoped published
+contexts are discarded with that failed invocation.
+
 The resolved checkout is available only to the current invocation and is not
 written into the source topology. If another plugin stops preprocessing before
 the runtime schema generator, the original failure remains authoritative and

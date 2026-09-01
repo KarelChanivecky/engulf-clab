@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +15,23 @@ from engulf_clab_dockerfile_build.topology import topology_path_from_args
 
 
 class PluginHelpTest(unittest.TestCase):
+    def test_dependencies_are_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        group = project["entry-points"][
+            "engulf.plugins.v1.dependency.engulf_clab_dockerfile_build"
+        ]
+
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.lab_parser": "preprocess=before; postprocess=none",
+                "engulf_clab.image_build": "preprocess=after; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        self.assertNotIn("plugin_dependencies", DockerfilePlugin.__dict__)
+
     def test_schema_declares_base_node_removal_semantics(self) -> None:
         application = ApplicationMetadata(
             application_id="engulf-clab",

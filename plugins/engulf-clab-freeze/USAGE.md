@@ -2,7 +2,9 @@
 
 Creates a shareable archive without changing or deploying the source lab:
 
-Install with `python -m pip install engulf-clab-freeze`.
+Install with `python -m pip install engulf-clab-freeze`. Version 0.2.0 and later
+requires the Engulf 1.2 plugin APIs used for packaging-declared dependency
+ordering.
 
 ```bash
 eclab freeze

@@ -9,6 +9,10 @@ a partial output at its requested destination.
   from `PLUGIN_SCHEMA`. Thread the immutable invocation environment through
   provenance, source resolution, and offline bundling so normalized wrapper
   options survive before-goal preemption.
+- Declare the schema ordering edge only in
+  `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Do not
+  restore `plugin_dependencies` on the class; Engulf 0.2 rejects code-declared
+  dependencies.
 - Keep `freeze` as a before-goal control command that preempts Containerlab.
   Acquire the workspace freeze lease; offline mode also leases the managed
   Containerlab and vrnetlab repositories.
@@ -38,6 +42,8 @@ a partial output at its requested destination.
   offline mode. Preserve entitled recipient selection and local rebuild.
 - Write the archive to a staged path and publish only after all work succeeds.
   Track it in workspace state without nesting previous outputs.
+- Freeze performs all work in `before_goal` and has no `prepare_call` phase, so
+  executable-wrapper `prepare_failed` cleanup does not apply to this plugin.
 - Keep `USAGE.md` archive layout, exclusion, launcher, offline, and license behavior
   synchronized with implementation and tests.
 - Run command, plugin, and state tests. Mock pip, Docker, Git, and tool lookup;

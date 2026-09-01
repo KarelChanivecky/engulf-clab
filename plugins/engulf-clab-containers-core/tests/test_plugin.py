@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
+from pathlib import Path
 
 from engulf_api import ApplicationMetadata
 from engulf_clab_containers_api import ContainerCollectionPlugin, ContainerDefinition
@@ -8,7 +10,7 @@ from engulf_clab_schema_api import ExplainedValue, ValueMode, ValueType
 from engulf_docker_image_api import DockerImagePlugin, ImageRequirement
 
 from engulf_clab_containers_core import HOST_CONNECTOR, WAN_ACCESS, image_plugin, plugin
-from engulf_clab_containers_core.plugin import PLUGIN_SCHEMA
+from engulf_clab_containers_core.plugin import PLUGIN_SCHEMA, CoreContainerCollectionPlugin
 
 APPLICATION = ApplicationMetadata(
     application_id="engulf-clab",
@@ -21,6 +23,39 @@ APPLICATION = ApplicationMetadata(
 
 
 class CollectionTest(unittest.TestCase):
+    def test_adapters_have_distinct_goal_specific_identities(self) -> None:
+        self.assertEqual(plugin.plugin_id, "eclab.containers")
+        self.assertEqual(image_plugin.plugin_id, "eclab.containers.images")
+        self.assertEqual(plugin.goal_requirement.goal_id, "org.engulf.executable-wrapper")
+        self.assertEqual(image_plugin.goal_requirement.goal_id, "org.engulf.docker-image")
+
+    def test_dependencies_are_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        entry_points = project["entry-points"]
+        group = entry_points["engulf.plugins.v1.dependency.eclab_containers"]
+
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.containers": "preprocess=after; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        self.assertNotIn("plugin_dependencies", CoreContainerCollectionPlugin.__dict__)
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"],
+            {"eclab.containers": "engulf_clab_containers_core:plugin"},
+        )
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.application.engulf_clab"],
+            {"eclab.containers": "engulf_clab_containers_core:plugin"},
+        )
+        self.assertEqual(
+            entry_points["engulf.plugins.v1.goal.v1.org_engulf_docker_image"],
+            {"eclab.containers.images": "engulf_clab_containers_core:image_plugin"},
+        )
+
     def test_plugin_identity_and_container_names(self) -> None:
         self.assertIsInstance(plugin, ContainerCollectionPlugin)
         self.assertEqual(plugin.plugin_id, "eclab.containers")

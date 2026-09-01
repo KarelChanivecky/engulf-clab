@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
+import tomllib
 from engulf_api import (
     ApplicationMetadata,
     BeforeGoalAPI,
@@ -16,6 +17,19 @@ from engulf_clab_freeze.plugin import FreezePlugin
 
 
 class FreezePluginTest(unittest.TestCase):
+    def test_dependency_is_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        group = project["entry-points"][
+            "engulf.plugins.v1.dependency.engulf_clab_freeze"
+        ]
+
+        self.assertEqual(
+            group,
+            {"engulf_clab.schema": "preprocess=after; postprocess=none"},
+        )
+        self.assertNotIn("plugin_dependencies", FreezePlugin.__dict__)
+
     def test_freeze_runs_before_the_wrapped_goal_and_returns_its_exit_code(
         self,
     ) -> None:

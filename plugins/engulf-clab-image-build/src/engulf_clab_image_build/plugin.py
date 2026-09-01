@@ -7,17 +7,14 @@ from typing import Any
 
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
     RegistrationAPI,
 )
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PluginSchema,
     Privilege,
@@ -160,19 +157,6 @@ class ImageBuildPlugin(SchemaBackedPlugin):
     plugin_id = PLUGIN_ID
     schema = PLUGIN_SCHEMA
     priority = 50
-    plugin_dependencies = (
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.lab_writer",
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_reads = (
         frozenset({TOPOLOGY_CONTEXT, IMAGE_PROVIDER_CONTEXT, IMAGE_GRAPH_CONTEXT}) | SCHEMA_CONTEXTS
     )

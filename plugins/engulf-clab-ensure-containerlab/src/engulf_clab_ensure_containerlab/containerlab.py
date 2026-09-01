@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 import os
 import pwd
+import re
 import shutil
 import stat
 import subprocess
@@ -211,6 +213,65 @@ def _run(argv: Sequence[str], *, cwd: Path | None = None) -> None:
         ) from error
 
 
+_MODULE_LINE = re.compile(r"^module\s+(\S+)", re.MULTILINE)
+
+
+def _git_output(checkout: Path, *argv: str) -> str | None:
+    """Return trimmed git output, or None when it is unavailable for any reason."""
+    if shutil.which("git") is None:
+        return None
+    try:
+        completed = subprocess.run(
+            ("git", *argv),
+            cwd=checkout,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def _module_path(checkout: Path) -> str | None:
+    """Read the Go module path so the -X symbols target this fork, not a guess."""
+    try:
+        content = (checkout / "go.mod").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _MODULE_LINE.search(content)
+    return match.group(1) if match else None
+
+
+def build_version_flags(checkout: Path) -> tuple[str, ...]:
+    """Return -ldflags stamping version provenance into the built binary.
+
+    A plain `go build` leaves Containerlab reporting version 0.0.0, commit none,
+    and date unknown, which hides how far a managed fork has drifted from
+    upstream and makes the binary unidentifiable in a bug report. The symbol
+    path is read from go.mod rather than hardcoded: a fork that renames its
+    module would otherwise take these flags silently and stamp nothing.
+    """
+    module = _module_path(checkout)
+    if module is None:
+        return ()
+    # `git describe` names the nearest tag and the distance from it, so a fork
+    # that is 30 commits past v0.74.3 says so instead of claiming 0.0.0.
+    version = _git_output(checkout, "describe", "--tags", "--always", "--dirty")
+    commit = _git_output(checkout, "rev-parse", "--short", "HEAD")
+    date = (
+        datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat()
+    )
+    stamps = {"Version": version, "commit": commit, "date": date}
+    flags = " ".join(
+        f"-X '{module}/cmd.{name}={value}'"
+        for name, value in stamps.items()
+        if value is not None
+    )
+    return (f"-ldflags={flags}",) if flags else ()
+
+
 def ensure_repo_binary(checkout: Path, *, rebuild: bool = False) -> Path:
     if not rebuild and (binary := find_repo_binary(checkout)):
         return binary
@@ -220,7 +281,10 @@ def ensure_repo_binary(checkout: Path, *, rebuild: bool = False) -> Path:
     output = checkout / "bin" / "containerlab"
     output.parent.mkdir(parents=True, exist_ok=True)
     info(f"building Containerlab from {checkout}")
-    _run(("go", "build", "-o", str(output), "."), cwd=checkout)
+    _run(
+        ("go", "build", *build_version_flags(checkout), "-o", str(output), "."),
+        cwd=checkout,
+    )
     if not executable(output):
         raise EnsureContainerlabError(f"failed to build Containerlab binary at {output}")
     return output

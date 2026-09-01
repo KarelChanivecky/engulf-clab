@@ -23,6 +23,10 @@ mutation API. Do not write topology files here.
   detection, and deterministic materialization phases.
 - Do not expose mutable internal source data or retain callback-bound API/session
   handles beyond an invocation.
+- This distribution declares `engulf_clab.schema` as a hard packaging-metadata
+  dependency, positioned after the parser in preprocessing so schema registration
+  is complete before terminal compilation. Engulf derives the runtime dependency
+  from that entry point; do not declare `plugin_dependencies` in Python.
 - Treat public imports, context IDs, path/operation semantics, and state-free
   behavior as a shared compatibility contract. Update this contributor API
   reference and tests together; keep `USAGE.md` limited to lab-visible source

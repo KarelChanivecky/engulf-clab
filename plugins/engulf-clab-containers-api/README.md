@@ -9,7 +9,7 @@ Install this package to author or type-check a collection. Lab users normally
 receive it through a collection or manager dependency:
 
 ```bash
-python -m pip install 'engulf-clab-containers-api>=1.1,<2'
+python -m pip install 'engulf-clab-containers-api>=1.2.0,<2'
 ```
 
 The API imports the stable `engulf_api`, `engulf_executable_wrapper_api`, and
@@ -66,10 +66,16 @@ as the entry-point name:
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "vendor.containers" = "vendor_collection:plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.vendor_containers"]
+"engulf_clab.containers" = "preprocess=after; postprocess=none"
 ```
 
-The collection package depends on `engulf-clab-containers-api>=1.1,<2` and
-`engulf-clab-containers>=0.2,<0.3`. Its plugin ID owns the image namespace after
+The dependency group name is the plugin ID with dots replaced by underscores.
+It is the only supported place to declare the manager ordering edge.
+
+The collection package depends on `engulf-clab-containers-api>=1.2.0,<2` and
+`engulf-clab-containers>=0.4.0,<0.5`. Its plugin ID owns the image namespace after
 underscores are converted to hyphens, so the example exposes
 `vendor.containers/utility:latest`. Two active plugins cannot own the same
 namespace. Dockerfiles and everything they `COPY` must be included in the
@@ -107,9 +113,13 @@ application to parse Containerlab YAML or run the eclab executable-wrapper goal.
 ## Manager interaction
 
 The collection plugin appends a `RegisteredContainerCollection` to context
-`engulf_clab.containers.collections` during Engulf's before-goal phase. Its
-declared dependency makes the manager run after collection registration. The
-manager then:
+`engulf_clab.containers.collections` during Engulf's before-goal phase. The
+ordering edge that makes the manager run after collection registration is
+declared by each collection distribution, not by this package: add
+`engulf_clab.containers` to the collection's
+`engulf.plugins.v1.dependency.<plugin_id>` entry-point group. Engulf 0.2 rejects
+`plugin_dependencies` declared in code, so `ContainerCollectionPlugin` carries no
+default edge for subclasses to inherit. The manager then:
 
 1. verifies namespaces, unique names, and package assets;
 2. lists the active catalog for `--eclab-containers-help`;
@@ -140,6 +150,13 @@ collide are also rejected.
   seeds, and policies in the consuming topology or bind mounts.
 - Depend on the compatible API and manager release lines.
 - Publish the same plugin object under both eclab entry-point groups.
+- Declare the manager ordering edge in the distribution's
+  `engulf.plugins.v1.dependency.<plugin_id>` entry-point group:
+
+  ```toml
+  [project.entry-points."engulf.plugins.v1.dependency.my_vendor_containers"]
+  "engulf_clab.containers" = "preprocess=after; postprocess=none"
+  ```
 - Install the built wheel into a clean environment and confirm the recipe is
   visible through the selected launcher's container-catalog help.
 
@@ -149,4 +166,6 @@ The `1.x` API is the compatibility boundary for independently published
 collections. Adding an optional field with a safe default may be compatible;
 renaming fields, changing accepted value types, altering image namespace rules,
 or changing manager lifecycle expectations requires a major-version review.
-Collection packages should use `>=1.0,<2`, not an unbounded dependency.
+Collection packages should use `>=1.2.0,<2`, not an unbounded dependency. The
+`1.2` floor is the first release that requires packaging-declared plugin
+dependencies and the Engulf 1.2 plugin APIs.

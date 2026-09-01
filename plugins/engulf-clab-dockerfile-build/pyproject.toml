@@ -4,19 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-dockerfile-build"
-version = "0.2.1"
+version = "0.3.0"
 description = "Contribute eclab Dockerfile node recipes to the shared image build graph"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.0,<2",
-    "engulf-executable-wrapper-api>=1.0,<2",
-    "engulf-clab-schema-api>=1.2,<2",
-    "engulf-clab-schema>=0.1,<0.2",
-    "engulf-clab-lab-parser>=0.1.2,<0.2",
-    "engulf-clab-image-build>=0.1,<0.2",
-    "engulf-docker-image-api>=1.0,<2",
+    "engulf-api>=1.2,<2",
+    "engulf-executable-wrapper-api>=1.2,<2",
+    "engulf-clab-schema-api>=2.0.0,<3",
+    "engulf-clab-schema>=0.2.0,<0.3",
+    "engulf-clab-lab-parser>=0.2.0,<0.3",
+    "engulf-clab-image-build>=0.2.0,<0.3",
+    "engulf-docker-image-api>=1.4.0,<2",
     "PyYAML>=6.0",
 ]
 
@@ -25,6 +25,11 @@ dependencies = [
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "engulf_clab.dockerfile_build" = "engulf_clab_dockerfile_build:plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_dockerfile_build"]
+"engulf_clab.lab_parser" = "preprocess=before; postprocess=none"
+"engulf_clab.image_build" = "preprocess=after; postprocess=none"
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/engulf_clab_dockerfile_build"]

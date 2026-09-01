@@ -46,7 +46,12 @@ edge cases.
 
 ## Quick start
 
-Prerequisites are Python 3.14, Docker, and the privileges required by the
+**Requires Python 3.14 or newer.** On an older interpreter `pip` reports
+`No matching distribution found for engulf-clab`, which reads as though the
+package does not exist; check `python3 --version` first, and install with an
+explicit `python3.14 -m pip` when it is not your default.
+
+Other prerequisites are Docker and the privileges required by the
 Containerlab features you choose. The ensure-containerlab plugin can provision
 a Containerlab checkout and build its binary; installing Containerlab yourself
 also works.
@@ -339,6 +344,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-ensure-containerlab` | `engulf_clab.ensure_containerlab` | Finds, builds, or provisions Containerlab. |
 | `engulf-clab-image-build` | `engulf_clab.image_build` | Maps topology images and node-env parameters into the neutral graph and dispatches builds. |
 | `engulf-clab-dockerfile-build` | `engulf_clab.dockerfile_build` | Contributes node-owned Dockerfile recipes and build-only image nodes. |
+| `engulf-clab-image-archive` | `engulf_clab.image_archive` | Creates node images from saved Docker image archives selected per node. |
 | `engulf-clab-ensure-vrnetlab` | `engulf_clab.ensure_vrnetlab` | Finds or provisions a vrnetlab checkout. |
 | `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
 | `engulf-clab-license-pool` | `engulf_clab.license_pool` | Shares license files safely across labs. |

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     InvocationAPI,
-    PluginDependency,
 )
 
 from .builder import PluginSchema
@@ -29,13 +27,6 @@ SCHEMA_VRNETLAB_PATH_CONTEXT = "engulf_clab.vrnetlab.path"
 SCHEMA_REQUEST_CONTEXT = "engulf_clab.schema.requests"
 SCHEMA_COMPILED_CONTEXT = "engulf_clab.schema.compiled"
 SCHEMA_CONTEXTS = frozenset({SCHEMA_REGISTRY_CONTEXT})
-SCHEMA_PLUGIN_DEPENDENCY = PluginDependency(
-    SCHEMA_PLUGIN_ID,
-    preprocess=DependencyPosition.AFTER,
-    postprocess=None,
-)
-
-
 def schema_registry(api: InvocationAPI) -> SchemaRegistry:
     value = api.get_context(SCHEMA_REGISTRY_CONTEXT)
     if value is None:

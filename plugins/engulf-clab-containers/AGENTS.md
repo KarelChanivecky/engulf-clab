@@ -12,6 +12,10 @@ the image dispatcher and lab writer.
   `engulf_clab.containers.collections`, and topology context declarations stable.
 - Validate the complete catalog and proposed merge during `analyze_call()`;
   perform only deferred editor operations during `prepare_call()`.
+- Declare parser, image dispatcher, writer, and schema dependencies only in the
+  package entry-point metadata. Do not restore code-level `plugin_dependencies`.
+- `prepare_call()` records only invocation-local editor operations and acquires no
+  external resource, so this plugin needs no `prepare_failed()` override.
 - Do not inject package build paths into node environment. Generic custom build
   parameters are valid fixed-prefix node `env` controls owned by the image
   dispatcher; runtime recipe defaults remain collection-owned.

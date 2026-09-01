@@ -3,17 +3,14 @@ from __future__ import annotations
 from engulf_api import (
     AfterGoalAPI,
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
     StateScope,
 )
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     SCHEMA_VRNETLAB_SOURCE_CONTEXT,
     LifecycleStage,
     PathBase,
@@ -176,14 +173,6 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
     plugin_id = ENSURE_VRNETLAB_PLUGIN_ID
     schema = PLUGIN_SCHEMA
     priority = 80
-    plugin_dependencies = (
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_writes = (
         frozenset({VRNETLAB_PATH_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
     )

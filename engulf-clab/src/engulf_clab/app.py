@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import os
+import sys
 from os import PathLike
 from pathlib import Path
 
@@ -28,7 +30,22 @@ DISPLAY_NAME = "eclab"
 VENDOR = "ECLAB"
 PRODUCT = "Engulf Containerlab"
 SHORT_PRODUCT_NAME = "eclab"
-VERSION = "0.1.0"
+
+
+def _distribution_version() -> str:
+    """Report the installed distribution version rather than a second copy of it.
+
+    A hand-maintained constant drifts from `pyproject.toml` silently, and the
+    reported version is what identifies a build in a bug report.
+    """
+    try:
+        return importlib.metadata.version("engulf-clab")
+    except importlib.metadata.PackageNotFoundError:
+        # Running from a source tree that was never installed.
+        return "0+unknown"
+
+
+VERSION = _distribution_version()
 CONTAINERLAB_BINARY = "containerlab"
 
 
@@ -38,7 +55,26 @@ def binary_path(binary: str = CONTAINERLAB_BINARY) -> str:
         candidate = Path(containerlab_dir).expanduser() / binary
         if candidate.is_file():
             return str(candidate)
+    if companion := _companion_binary(binary):
+        return companion
     return binary
+
+
+def _companion_binary(binary: str) -> str | None:
+    """Return a binary installed beside this console script, if there is one.
+
+    An environment that has Containerlab next to `eclab` works when the venv is
+    activated and fails with `command not found` when it is not, purely because
+    the directory is off PATH. The interpreter running this process is already in
+    that directory, so resolve against it rather than depending on activation.
+    """
+    # Deliberately not resolved: a venv's python is usually a symlink to the
+    # system interpreter, and following it would leave the environment and pick
+    # up an unrelated system binary instead of the companion one.
+    candidate = Path(sys.executable).parent / binary
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
 
 
 def _containerlab_goal() -> ExecutableWrapperGoal:

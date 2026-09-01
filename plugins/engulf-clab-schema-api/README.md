@@ -15,6 +15,17 @@ into both context declarations, and call `record_plugin_schema()` at the start
 of `before_goal()`. The helper stores an immutable snapshot in invocation
 context; callback API objects are never retained.
 
+Declare that dependency in the distribution, never in code. Engulf 0.2 rejects a
+plugin that sets `plugin_dependencies`, so 2.0 removed the
+`SCHEMA_PLUGIN_DEPENDENCY` constant that used to express this edge in code:
+
+```toml
+[project.entry-points."engulf.plugins.v1.dependency.my_plugin_id"]
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+```
+
+The group name is the declaring plugin's ID with dots replaced by underscores.
+
 Derive an executable-wrapper contributor from `SchemaBackedPlugin`, set its
 class-level `schema` to that builder, and keep the ordinary schema recording
 call. The base registers global options, commands, scoped flags, positional

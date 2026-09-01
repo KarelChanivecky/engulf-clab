@@ -15,10 +15,8 @@ from engulf_api import (
     AfterGoalAPI,
     ApplicationMetadata,
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
-    PluginDependency,
     RegistrationAPI,
     StateScope,
     StateStore,
@@ -27,7 +25,6 @@ from engulf_clab_schema import bundle_directory_complete
 from engulf_clab_schema_api import (
     ECLAB_SCHEMA_PIPELINE_ID,
     SCHEMA_COMPILED_CONTEXT,
-    SCHEMA_PLUGIN_ID,
     SCHEMA_REGISTRY_CONTEXT,
     SCHEMA_REQUEST_CONTEXT,
     CompiledSchemaBundle,
@@ -106,13 +103,6 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
     plugin_id = PLUGIN_ID
     schema = PLUGIN_SCHEMA
     priority = -900
-    plugin_dependencies = (
-        PluginDependency(
-            SCHEMA_PLUGIN_ID,
-            preprocess=DependencyPosition.AFTER,
-            postprocess=DependencyPosition.BEFORE,
-        ),
-    )
     context_reads = frozenset(
         {
             SCHEMA_REGISTRY_CONTEXT,

@@ -8,11 +8,16 @@ python -m pip install engulf-clab-containers engulf-clab-containers-core
 eclab --eclab-containers-help
 ```
 
+Version 0.3.0 and later requires the Engulf 1.2 plugin APIs used for
+package-declared dependency ordering and separate goal-adapter identities.
+
 The distribution publishes two thin adapters over the same immutable recipes:
-the eclab executable-wrapper collection adapter and an application-neutral
-`org.engulf.docker-image` provider adapter. A non-eclab Engulf application can
-therefore request these images through the generic Docker image goal without
-parsing Containerlab YAML.
+the `eclab.containers` executable-wrapper collection adapter and the
+`eclab.containers.images` application-neutral `org.engulf.docker-image`
+provider adapter. The distinct plugin IDs keep each adapter scoped to its exact
+goal; both still serve the `eclab.containers/*` image namespace. A non-eclab
+Engulf application can therefore request these images through the generic
+Docker image goal without parsing Containerlab YAML.
 
 | Image | Purpose | Detailed guide (packaged) |
 | --- | --- | --- |

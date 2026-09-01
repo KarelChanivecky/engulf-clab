@@ -6,7 +6,6 @@ from pathlib import Path
 from engulf_api import BeforeGoalAPI, GoalResult, Invocation, InvocationAPI
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PluginSchema,
     record_plugin_schema,
@@ -35,7 +34,6 @@ from .session import (
 class TopologyPlugin(ExecutableWrapperPlugin):
     plugin_id = "engulf_clab.lab_parser"
     priority = 100
-    plugin_dependencies = (SCHEMA_PLUGIN_DEPENDENCY,)
     context_reads = SCHEMA_CONTEXTS
     context_writes = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
 

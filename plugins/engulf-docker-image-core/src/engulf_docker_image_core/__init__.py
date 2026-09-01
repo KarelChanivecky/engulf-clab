@@ -5,7 +5,9 @@ from .build import (
     ImageBuildOutcome,
     build_resolved_graph,
     docker_build_command,
+    docker_load_command,
     docker_pull_commands,
+    loaded_archive_references,
     vrnetlab_build_commands,
 )
 from .dockerfile import dockerfile_requirements
@@ -47,8 +49,10 @@ __all__ = [
     "ResolvedImageGraph",
     "build_resolved_graph",
     "docker_build_command",
+    "docker_load_command",
     "docker_pull_commands",
     "dockerfile_requirements",
+    "loaded_archive_references",
     "merge_image_graphs",
     "provision_image_graph",
     "registered_provider_lookup",

@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-docker-image-api"
-version = "1.2.0"
+version = "1.4.0"
 description = "Application-neutral Docker image graph and provider contracts for Engulf"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.0,<2",
+    "engulf-api>=1.2,<2",
 ]
 
 [tool.hatch.build.targets.wheel]

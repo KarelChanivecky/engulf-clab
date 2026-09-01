@@ -9,9 +9,11 @@ from pathlib import Path
 
 from engulf_api import InvocationAPI
 from engulf_docker_image_api import (
+    DockerArchiveRecipe,
     DockerfileRecipe,
     DockerPullRecipe,
     VrnetlabBuildRecipe,
+    canonical_image_reference,
 )
 
 from .errors import ImageBuildError, ImageBuildFailure
@@ -19,6 +21,8 @@ from .resolver import ResolvedImage, ResolvedImageGraph
 
 DEFAULT_IMAGE_BUILD_JOBS = 2
 _RESERVED_ARGUMENTS = frozenset(("-f", "--file", "-t", "--tag"))
+_LOADED_IMAGE_PREFIX = "Loaded image: "
+_LOADED_IMAGE_ID_PREFIX = "Loaded image ID: "
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +32,7 @@ class ImageBuildOutcome:
     external: tuple[str, ...]
     pulled: tuple[str, ...] = ()
     reused: tuple[str, ...] = ()
+    loaded: tuple[str, ...] = ()
 
 
 def docker_build_command(image: ResolvedImage) -> tuple[str, ...]:
@@ -62,6 +67,67 @@ def docker_pull_commands(image: ResolvedImage) -> tuple[tuple[str, ...], ...]:
     if source != image.image:
         commands.append(("docker", "tag", source, image.image))
     return tuple(commands)
+
+
+def docker_load_command(recipe: DockerArchiveRecipe) -> tuple[str, ...]:
+    """Return the `docker load` command for one archive recipe."""
+    if not isinstance(recipe, DockerArchiveRecipe):
+        raise TypeError("Docker load commands require a DockerArchiveRecipe")
+    return ("docker", "load", "--input", str(recipe.archive))
+
+
+def loaded_archive_references(output: str) -> tuple[str, ...]:
+    """Return the references `docker load` reports, in the order it printed them.
+
+    `docker load` names each loaded image on stdout as `Loaded image: <ref>`, or
+    `Loaded image ID: sha256:<digest>` for an untagged image. Both forms are valid
+    retag sources, so both are returned.
+    """
+    references: list[str] = []
+    for line in output.splitlines():
+        candidate = line.strip()
+        if candidate.startswith(_LOADED_IMAGE_PREFIX):
+            reference = candidate.removeprefix(_LOADED_IMAGE_PREFIX).strip()
+            if reference:
+                references.append(canonical_image_reference(reference))
+        elif candidate.startswith(_LOADED_IMAGE_ID_PREFIX):
+            reference = candidate.removeprefix(_LOADED_IMAGE_ID_PREFIX).strip()
+            if reference:
+                references.append(reference)
+    return tuple(references)
+
+
+def _load_archive_image(recipe: DockerArchiveRecipe, image: str) -> bool:
+    """Load one saved image archive and retag it as `image`; return True when reused.
+
+    The archive is loaded under the target tag's lease. When the recipe names no
+    source reference the archive must either already carry the target or carry
+    exactly one image, so a multi-image archive never retags an arbitrary member.
+    """
+    if recipe.only_if_missing and _docker_image_exists(image):
+        return True
+    result = subprocess.run(
+        docker_load_command(recipe),
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    loaded = loaded_archive_references(result.stdout)
+    source = recipe.source
+    if source is None:
+        if image in loaded:
+            return False
+        if len(loaded) != 1:
+            raise ImageBuildError(
+                f"{recipe.archive} loaded {len(loaded)} images and none of them is "
+                f"{image}; name the archive reference to retag"
+            )
+        source = loaded[0]
+    elif source not in loaded and not _docker_image_exists(source):
+        raise ImageBuildError(f"{recipe.archive} does not contain {source}")
+    if source != image:
+        subprocess.run(["docker", "tag", source, image], check=True)
+    return False
 
 
 def vrnetlab_build_commands(recipe: VrnetlabBuildRecipe) -> tuple[tuple[str, ...], ...]:
@@ -196,6 +262,13 @@ def build_resolved_graph(
         for item in builds.values()
         if item.provision is not None and isinstance(item.provision.recipe, DockerPullRecipe)
     )
+    lease_images.update(
+        item.provision.recipe.source
+        for item in builds.values()
+        if item.provision is not None
+        and isinstance(item.provision.recipe, DockerArchiveRecipe)
+        and item.provision.recipe.source is not None
+    )
     builder_leases = {
         f"vrnetlab-builder:{item.provision.recipe.builder.resolve()}"
         for item in builds.values()
@@ -244,6 +317,15 @@ def build_resolved_graph(
                     api.logger.info(
                         "building %s with vrnetlab builder %s", image, recipe.builder
                     )
+                elif isinstance(recipe, DockerArchiveRecipe):
+                    if recipe.only_if_missing:
+                        api.logger.info(
+                            "using local %s when present, otherwise loading it from %s",
+                            image,
+                            recipe.archive,
+                        )
+                    else:
+                        api.logger.info("loading %s from %s", image, recipe.archive)
                 elif isinstance(recipe, DockerPullRecipe):
                     if recipe.only_if_missing:
                         api.logger.info(
@@ -281,7 +363,15 @@ def build_resolved_graph(
             f"Docker image provisioning failed: {details}",
             failures=tuple(direct_failures),
         )
-    built = tuple(sorted(image for image in succeeded if not _is_pull(builds[image])))
+    built = tuple(
+        sorted(
+            image
+            for image in succeeded
+            if not _is_pull(builds[image])
+            and not _is_archive(builds[image])
+            and image not in reused
+        )
+    )
     pulled = tuple(
         sorted(
             image
@@ -289,7 +379,16 @@ def build_resolved_graph(
             if _is_pull(builds[image]) and image not in reused
         )
     )
-    return ImageBuildOutcome(graph, built, external, pulled, tuple(sorted(reused)))
+    loaded = tuple(
+        sorted(
+            image
+            for image in succeeded
+            if _is_archive(builds[image]) and image not in reused
+        )
+    )
+    return ImageBuildOutcome(
+        graph, built, external, pulled, tuple(sorted(reused)), loaded
+    )
 
 
 def _build_batch(
@@ -343,6 +442,8 @@ def _build_image(image: ResolvedImage) -> bool:
             raise ImageBuildError(reason) from error
         return False
     try:
+        if isinstance(recipe, DockerArchiveRecipe):
+            return _load_archive_image(recipe, image.image)
         if isinstance(recipe, DockerfileRecipe):
             commands: tuple[tuple[str, ...], ...] = (docker_build_command(image),)
         elif isinstance(recipe, DockerPullRecipe):
@@ -368,6 +469,12 @@ def _validate_recipe(image: ResolvedImage) -> None:
     assert image.provision is not None
     recipe = image.provision.recipe
     if isinstance(recipe, DockerPullRecipe):
+        return
+    if isinstance(recipe, DockerArchiveRecipe):
+        if not recipe.archive.is_file():
+            raise ImageBuildError(
+                f"Docker image archive does not exist for {image.image}: {recipe.archive}"
+            )
         return
     if isinstance(recipe, VrnetlabBuildRecipe):
         if not recipe.builder.is_dir():
@@ -397,6 +504,12 @@ def _validate_recipe(image: ResolvedImage) -> None:
             f"Docker build context does not exist for {image.image}: {recipe.context}"
         )
     _validate_extra_args(recipe)
+
+
+def _is_archive(image: ResolvedImage) -> bool:
+    return image.provision is not None and isinstance(
+        image.provision.recipe, DockerArchiveRecipe
+    )
 
 
 def _is_pull(image: ResolvedImage) -> bool:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -25,6 +26,26 @@ _APPLICATION = ApplicationMetadata(
 
 
 class ImageBuildPluginTest(unittest.TestCase):
+    def test_dependencies_are_declared_in_package_metadata(self) -> None:
+        project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+        group = project["entry-points"][
+            "engulf.plugins.v1.dependency.engulf_clab_image_build"
+        ]
+
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.lab_parser": "preprocess=before; postprocess=none",
+                "engulf_clab.lab_writer": "preprocess=after; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        self.assertNotIn("plugin_dependencies", ImageBuildPlugin.__dict__)
+
+    def test_preparation_retains_no_transient_cleanup_state(self) -> None:
+        self.assertNotIn("prepare_failed", ImageBuildPlugin.__dict__)
+
     def test_help_lists_plain_containerlab_env_controls(self) -> None:
         text = ImageBuildPlugin().help(Mock())
         self.assertIn("ECLAB_IMAGE_PARAM_name", text)

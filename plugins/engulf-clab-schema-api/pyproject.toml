@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-schema-api"
-version = "1.3.2"
+version = "2.0.0"
 description = "Typed runtime schema contribution contract for engulf-clab plugins"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.0,<2",
-    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-api>=1.2,<2",
+    "engulf-executable-wrapper-api>=1.2,<2",
 ]
 
 [tool.hatch.build.targets.wheel]

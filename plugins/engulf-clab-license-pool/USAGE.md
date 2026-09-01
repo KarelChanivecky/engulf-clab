@@ -16,9 +16,9 @@ topology:
   nodes:
     router:
       image: vrnetlab/vr-router:latest
-      uuid: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
       license: $ROUTER_LICENSES
       env:
+        FOS_UUID: 4c1a8ee8-6ef7-4501-bfc1-6b082c3120f0
         ECLAB_LIC_CLAMP: serial-0001.lic
 ```
 
@@ -31,7 +31,7 @@ eclab deploy -t lab.clab.yml \
 | Input | Meaning |
 | --- | --- |
 | `license: $POOL_NAME` | Allocate from the directory named by that invocation variable. |
-| `uuid` | Recommended stable node identity; node name is the fallback. |
+| `env.FOS_UUID` | Recommended stable node identity; node name is the fallback. |
 | `env.ECLAB_LIC_CLAMP` | Require one exact pool filename/path; fails when absent or claimed. |
 | `--eclab-license-pool-strategy` | Per-invocation `sticky`, `round-robin`, or `least-recently-used`. |
 | `ECLAB_LICENSE_POOL_STRATEGY` | Persistent strategy default; `least-recently-used` when unset. |
@@ -80,12 +80,18 @@ Only the temporary topology receives that copy's path. The source YAML, pool
 file, and license contents are unchanged. Pool/file identities are retained in
 user state, but license contents are not. A failed, preempted, interrupted, or
 cancelled deploy rolls back the claims and lab copies first created by that
-invocation. A retry that reused an existing claim does not release that claim
-when it fails.
+invocation. If this plugin completes preparation but a later plugin fails
+preparation, the preparation unwind performs the same rollback before
+Containerlab starts. A failure inside license preparation rolls back its own
+partial work immediately. A retry that reused an existing claim does not release
+that claim when it fails.
 
 A successful `destroy` releases that workspace and removes its generated
-copies. `destroy -a` or `destroy --all` clears every recorded allocation but
-does not traverse other workspace directories to remove their generated copies.
+copies. `destroy -a` or `destroy --all` clears every recorded allocation and
+removes the generated copies from every workspace the registry recorded a claim
+for, reading those workspaces before the allocations are cleared. Only the
+plugin's own copy directories are deleted; nothing else in a workspace is
+touched.
 Do not edit allocation state or delete generated copies while a lab is active;
 preserve state and use targeted diagnostics to identify the owning workspace.
 

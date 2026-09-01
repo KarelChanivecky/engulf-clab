@@ -17,6 +17,13 @@ from engulf_clab_containers_api import (
 
 
 class ContractTest(unittest.TestCase):
+    def test_collection_plugins_declare_no_code_dependencies(self) -> None:
+        """Engulf 0.2 rejects code-declared dependencies, inherited ones included."""
+        collection = ContainerCollectionPlugin("vendor.containers", ())
+
+        self.assertNotIn("plugin_dependencies", ContainerCollectionPlugin.__dict__)
+        self.assertFalse(getattr(collection, "plugin_dependencies", ()))
+
     def test_definition_is_immutable_and_namespace_is_derived(self) -> None:
         node = ContainerNodeRequirements(cap_add=("NET_ADMIN",), sysctls={"net.ipv4.ip_forward": 1})
         definition = ContainerDefinition(

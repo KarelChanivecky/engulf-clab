@@ -6,7 +6,7 @@ packages, then list the active catalog:
 
 ```bash
 python -m pip install engulf-clab-containers engulf-clab-containers-core
-eclab --eclab-containers-help
+eclab --eclab-containers-help   # listing goes to stdout, so it can be piped
 ```
 
 ## Topology use

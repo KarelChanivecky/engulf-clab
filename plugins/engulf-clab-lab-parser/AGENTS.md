@@ -23,6 +23,9 @@ mutation API. Do not write topology files here.
   detection, and deterministic materialization phases.
 - Do not expose mutable internal source data or retain callback-bound API/session
   handles beyond an invocation.
+- Declare the hard schema-plugin dependency only in the distribution entry-point
+  metadata, with the schema dependency after this plugin in preprocessing. Never
+  restore a code-level `plugin_dependencies` declaration.
 - Treat public imports, context IDs, path/operation semantics, and state-free
   behavior as a shared compatibility contract. Update `CONTRIBUTING.md` API
   detail and tests together; keep `USAGE.md` lab-facing.

@@ -40,6 +40,11 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   merely to produce the early hint. If an entered later plugin fails before the
   terminal generator, acknowledge this plugin's hint during `after_goal()` so
   the primary error is not followed by an unused-context warning.
+- Keep the parser and schema dependencies in the package's dependency entry-point
+  metadata; runtime code must not declare `plugin_dependencies`.
+- Managed checkout and update state are intentional durable user-scoped cache, and
+  call contexts are invocation-scoped. A later preparation failure therefore has
+  no transient resource for this plugin to release in `prepare_failed()`.
 - `StateStore.path()` is used for the checkout directory because Git requires
   a filesystem path. Direct checkout operations therefore bypass managed-file
   atomic writes; clone into a temporary sibling and rename only after validating

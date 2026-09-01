@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import sys
+
 from engulf_api import (
     BeforeGoalAPI,
-    DependencyPosition,
     GoalResult,
     Invocation,
     InvocationAPI,
-    PluginDependency,
 )
 from engulf_clab_containers_api import (
     CONTAINER_COLLECTION_CONTEXT,
@@ -22,7 +22,6 @@ from engulf_clab_lab_parser import (
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
-    SCHEMA_PLUGIN_DEPENDENCY,
     LifecycleStage,
     PluginSchema,
     SchemaBackedPlugin,
@@ -93,24 +92,6 @@ class ContainersPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.containers"
     schema = PLUGIN_SCHEMA
     priority = 85
-    plugin_dependencies = (
-        PluginDependency(
-            "engulf_clab.lab_parser",
-            preprocess=DependencyPosition.BEFORE,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.image_build",
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-        PluginDependency(
-            "engulf_clab.lab_writer",
-            preprocess=DependencyPosition.AFTER,
-            postprocess=None,
-        ),
-        SCHEMA_PLUGIN_DEPENDENCY,
-    )
     context_reads = (
         frozenset({CONTAINER_COLLECTION_CONTEXT, TOPOLOGY_CONTEXT, IMAGE_PROVIDER_CONTEXT})
         | SCHEMA_CONTEXTS
@@ -143,7 +124,13 @@ class ContainersPlugin(SchemaBackedPlugin):
         try:
             containers = catalog(self._collections(api))
             if _before_separator(event.wrapper_args, _HELP_OPTION):
-                api.logger.warning("%s", format_catalog(containers))
+                # This listing is the requested output of the option, not a
+                # diagnostic. Routing it through the logger sent it to stderr
+                # behind a WARNING prefix and timestamp, so nothing reached
+                # stdout and the listing could not be piped. The wrapper writes
+                # its own --help to stdout for the same reason.
+                api.logger.debug("listing %d container(s)", len(containers))
+                print(format_catalog(containers), file=sys.stdout, flush=True)
                 return CallContribution(preempt_exit_code=0)
             if (
                 event.mode is CallMode.HELP
