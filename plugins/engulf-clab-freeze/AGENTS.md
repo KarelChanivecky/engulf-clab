@@ -1,9 +1,10 @@
 # Plugin Instructions
 
-This plugin produces a shareable archive without ever changing the source lab.
-Never place license files, license pool paths, allocations, or clamps in a frozen
-artifact. Keep the archive build staged and atomic so a failed freeze cannot leave
-a partial output at its requested destination.
+This plugin produces a shareable archive without ever changing the source lab,
+and expands one back into a runnable lab. Never place license files, license pool
+paths, allocations, or clamps in a frozen artifact; only the expanded lab holds a
+recipient's real selections. Keep both the archive build and the expansion staged
+and atomic so a failure cannot leave a partial output at its requested destination.
 
 - Derive from `SchemaBackedPlugin` so the command, scoped flags, and paths come
   from `PLUGIN_SCHEMA`. Thread the immutable invocation environment through
@@ -13,9 +14,30 @@ a partial output at its requested destination.
   `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Do not
   restore `plugin_dependencies` on the class; Engulf 0.2 rejects code-declared
   dependencies.
-- Keep `freeze` as a before-goal control command that preempts Containerlab.
-  Acquire the workspace freeze lease; offline mode also leases the managed
-  Containerlab and vrnetlab repositories.
+- Keep `freeze` and `defrost` as before-goal control commands that preempt
+  Containerlab. Freeze acquires the workspace freeze lease; offline mode also
+  leases the managed Containerlab and vrnetlab repositories. Defrost acquires
+  only a lease on its destination, computed by `defrost.lease` without argparse
+  side effects, and reads no workspace state.
+- Keep defrost the exact reverse of freeze and never a general archive
+  extractor. Require the `x-engulf-clab-freeze` metadata and its supported
+  format, remove that key from the restored topology, reject members escaping
+  the single archive root, and stage the expansion beside the destination so a
+  failure leaves no partial lab and restores a replaced one.
+- Replace a destination only when it carries this plugin's defrost record. The
+  record keeps the removed freeze provenance beside the lab, never inside it.
+- Resolve licenses from `--license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
+  `ECLAB_LICENSE`, then an interactive prompt, and leave an unanswered marker
+  for deploy. Never log, record, or embed a license value in an error message;
+  name only the node, exactly as license-pool does.
+- Select a bundled image archive only when it carries the node's exact image
+  reference and the node declares none, because `ECLAB_IMAGE_ARCHIVE` suppresses
+  the registry fallback. Selection must not need Docker; only `--load-images`
+  may use it.
+- Prepare runtimes after publication so recorded absolute paths are the final
+  ones, and validate offline runtime completeness before it. Offline
+  incompleteness fails; a normal-mode installation failure warns, removes its
+  partial environment, and defers to `run-eclab.sh`.
 - Preserve source immutability, deterministic topology selection, explicit
   output suffix validation, overwrite confirmation, external-symlink rejection,
   Git-ignore-style exclusions, empty-directory pruning, and tracked archive
@@ -23,12 +45,14 @@ a partial output at its requested destination.
 - Redact every node license, remove every `*_LIC_CLAMP`, exclude likely license
   files, and fail when generated lab-local license copies exist.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
-  license marker, rewritten vrnetlab input key, and freeze lease name — never
-  derive these from application metadata. It must match license-pool's
-  `LicenseContract` label prefix and ensure-vrnetlab's `LABEL_PREFIX` exactly,
-  because freeze writes labels those plugins later read back; the freeze lease in particular must
-  stay fixed so two differently-branded editions freezing the same workspace
-  concurrently actually block each other. The workspace state directory and
+  license marker, rewritten vrnetlab input key, defrost's per-node license
+  variables and `ECLAB_IMAGE_ARCHIVE` key, and both lease names — never derive
+  these from application metadata. It must match license-pool's
+  `LicenseContract` label prefix and ensure-vrnetlab's and image-archive's
+  `LABEL_PREFIX` exactly, because these commands write labels those plugins
+  later read back; the leases in particular must stay fixed so two
+  differently-branded editions freezing the same workspace or expanding into one
+  destination concurrently actually block each other. The workspace state directory and
   ignore-file name are the one thing that stays derived from callback-bound
   short product metadata (`command._state_prefix`); keep this split
   intentional rather than reusing one prefix for both.
@@ -42,10 +66,11 @@ a partial output at its requested destination.
   offline mode. Preserve entitled recipient selection and local rebuild.
 - Write the archive to a staged path and publish only after all work succeeds.
   Track it in workspace state without nesting previous outputs.
-- Freeze performs all work in `before_goal` and has no `prepare_call` phase, so
-  executable-wrapper `prepare_failed` cleanup does not apply to this plugin.
-- Keep `USAGE.md` archive layout, exclusion, launcher, offline, and license behavior
-  synchronized with implementation and tests.
-- Run command, plugin, and state tests. Mock pip, Docker, Git, and tool lookup;
-  use temporary labs and never deploy during automated validation. Record the
-  schema before handling `freeze`, and run `make check-skill`.
+- Both commands perform all work in `before_goal` and have no `prepare_call`
+  phase, so executable-wrapper `prepare_failed` cleanup does not apply here.
+- Keep `USAGE.md` archive layout, exclusion, launcher, offline, expansion, and
+  license behavior synchronized with implementation and tests.
+- Run command, defrost, plugin, and state tests. Mock pip, Docker, Git, and
+  tool lookup; use temporary labs and archives, and never deploy or load images
+  during automated validation. Record the
+  schema before handling either command, and run `make check-skill`.

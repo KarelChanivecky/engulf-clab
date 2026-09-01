@@ -109,6 +109,39 @@ class FreezePluginTest(unittest.TestCase):
             )
         )
 
+    def test_defrost_runs_before_the_wrapped_goal_under_a_destination_lease(
+        self,
+    ) -> None:
+        api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = None
+        api.leases.return_value.__enter__.return_value = None
+        api.application = MagicMock(spec=ApplicationMetadata)
+        api.application.short_product_name = "fclab"
+        invocation = Invocation(
+            ("defrost", "share.tar.gz", "--into", "demo"), Path("/labs"), {}
+        )
+
+        with patch(
+            "engulf_clab_freeze.plugin.run_defrost_command", return_value=7
+        ) as command:
+            result = FreezePlugin().before_goal(invocation, api)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIs(result.status, GoalResultStatus.COMPLETED)
+        self.assertEqual(result.exit_code, 7)
+        # Defrost writes one destination and reads no workspace state.
+        api.state.assert_not_called()
+        api.leases.assert_called_once_with(("eclab-defrost:/labs/demo",))
+        command.assert_called_once_with(
+            ["share.tar.gz", "--into", "demo"],
+            program="fclab defrost",
+            application_name="fclab",
+            logger=api.logger,
+            environment=invocation.environment,
+            cwd=invocation.cwd,
+        )
+
     def test_non_freeze_invocations_continue_to_the_wrapped_goal(self) -> None:
         api = MagicMock(spec=BeforeGoalAPI)
         api.get_context.return_value = None
@@ -123,6 +156,12 @@ class FreezePluginTest(unittest.TestCase):
         command.assert_not_called()
         api.state.assert_not_called()
         api.leases.assert_not_called()
+
+    def test_help_lists_both_control_commands(self) -> None:
+        help_text = FreezePlugin().help(MagicMock())
+
+        self.assertIn("freeze [-t TOPOLOGY]", help_text)
+        self.assertIn("defrost ARCHIVE", help_text)
 
     def test_freeze_priority_precedes_every_other_bundled_plugin(self) -> None:
         self.assertGreater(FreezePlugin.priority, 110)

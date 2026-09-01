@@ -1,14 +1,17 @@
 # engulf-clab-freeze
 
-Creates a shareable archive without changing or deploying the source lab:
+Creates a shareable archive without changing or deploying the source lab, and
+expands a received archive back into a runnable one:
 
 Install with `python -m pip install engulf-clab-freeze`. Version 0.2.0 and later
 requires the Engulf 1.2 plugin APIs used for packaging-declared dependency
-ordering.
+ordering. Version 0.3.0 adds `defrost`.
 
 ```bash
 eclab freeze
 eclab freeze -t labs/demo/lab.clab.yml --output demo.tar.gz
+eclab defrost demo.tar.gz
+eclab defrost demo.tar.gz --into labs/demo --license router=/pools/routers
 ```
 
 In a lab directory, `freeze` selects its single recognized Containerlab
@@ -106,6 +109,67 @@ privileges.
 Review the archive and package lock before execution: topologies, scripts,
 startup configs, Dockerfiles, and packages are executable or privileged input.
 
+## Expanding an archive
+
+`defrost` is the reverse command: it expands one archive, prepares the runtime,
+selects bundled Docker image archives, asks for the licenses freeze redacted,
+and removes the `x-engulf-clab-freeze` metadata so the result is an ordinary
+lab. It never deploys and never contacts a registry.
+
+```bash
+eclab defrost demo.tar.gz
+eclab defrost demo.tar.gz --into labs/demo
+eclab defrost demo.tar.gz --license router=/pools/routers --license '$SITE_POOL'
+eclab defrost demo.tar.gz --no-license-prompt --no-runtime
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--into DIRECTORY` | Destination; defaults to the archive name without its suffix, in the invocation directory. |
+| `--force` | Replace a destination an earlier defrost created; any other directory is refused. |
+| `--license NODE=VALUE` | Answer one node's frozen prompt. Repeatable. A bare `VALUE` answers every prompted node. |
+| `--no-license-prompt` | Keep the markers and let deploy resolve them. |
+| `--no-runtime` | Skip runtime preparation and leave it to `run-eclab.sh`. |
+| `--no-images` | Skip bundled image archive selection. |
+| `--load-images` | Load matched bundled archives into Docker now instead of at deploy. Needs Docker and container-runtime authorization. |
+
+The archive must be a `.tar.gz` or `.tgz` regular file with exactly one root
+directory, and the topology carrying `x-engulf-clab-freeze` selects itself.
+Freeze stamps exactly one topology per archive, so selection is never ambiguous
+and defrost has no topology option. Members that escape the root, unsupported
+freeze formats, and archives without freeze metadata are rejected. Defrost runs
+under a lease on its destination, so two concurrent expansions into one
+directory block each other.
+
+Licenses are answered in order: `--license`, then `ECLAB_LICENSE_<NODE_NAME>`,
+then `ECLAB_LICENSE`, then an interactive prompt. Each answer is a license file,
+a pool directory, or a `$VARIABLE` that deploy resolves later; paths are stored
+absolute and must exist. A node nobody answers keeps its marker, and deploy
+prompts for it as usual. Answers are never logged or written to the defrost
+record: an expanded lab holds real license selections, so do not commit or
+re-share that directory. Freeze redacts them again on the next archive.
+
+Any `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz` file in
+the lab is inspected as a `docker save` stream, and a node whose image matches a
+reference the archive carries gets `ECLAB_IMAGE_ARCHIVE` pointing at it, so
+`engulf-clab-image-archive` loads that image at deploy instead of pulling.
+Offline bundles use their own `tools/docker/images.txt` listing. A node that
+already declares an archive, a vrnetlab-built node, and an image no bundled
+archive carries are all left alone, since a declared archive suppresses the
+registry fallback. Selection needs no Docker; only `--load-images` does.
+
+Runtime preparation restores the launcher and bundled tool permissions. An
+offline archive must contain a complete `.eclab-venv`, Containerlab executable,
+and vrnetlab checkout, and its console-script shebangs are repointed at the new
+location. A normal archive keeps the current installation when it already
+matches `requirements.freeze.txt`, and otherwise builds `.eclab-venv` from the
+wheelhouse after publication, exactly as the launcher would; a failure there is
+reported, leaves no partial environment, and defers to `run-eclab.sh`.
+
+Defrost writes `.<state-prefix-lowercase>-defrost.json` in the expanded lab with
+the removed freeze provenance, the source archive name, and every note it
+reported. `--force` uses that file to recognize a directory it may replace.
+
 ## Failure semantics and troubleshooting
 
 Freeze stages beside the destination and renames the final archive only after
@@ -122,3 +186,11 @@ succeed. Failure leaves no partial requested output.
 - If an old archive is unexpectedly excluded, remove it and freeze again; stale
   tracking records are pruned automatically.
 - Replace an escaping symlink with a lab-local copy or exclude it explicitly.
+- Defrost stages beside the destination and renames only after expansion,
+  sanitization reversal, image selection, and license answers succeed. A failure
+  leaves no partial destination, and a replaced directory is restored.
+- Pass `--into` when the archive filename does not name the directory you want.
+- If defrost reports a node still needs an entitled vrnetlab image input, supply
+  it locally and rebuild; offline archives never carry vendor VM inputs.
+- If runtime preparation fails, run `./run-eclab.sh` in the expanded lab: it
+  retries the same installation interactively.

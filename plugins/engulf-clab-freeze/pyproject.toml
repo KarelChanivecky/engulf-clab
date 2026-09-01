@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-freeze"
-version = "0.2.0"
-description = "Create portable, sanitized frozen engulf-clab lab archives"
+version = "0.3.0"
+description = "Create and expand portable, sanitized frozen engulf-clab lab archives"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"

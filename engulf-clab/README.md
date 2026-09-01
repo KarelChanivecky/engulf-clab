@@ -190,7 +190,7 @@ the management network, with source NAT and per-interface reply steering. It
 does not create a general WAN or DHCP service.
 
 
-## Freeze a shareable lab
+## Freeze and defrost a shareable lab
 
 With `engulf-clab-freeze` installed, create a sanitized archive without changing
 the source lab:
@@ -201,6 +201,17 @@ eclab freeze
 
 Extract it and run `./run-eclab.sh`. License values are redacted and prompt the
 recipient for their own file, pool, or environment variable at deployment time.
+
+```bash
+eclab defrost demo.tar.gz --into labs/demo
+```
+
+`eclab defrost` is the receiving side: it expands one archive atomically,
+removes the freeze metadata, restores launcher and bundled tool permissions,
+prepares the runtime, points nodes at bundled Docker image archives carrying
+their exact image, and answers the redacted licenses from `--license`,
+`ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, or a prompt. The expanded lab holds
+real license selections, so do not commit or re-share it.
 Use `eclab freeze --offline` to additionally bundle the active eclab virtual
 environment, Containerlab, required vrnetlab sources, and local topology Docker
 images other than generated vrnetlab appliances. It bundles the actual vrnetlab

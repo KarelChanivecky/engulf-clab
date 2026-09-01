@@ -11,6 +11,7 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PathBase,
     PluginSchema,
+    Privilege,
     SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
@@ -18,6 +19,8 @@ from engulf_clab_schema_api import (
 from engulf_executable_wrapper_api import HelpAPI
 
 from .command import main as run_freeze_command
+from .defrost import lease as defrost_lease
+from .defrost import main as run_defrost_command
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.freeze", package="engulf_clab_freeze")
@@ -61,8 +64,101 @@ PLUGIN_SCHEMA = (
         commands=("freeze",),
         implies=("include exact cached Containerlab and vrnetlab source material",),
     )
+    .add_command("defrost", "Expand a frozen archive into a runnable lab directory.")
+    .add_cli_argument(
+        "defrost",
+        "ARCHIVE",
+        "Select the frozen archive to expand.",
+        values=ValueType.FILE_PATH,
+    )
+    .add_cli_flag(
+        "--into",
+        "Write the lab into this directory.",
+        command="defrost",
+        values=ValueType.DIRECTORY_PATH,
+    )
+    .add_cli_flag(
+        "--force",
+        "Replace a directory an earlier defrost created at the destination.",
+        command="defrost",
+    )
+    .add_cli_flag(
+        "--license",
+        "Answer one frozen license prompt as NODE=VALUE, or every prompt as VALUE.",
+        command="defrost",
+        values=ValueType.STRING,
+        repeatable=True,
+    )
+    .add_cli_flag(
+        "--no-license-prompt",
+        "Keep frozen license markers instead of asking for paths.",
+        command="defrost",
+    )
+    .add_cli_flag(
+        "--no-runtime",
+        "Skip runtime preparation and leave it to the archive launcher.",
+        command="defrost",
+    )
+    .add_cli_flag(
+        "--no-images",
+        "Skip selection of bundled Docker image archives.",
+        command="defrost",
+    )
+    .add_cli_flag(
+        "--load-images",
+        "Load selected bundled image archives into Docker now.",
+        command="defrost",
+    )
+    .annotate(
+        "defrost",
+        lifecycle=(LifecycleStage.BEFORE_GOAL,),
+        implies=("normal Containerlab execution is preempted",),
+        examples=("eclab defrost share.tar.gz --into labs/demo",),
+    )
+    .annotate(
+        "ARCHIVE",
+        commands=("defrost",),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+    )
+    .annotate(
+        "--into",
+        commands=("defrost",),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+        conflicts_with=("the default directory named after the archive",),
+    )
+    .annotate(
+        "--force",
+        commands=("defrost",),
+        requires=("the destination holds an earlier defrost record",),
+    )
+    .annotate(
+        "--license",
+        commands=("defrost",),
+        path_base=PathBase.LICENSE_POOL,
+        conflicts_with=("--no-license-prompt",),
+    )
+    .annotate(
+        "--no-license-prompt",
+        commands=("defrost",),
+        implies=("deploy resolves every frozen license instead",),
+    )
+    .annotate(
+        "--no-runtime",
+        commands=("defrost",),
+        implies=("run-eclab.sh prepares the runtime at first use",),
+    )
+    .annotate(
+        "--load-images",
+        commands=("defrost",),
+        conflicts_with=("--no-images",),
+        host_tools=("docker",),
+        privilege=Privilege.CONTAINER_RUNTIME,
+    )
     .use_case(
         "Create a sanitized portable archive without deploying or destroying the lab."
+    )
+    .use_case(
+        "Expand a received archive into a lab with local licenses, images, and runtime."
     )
     .reject(
         "Do not assume external files or secrets are dereferenced into the archive."
@@ -72,12 +168,17 @@ PLUGIN_SCHEMA = (
         "USAGE.md",
         "Read sanitization, archive selection, and offline guarantees.",
     )
+    .route(
+        "defrost-lab",
+        "USAGE.md",
+        "Read expansion, license answers, image selection, and runtime preparation.",
+    )
     .refer("USAGE.md")
 )
 
 
 class FreezePlugin(SchemaBackedPlugin):
-    """Own the freeze control command before the Containerlab goal runs."""
+    """Own the freeze and defrost control commands before the Containerlab goal runs."""
 
     plugin_id = "engulf_clab.freeze"
     schema = PLUGIN_SCHEMA
@@ -89,7 +190,11 @@ class FreezePlugin(SchemaBackedPlugin):
         self, invocation: Invocation, api: BeforeGoalAPI
     ) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
-        if not invocation.arguments or invocation.arguments[0] != "freeze":
+        if not invocation.arguments:
+            return None
+        if invocation.arguments[0] == "defrost":
+            return self._defrost(invocation, api)
+        if invocation.arguments[0] != "freeze":
             return None
         workspace = api.state(StateScope.WORKSPACE)
         offline = "--offline" in invocation.arguments[1:]
@@ -114,9 +219,30 @@ class FreezePlugin(SchemaBackedPlugin):
             )
         return GoalResult.completed(exit_code=exit_code)
 
+    def _defrost(
+        self, invocation: Invocation, api: BeforeGoalAPI
+    ) -> GoalResult[object]:
+        """Expand one archive under a lease covering only its destination."""
+        arguments = list(invocation.arguments[1:])
+        application_name = api.application.short_product_name or api.application.product
+        # Fixed regardless of edition, for the same reason the freeze lease is:
+        # two differently-branded editions writing one destination must block.
+        with api.leases((defrost_lease(arguments, invocation.cwd),)):
+            exit_code = run_defrost_command(
+                arguments,
+                program=f"{application_name} defrost",
+                application_name=application_name,
+                logger=api.logger,
+                environment=invocation.environment,
+                cwd=invocation.cwd,
+            )
+        return GoalResult.completed(exit_code=exit_code)
+
     def help(self, api: HelpAPI) -> str:
         del api
         return (
             "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--offline]  "
-            "Create a sanitized portable lab archive"
+            "Create a sanitized portable lab archive\n"
+            "  defrost ARCHIVE [--into DIRECTORY] [--license NODE=VALUE]  "
+            "Expand a frozen archive into a runnable lab"
         )

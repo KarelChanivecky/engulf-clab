@@ -76,8 +76,9 @@ eclab deploy -t lab.clab.yml
 eclab destroy -t lab.clab.yml
 eclab install-completion  # Detect Bash, Zsh, or Fish from SHELL.
 
-# Create a portable, sanitized copy for sharing.
+# Create a portable, sanitized copy for sharing, and expand a received one.
 eclab freeze
+eclab defrost shared-lab.tar.gz
 ```
 
 The ensure-containerlab plugin checks for `docker`. When a topology opts into
@@ -392,7 +393,7 @@ without a filesystem topology use the current directory.
 Plugins use Engulf-managed user and workspace state plus leases for shared host
 resources. Do not edit plugin state files while a deployment is running.
 
-## Freezing a lab for sharing
+## Freezing and defrosting a lab for sharing
 
 `eclab freeze` leaves the source lab
 unchanged and creates one sanitized archive. It contains the copied frozen
@@ -431,6 +432,18 @@ exclusions; external symlinks are rejected. The active application's
 separate from the fixed label prefix),
 Containerlab's `clab-<lab-name>` runtime directory, and empty directories left
 after exclusions are omitted.
+
+`eclab defrost ARCHIVE` reverses that on the receiving side. It expands the
+archive into `<archive-name>` or `--into DIRECTORY`, removes the
+`x-engulf-clab-freeze` metadata, restores launcher and bundled tool
+permissions, prepares the runtime, points nodes at bundled Docker image
+archives that carry their exact image, and resolves every redacted license from
+`--license NODE=VALUE`, `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, or an
+interactive prompt. It stages beside the destination and publishes atomically,
+so a failed expansion leaves no partial lab, and it replaces an existing
+directory only with `--force` and only when an earlier defrost recorded it. The
+result is an ordinary lab directory holding real local license selections: do
+not commit or re-share it; freeze redacts them again for the next archive.
 
 ## Editions
 
