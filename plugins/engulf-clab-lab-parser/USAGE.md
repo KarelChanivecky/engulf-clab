@@ -55,6 +55,14 @@ routed through that file; otherwise name and all-labs selection remain under
 Containerlab's label-based handling. With zero or multiple sources Containerlab
 retains control of the diagnostic.
 
+`inspect`, `graph`, and `save` are routed the same way, because the retained
+file otherwise makes Containerlab's own implicit search ambiguous and no lab
+can be reached from its own directory. They keep an explicit topology, a
+`--name`, or `--all` untouched. `exec` and `events` are not routed: without a
+topology they act on every lab on the host rather than searching for one.
+`redeploy` is not routed either, since the pipeline that derives the topology
+runs only for deploy.
+
 YAML is loaded safely and must have a top-level mapping. Containerlab remains
 responsible for the base schema and semantic validation; each feature plugin
 validates the fields it consumes. Mutation conflicts are reported before the

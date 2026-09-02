@@ -9,7 +9,8 @@ mutation API. Do not write topology files here.
   topology. For destroy by source, prefer its retained writer topology when it
   exists; otherwise contribute the single non-writer source for implicit
   selection. Resolve a unique retained topology for name selection and preserve
-  all-labs selection.
+  all-labs selection. Route the lab-reading commands that search for a topology
+  the same way, and leave commands that act on every lab alone.
   Keep all selection and parse validation side-effect free; publish the session
   only in preparation.
 - Preserve all supported Containerlab topology option forms and deterministic
@@ -62,7 +63,10 @@ tests deterministic; omitting it uses the current process environment.
 `derived_topology_path()` deterministically maps a resolved source topology to
 the hidden same-directory path retained by the writer. Destroy analysis uses
 that path when it exists, replacing an explicit source topology option or
-supplying it for implicit selection.
+supplying it for implicit selection. `_LAB_COMMANDS` names the read-only
+subcommands that supply it the same way; add a subcommand there only after
+confirming it searches the working directory for a topology rather than acting
+on every lab, and that the deploy pipeline it would bypass is not needed.
 
 `TopologySession.path` is the resolved source; `original` is a recursively
 frozen mapping/tuple view for immutable inspection; `original_document()`

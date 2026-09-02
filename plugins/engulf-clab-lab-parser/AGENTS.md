@@ -9,7 +9,8 @@ mutation API. Do not write topology files here.
   topology. For destroy by source, prefer its retained writer topology when it
   exists; otherwise contribute the single non-writer source for implicit
   selection. Resolve a unique retained topology for name selection and preserve
-  all-labs selection.
+  all-labs selection. Route the lab-reading commands that search for a topology
+  the same way, and leave commands that act on every lab alone.
   Keep all selection and parse validation side-effect free; publish the session
   only in preparation.
 - Preserve all supported Containerlab topology option forms and deterministic

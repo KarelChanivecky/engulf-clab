@@ -31,6 +31,16 @@ from .session import (
 )
 
 
+# Containerlab subcommands that resolve a lab by globbing the working directory
+# for a topology when -t is absent. `exec` and `events` are deliberately absent:
+# without a topology they act on every lab on the host rather than globbing, so
+# naming one would narrow what the user asked for. `redeploy` is absent because
+# it deploys, and the deploy pipeline that produces the derived topology does
+# not run for it -- redeploying the retained file would silently reuse a stale
+# topology instead of rebuilding one from the source.
+_LAB_COMMANDS = frozenset({"graph", "inspect", "save"})
+
+
 class TopologyPlugin(ExecutableWrapperPlugin):
     plugin_id = "engulf_clab.lab_parser"
     priority = 100
@@ -53,6 +63,8 @@ class TopologyPlugin(ExecutableWrapperPlugin):
             return _destroy_topology_contribution(
                 event.wrapper_args, event.environment
             )
+        if event.wrapper_args[0] in _LAB_COMMANDS:
+            return _lab_topology_contribution(event.wrapper_args)
         if event.wrapper_args[0] != "deploy":
             return None
         try:
@@ -73,6 +85,36 @@ class TopologyPlugin(ExecutableWrapperPlugin):
             TOPOLOGY_CONTEXT,
             TopologySession(path, load_topology(path, event.environment)),
         )
+
+
+def _lab_topology_contribution(args: tuple[str, ...]) -> CallContribution | None:
+    """Name the deployed topology for a command that otherwise globs for one.
+
+    Containerlab searches the working directory when -t is absent, and the
+    derived topology the writer retains until destroy makes that search
+    ambiguous: the lab cannot be inspected, graphed, or saved from its own
+    directory any more. Point these commands at the retained topology, which is
+    also the file the running containers are labelled with. A command that
+    already selects its lab another way -- an explicit topology, --name, or
+    --all -- is left alone, as is a directory Containerlab would refuse for its
+    own reasons.
+    """
+    rest = tuple(args[1:])
+    if _has_option(rest, ("-t", "--topo", "--topology", "--name", "-a", "--all")):
+        return None
+    try:
+        topology = topology_path_from_args(rest)
+    except TopologyError:
+        # Preserve Containerlab's native diagnostics for zero or multiple source
+        # topologies. The useful special case is one source plus writer residue.
+        return None
+    retained = derived_topology_path(topology)
+    target = retained if retained.is_file() else topology
+    return CallContribution(
+        additions=(
+            ArgumentAddition(("-t", str(target)), AdditionPlacement.BEFORE_SEPARATOR),
+        ),
+    )
 
 
 def _destroy_topology_contribution(
