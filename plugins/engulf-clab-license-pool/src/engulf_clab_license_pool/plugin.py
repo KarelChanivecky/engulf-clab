@@ -96,7 +96,7 @@ PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.license_pool", package="engulf_clab_license_pool")
     .add_node_prop(
         "license",
-        "Select a license pool with $NAME or request a frozen-lab license prompt.",
+        "Select a license pool with $NAME or a directory path, or request a frozen-lab license prompt.",
         values=ValueType.STRING,
     )
     .add_node_var(
@@ -144,12 +144,17 @@ PLUGIN_SCHEMA = (
         lifecycle=(LifecycleStage.PREPARE_CALL, LifecycleStage.AFTER_CALL),
         requires=(
             "$POOL names an invocation environment variable containing a pool directory",
+            "any other value naming a directory is itself the pool",
         ),
         implies=(
             "a successful deploy copies the selected license into lab-local state",
             "an unsuccessful deploy rolls back claims and copies created by that invocation",
         ),
-        examples=("$ROUTER_LICENSE_POOL", "__ECLAB_LICENSE_PROMPT__"),
+        examples=(
+            "$ROUTER_LICENSE_POOL",
+            "/srv/licenses/router",
+            "__ECLAB_LICENSE_PROMPT__",
+        ),
     )
     .annotate(
         UUID_ENVIRONMENT,
@@ -279,6 +284,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         return (
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
+            "    license: <directory>        Allocate from that pool directory directly\n"
             f"    env.{UUID_ENVIRONMENT}: <uuid>     Recommended stable allocation identity\n"
             f"    env.{contract.clamp_environment}: file   Require this available pool filename/path\n"
             f"    license: {contract.prompt_marker}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
@@ -407,6 +413,37 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             _remove_empty_copy_parents(target.parent)
 
 
+def _pool(
+    value: str, environ: Mapping[str, str], contract: LicenseContract
+) -> Path | None:
+    """Resolve one node `license:` value to a pool directory, or None.
+
+    The lab parser expands Containerlab environment expressions before any
+    plugin reads the topology, so `license: $POOL` normally arrives here
+    already rendered as the pool directory itself. A pool is therefore
+    recognised by the value naming a directory, not by a leading `$`. A bare
+    `$NAME` still survives expansion when the variable is unset, and that case
+    keeps naming the variable in the error rather than reporting a missing
+    file. Anything else -- a regular file, the frozen prompt marker, a path
+    that does not exist -- is not this plugin's to allocate and is left for
+    Containerlab or `_prompt_requests` to handle.
+    """
+    if value == contract.prompt_marker:
+        return None
+    if value.startswith("$"):
+        pool_name = value[1:].strip("{}")
+        if not pool_name or pool_name not in environ:
+            raise LicensePoolError(f"license pool ${pool_name} is not set")
+        pool = Path(environ[pool_name]).expanduser().resolve()
+        if not pool.is_dir():
+            raise LicensePoolError(
+                f"license pool ${pool_name} is not a directory: {pool}"
+            )
+        return pool
+    candidate = Path(value).expanduser().resolve()
+    return candidate if candidate.is_dir() else None
+
+
 def _requests(
     data: dict[str, Any],
     environ: Mapping[str, str],
@@ -418,20 +455,11 @@ def _requests(
         raise LicensePoolError("topology.nodes is required")
     result = []
     for name, node in nodes.items():
-        if (
-            not isinstance(node, dict)
-            or not isinstance(node.get("license"), str)
-            or not node["license"].startswith("$")
-        ):
+        if not isinstance(node, dict) or not isinstance(node.get("license"), str):
             continue
-        pool_name = node["license"][1:]
-        if not pool_name or pool_name not in environ:
-            raise LicensePoolError(f"license pool ${pool_name} is not set")
-        pool = Path(environ[pool_name]).expanduser().resolve()
-        if not pool.is_dir():
-            raise LicensePoolError(
-                f"license pool ${pool_name} is not a directory: {pool}"
-            )
+        pool = _pool(node["license"], environ, contract)
+        if pool is None:
+            continue
         env = node.get("env", {})
         clamp = env.get(contract.clamp_environment) if isinstance(env, dict) else None
         if clamp is not None and not isinstance(clamp, str):

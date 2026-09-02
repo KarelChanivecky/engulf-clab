@@ -815,6 +815,69 @@ class AllocationIdentityTestCase(unittest.TestCase):
         self.assertEqual([claim for _n, _p, _c, claim in requests], ["/ws:router"])
 
 
+class PoolReferenceTestCase(unittest.TestCase):
+    """The parser expands `$POOL` before this plugin reads the topology.
+
+    engulf_clab.lab_parser renders Containerlab environment expressions while
+    loading the topology, so a node written as `license: $POOL` reaches
+    prepare_call as the pool directory path. Recognising only a leading `$`
+    left those nodes unclaimed and handed Containerlab a directory where it
+    expects a license file.
+    """
+
+    _APPLICATION = ApplicationMetadata(
+        application_id="engulf-clab",
+        display_name="eclab",
+        vendor="Engulf",
+        product="eclab",
+        short_product_name="eclab",
+        version="1.0",
+    )
+
+    def _requests_for(self, license_value: str, environ: dict[str, str]):
+        topology = {"topology": {"nodes": {"router": {"license": license_value}}}}
+        return _requests(
+            topology, environ, Path("/ws"), license_contract(self._APPLICATION)
+        )
+
+    def test_an_expanded_pool_directory_is_still_claimed(self) -> None:
+        with tempfile.TemporaryDirectory() as pool:
+            requests = self._requests_for(pool, {"ROUTER_POOL": pool})
+
+            self.assertEqual(
+                requests, [("router", str(Path(pool).resolve()), None, "/ws:router")]
+            )
+
+    def test_an_unexpanded_reference_still_names_the_missing_variable(self) -> None:
+        with self.assertRaises(LicensePoolError) as raised:
+            self._requests_for("$ROUTER_POOL", {})
+
+        self.assertIn("$ROUTER_POOL is not set", str(raised.exception))
+
+    def test_a_braced_reference_resolves_to_its_pool(self) -> None:
+        with tempfile.TemporaryDirectory() as pool:
+            requests = self._requests_for("${ROUTER_POOL}", {"ROUTER_POOL": pool})
+
+            self.assertEqual(
+                [path for _n, path, _c, _claim in requests], [str(Path(pool).resolve())]
+            )
+
+    def test_a_license_file_is_left_to_containerlab(self) -> None:
+        with tempfile.TemporaryDirectory() as pool:
+            licence = Path(pool) / "router.lic"
+            licence.write_text("key", encoding="utf-8")
+
+            self.assertEqual(self._requests_for(str(licence), {}), [])
+
+    def test_a_frozen_prompt_marker_is_not_a_pool(self) -> None:
+        marker = license_contract(self._APPLICATION).prompt_marker
+
+        self.assertEqual(self._requests_for(marker, {}), [])
+
+    def test_a_path_that_does_not_exist_is_left_to_containerlab(self) -> None:
+        self.assertEqual(self._requests_for("/nonexistent/pool/FGT", {}), [])
+
+
 class LegacyUuidWarningTestCase(unittest.TestCase):
     def test_a_topology_still_using_uuid_is_named_in_a_warning(self) -> None:
         api = Mock(spec=InvocationAPI)

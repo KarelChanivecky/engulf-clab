@@ -9,7 +9,10 @@ Install with `python -m pip install engulf-clab-license-pool`, or through
 ## Inputs
 
 Set a node's `license` to `$POOL_NAME`, then set that invocation environment
-variable to a directory containing license files directly at its top level:
+variable to a directory containing license files directly at its top level.
+Any `license` naming a directory is a pool, so a literal path and the
+`${POOL_NAME:-/default}` forms Containerlab expands during parsing work the
+same way; a `license` naming a regular file stays Containerlab's own:
 
 ```yaml
 topology:
@@ -31,6 +34,7 @@ eclab deploy -t lab.clab.yml \
 | Input | Meaning |
 | --- | --- |
 | `license: $POOL_NAME` | Allocate from the directory named by that invocation variable. |
+| `license: <directory>` | Allocate from that directory, however the path was written. |
 | `env.FOS_UUID` | Recommended stable node identity; node name is the fallback. |
 | `env.ECLAB_LIC_CLAMP` | Require one exact pool filename/path; fails when absent or claimed. |
 | `--eclab-license-pool-strategy` | Per-invocation `sticky`, `round-robin`, or `least-recently-used`. |
