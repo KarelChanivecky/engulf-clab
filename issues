@@ -1,0 +1,84 @@
+T-02
+destroy leaves host residue (derived-topology lifecycle)
+F-04 / A-003 · wrapper × Containerlab
+Symptom (3/3 repro): destroy exits 0 and containers are gone, but every run leaves: the custom management Docker network, /run/netns/clab-* symlinks to dead PIDs, and /etc/ssh/ssh_config.d/clab-<lab>.conf.
+
+Root cause: the wrapper unconditionally deletes .engulf-clab-lab-<uuid>.clab.yml after deploy, while the container label clab-topo-file points at it. destroy falls into the WithLabNameOnly() fallback — empty node list, mgmt config back to default clab, SSH path degrades to clab-.conf.
+
+Creating docker network name=clab ...          <-- destroy creates the DEFAULT network
+Destroying lab name=fclab-mvp
+Removing SSH config path=/etc/ssh/ssh_config.d/clab-.conf
+Fix: keep the derived topology under a stable name in the lab dir until a successful destroy, with the label pointing at that stable copy; or carry the original topology, actual mgmt network, node list, and topo name in labels so the file-less fallback can fully recover. Acceptance: e2e test with transformed topology + custom mgmt subnet; before returning 0, verify network / netns / SSH config are all gone.
+
+
+
+T-04
+License claim not rolled back on failed deploy
+F-07 / A-004 · license pool
+Symptom: image pull fails, exit 70, no container created — yet active claims go 1 → 2 and only an explicit destroy releases them. prepare_call() claims/copies before other providers run; after_call() only releases on a successful destroy — no compensation for failed/cancelled deploys.
+
+Fix: track claims/copies created by this invocation and roll back exactly those on non-zero exit, exception, or Ctrl-C (never release a pre-existing retry claim). Acceptance: claim count unchanged after image failure, clab preflight failure, and Ctrl-C tests.
+
+
+T-05
+"sticky" rotates to a never-used license on every redeploy
+F-07 / A-005 · license pool
+Symptom: same workspace, same node, deploy → destroy → deploy yields a different license fingerprint each time. The STICKY branch of _select_available() orders candidates (never, preferred, normal, free), so historic licenses are never reused while unused files remain.
+
+Fix: reorder to (preferred, never, normal, free); if current behavior is intentional, rename to spread-then-sticky and document it. Current semantics are harmful for scarce, identity-bound licenses.
+
+T-08
+Existing local literal image is still force-pulled
+A-006 · image build
+Symptom: the local tag exists (inspect succeeds), but with no build provider declared the wrapper unconditionally emits docker pull; the registry denies it, all candidates fail, exit 70. Offline labs and local dev tags are unusable.
+
+Fix: add a local-image provider, or a pull policy missing|always|never defaulting to missing (inspect the local tag before pulling).
+
+T-09
+Admin password lands in default Docker logs
+F-01 / A-014 · vrnetlab fork · was High, internal-tool downgrade → P1
+Symptom: two independent leak paths confirmed in a healthy container's Docker JSON logs (values redacted at capture): launch.py:170 logs the full sys.argv (including --password) at INFO, and the credentials feature sends set password … without output suppression so the FortiOS serial echo hits stdout. TRACE additionally logs password responses and full commands.
+
+... Launching. commandline: /launch.py ... --password <REDACTED> ...
+... # set password <REDACTED>
+Why P1 not P0: internal network, lab credentials, host access already limited — but any log bundle attached to a bug report or collected centrally carries the password, so it stays P1. Fix: never log raw argv; route the password via secret file/fd or a unified redactor; force suppress_output=True on credential commands; TRACE must not log password responses; raw serial logging opt-in only. Rotating already-logged lab passwords: optional here.
+
+
+T-10
+destroy --all returns early and skips copied-license cleanup
+F-07 / A-017 · license pool
+Symptom (static, deterministic): after_call() calls _release_all() on -a/--all and returns immediately; the two shutil.rmtree(.../licenses) calls after it never run. Registry claims are released but workspace license copies remain. (Not executed live — it would hit the running MVP; control flow is deterministic.)
+
+Fix: separate registry release from cleanup of all provably-owned local copies; add an isolated fixture test for --all.
+
+T-14
+Recommended uuid field rejected by offline graph schema
+A-009 · schema parity
+Symptom: help recommends node uuid:, but offline graph fails with field uuid not found in type types.NodeDefinitionWithDeprecatedFields — the license plugin only consumes the field in deploy's prepare_call(); other subcommands hand the raw topology to the base schema.
+
+Fix: share the composed schema/normalization across every topology-reading subcommand, or move plugin-only identity into the allowed labels/env namespace. Cover graph, inspect, destroy, freeze, deploy for schema parity.
+
+T-15
+Version / provenance gaps: clab reports 0.0.0, no combined fingerprint
+A-011 + low-risk items · managed build
+Symptom: the managed Containerlab build uses plain go build without the fork Makefile's -ldflags, so version 0.0.0 / commit none / date unknown — which also hides the drift in T-07 and triggers inapplicable upstream-upgrade prompts. Related: distribution is fclab 0.1.1 but app.py says 0.1.0; fclab version shows no combined version.
+
+Fix: inject commit, build date, fork source, and compatible version in the managed builder; make fclab version print the combined fingerprint (fclab, plugins, clab commit, vrnetlab commit, image digest, qcow2 fingerprint); sync the internal VERSION constant.
+
+
+T-16
+Python 3.14 requirement is undiscoverable from the install error
+A-008 · packaging UX
+Symptom: on Python 3.12 the user just sees No matching distribution found for fclab — reads as "package doesn't exist" rather than "wrong interpreter". Metadata itself is correct (Requires-Python >=3.14).
+
+Fix: state Python 3.14+ at the top of the install docs and package description; optionally a bootstrap/check command that prints interpreter vs. requirement before touching the index; or relax the pin if no 3.14-only features are used.
+
+
+T-17
+CLI / automation output polish (bundle)
+A-012 + low-risk items · CLI UX
+NO_COLOR=1 TERM=dumb still emits ANSI true-color escapes in the version banner.
+catalog prints normal listings at WARNING level.
+Doubled error prefix: get-config: get-config: node ….
+.venv/bin/fclab --help exits 127 without an activated venv because the sibling containerlab binary isn't on PATH.
+Fix: honor NO_COLOR/TTY detection; add --json/--quiet; catalog at INFO; single error-prefix layer; resolve companion binaries relative to the console script (or print an "activate venv" hint).
