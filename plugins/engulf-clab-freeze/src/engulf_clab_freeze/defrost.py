@@ -18,6 +18,8 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 from engulf_api import PluginLogger
+from engulf_clab_freeze_api import DefrostContext, discover_contributors
+from engulf_clab_freeze_api import FreezeError as ContributorError
 from engulf_clab_lab_parser.session import WRITER_TEMP_PREFIX
 from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
@@ -57,7 +59,7 @@ _ARCHIVE_SUFFIXES = (".tar.gz", ".tgz")
 _UNSCANNED = frozenset({".eclab-venv", ".venv", ".git", "__pycache__", "wheelhouse"})
 _REQUIREMENT = re.compile(r"([A-Za-z0-9_.-]+)==([^\s]+)")
 _FREEZE_APPLICATION = "engulf-clab"
-_SUPPORTED_FORMAT = 1
+_SUPPORTED_FORMATS = frozenset((1, 2))
 _RECORD_VERSION = 1
 
 
@@ -73,9 +75,18 @@ def main(
     logger: PluginLogger | None = None,
     environment: Mapping[str, str] | None = None,
     cwd: Path | None = None,
+    user_state: Path | None = None,
 ) -> int:
     """Run the optional defrost command against one frozen archive."""
-    parser = _parser(program)
+    try:
+        contributors = discover_contributors()
+        parser = _parser(program, contributors)
+    except ContributorError as error:
+        if logger is None:
+            print(f"{program}: {error}", file=sys.stderr)
+        else:
+            logger.error("%s: %s", program, error)
+        return 1
     try:
         arguments = parser.parse_args(argv)
     except SystemExit as error:
@@ -95,8 +106,17 @@ def main(
             application_name=application_name,
             logger=logger,
             environment=environment,
+            contributors=contributors,
+            contributor_arguments=arguments,
+            user_state=user_state,
         )
-    except (DefrostError, OSError, tarfile.TarError, yaml.YAMLError) as error:
+    except (
+        DefrostError,
+        ContributorError,
+        OSError,
+        tarfile.TarError,
+        yaml.YAMLError,
+    ) as error:
         if logger is None:
             print(f"{program}: {error}", file=sys.stderr)
         else:
@@ -105,7 +125,9 @@ def main(
     return 0
 
 
-def _parser(program: str) -> argparse.ArgumentParser:
+def _parser(
+    program: str, contributors: tuple[Any, ...] = ()
+) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=program)
     parser.add_argument(
         "archive",
@@ -148,6 +170,8 @@ def _parser(program: str) -> argparse.ArgumentParser:
         action="store_true",
         help="load matched bundled image archives into Docker now instead of at deploy",
     )
+    for contributor in contributors:
+        contributor.add_defrost_arguments(parser)
     return parser
 
 
@@ -176,6 +200,9 @@ def defrost(
     application_name: str = "eclab",
     logger: PluginLogger | None = None,
     environment: Mapping[str, str] | None = None,
+    contributors: tuple[Any, ...] = (),
+    contributor_arguments: argparse.Namespace | None = None,
+    user_state: Path | None = None,
 ) -> bool:
     """Expand one frozen archive into an atomically published, runnable lab."""
     archive = archive.expanduser().resolve()
@@ -218,6 +245,31 @@ def defrost(
             topology_path, document, notes, environment=current_environment
         )
         _write_document(topology_path, document)
+        contribution_metadata = metadata.get("contributors", {})
+        if not isinstance(contribution_metadata, dict):
+            raise DefrostError("freeze contributor metadata must be a mapping")
+        installed = {item.contributor_id: item for item in contributors}
+        for contributor_id, contribution in contribution_metadata.items():
+            contributor = installed.get(contributor_id)
+            if contributor is None:
+                raise DefrostError(
+                    f"archive requires missing freeze contributor {contributor_id!r}"
+                )
+            if not isinstance(contribution, dict):
+                raise DefrostError(
+                    f"invalid metadata for contributor {contributor_id!r}"
+                )
+            contributor.defrost(
+                DefrostContext(
+                    topology=topology_path,
+                    staging_root=root,
+                    destination=into,
+                    metadata=contribution,
+                    arguments=contributor_arguments or argparse.Namespace(),
+                    environment=current_environment,
+                    user_state=user_state,
+                )
+            )
         record = root / record_name
         _write_record(record, archive, topology_path.relative_to(root), metadata, notes)
         _publish(root, into, temporary_root, replacing=replacing)
@@ -342,7 +394,7 @@ def _freeze_metadata(document: dict[str, Any], notes: list[str]) -> dict[str, An
         )
     if not isinstance(metadata, dict):
         raise DefrostError(f"{_FREEZE_KEY} metadata must be a YAML mapping")
-    if metadata.get("format") != _SUPPORTED_FORMAT:
+    if metadata.get("format") not in _SUPPORTED_FORMATS:
         raise DefrostError(
             f"unsupported freeze format: {metadata.get('format')!r}; upgrade this plugin"
         )

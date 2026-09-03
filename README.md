@@ -334,6 +334,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab` | `eclab` | Distribution that installs the Containerlab wrapper command. |
 | `engulf-clab-mcp` | `eclab-mcp`, `eclab-mcpd` | Local Unix-socket privileged MCP executor and standard-stdio bridge. |
 | `engulf-clab-all-plugins` | None | Meta-package that installs all maintained plugins. |
+| `engulf-clab-demo-lab` | `eclab-demo-lab-install` | Non-plugin installer for one comprehensive client/Fake-WAN/FortiGate/DMZ/work demonstration lab. |
 | `engulf-clab-develop-eclab-lab` | `eclab install-develop-eclab-lab-skill` | Runtime-generated eclab skill collector. |
 | `engulf-clab-develop-eclab-lab-static` | `develop-eclab-lab-static-install` | Historical static skill retained for comparative evaluation. |
 | `engulf-docker-image-api` | Contract only | Application-neutral image graph, parameter, provider, and Engulf goal-plugin contracts. |
@@ -350,6 +351,10 @@ required host tools, and cleanup behavior.
 | `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
 | `engulf-clab-license-pool` | `engulf_clab.license_pool` | Shares license files safely across labs. |
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
+| `engulf-clab-freeze-api` | Contract only | Typed extension hooks for optional freeze and defrost contributors. |
+| `engulf-clab-pki-api` | Contract only | Immutable authorized node-PKI projections for independent consumers. |
+| `engulf-clab-pki` | `engulf_clab.pki` | Generates PKI catalogs, identities, and least-privilege node views. |
+| `engulf-clab-vrnetlab-fortigate-pki-injector` | `engulf_clab.vrnetlab_fortigate_pki_injector` | Injects authorized PKI paths into FortiGate vrnetlab nodes. |
 | `engulf-clab-wan` | `engulf_clab.wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
 | `engulf-clab-lab-parser` | `engulf_clab.lab_parser` | Shared original-topology and deferred-mutation API. |
 | `engulf-clab-lab-writer` | `engulf_clab.lab_writer` | Renders deferred mutations into a temporary topology. |

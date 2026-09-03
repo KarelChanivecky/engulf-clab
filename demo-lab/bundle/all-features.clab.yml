@@ -1,0 +1,158 @@
+name: eclab-all-features
+
+mgmt:
+  network: eclab-demo-mgmt
+  ipv4-subnet: 172.31.80.0/24
+
+topology:
+  defaults:
+    env:
+      ECLAB_PKI_MANIFEST: ./pki.yaml
+      ECLAB_PKI_MOUNT_TARGET: /mnt/eclab/pki
+
+  nodes:
+    segments:
+      kind: linux
+      image: alpine:3.22
+      cmd: sleep infinity
+
+    client-net|segments:
+      kind: bridge
+      network-mode: container:segments
+
+    dmz-net|segments:
+      kind: bridge
+      network-mode: container:segments
+
+    work-net|segments:
+      kind: bridge
+      network-mode: container:segments
+
+    router-base-build:
+      kind: linux
+      image: eclab-demo/router-base:0.1
+      env:
+        ECLAB_DOCKERFILE: images/router-base/Dockerfile
+        ECLAB_DOCKER_CTX: images/router-base
+        ECLAB_DOCKER_VAR_DEMO_RELEASE: "0.1"
+        ECLAB_DOCKER_ARGS: "--label org.engulf.demo=all-features"
+        ECLAB_DOCKER_BASE_NODE: "true"
+
+    fake-wan:
+      kind: linux
+      image: eclab-demo/fake-wan:0.1
+      cap-add: [NET_ADMIN]
+      sysctls:
+        net.ipv4.ip_forward: 1
+      env:
+        ECLAB_DOCKERFILE: images/fake-wan/Dockerfile
+        ECLAB_DOCKER_CTX: images/fake-wan
+        ECLAB_IMAGE_PARAM_ROLE: fake-wan
+
+    client-a:
+      kind: linux
+      image: eclab-demo/router-base:0.1
+      exec:
+        - ip address add 10.10.10.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.10.1 dev eth1
+
+    client-b:
+      kind: linux
+      image: eclab-demo/router-base:0.1
+      exec:
+        - ip address add 10.10.10.11/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.10.1 dev eth1
+
+    fgt:
+      kind: fortinet_fortigate
+      image: eclab-demo/fortigate:external
+      enforce-startup-config: true
+      startup-config: configs/fgt.conf
+      license: inputs/licenses
+      env:
+        ECLAB_VRNETLAB_TYPE: fortinet/fortigate
+        ECLAB_PKI_MOUNT_TARGET: /opt/eclab/pki
+        FOS_UUID: 2bc9e818-61bf-5ae8-bf96-4c99a3b45217
+        FOS_LICENSE_STATUS_TIMEOUT_SECONDS: "180"
+        FOS_ONBOARDING: "true"
+
+    dmz-docker:
+      kind: linux
+      image: eclab-demo/dmz-server:0.1
+      env:
+        ECLAB_DOCKERFILE: images/dmz-server/Dockerfile
+        ECLAB_DOCKER_CTX: images/dmz-server
+      exec:
+        - ip address add 192.0.2.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 192.0.2.1 dev eth1
+
+    archive-source-build:
+      kind: linux
+      image: eclab-demo/archive-source:0.1
+      env:
+        ECLAB_DOCKERFILE: images/archive-source/Dockerfile
+        ECLAB_DOCKER_CTX: images/archive-source
+        ECLAB_DOCKER_BASE_NODE: "true"
+
+    dmz-archive:
+      kind: linux
+      image: eclab-demo/archive-server:0.1
+      env:
+        ECLAB_IMAGE_ARCHIVE: artifacts/archive-source.tar.gz
+        ECLAB_IMAGE_ARCHIVE_REF: eclab-demo/archive-source:0.1
+        ECLAB_IMAGE_ARCHIVE_RELOAD: "true"
+      exec:
+        - ip address add 192.0.2.11/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 192.0.2.1 dev eth1
+
+    host-connector:
+      kind: linux
+      image: eclab.containers/host-connector
+      env:
+        ECLAB_CONNECT_HOST: "192.0.2.200;198.51.100.200"
+        ECLAB_CONNECT_HOST_7: "2001:db8:2::200;2001:db8:51::200"
+
+    workstation-a:
+      kind: linux
+      image: eclab-demo/router-base:0.1
+      exec:
+        - ip address add 198.51.100.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 198.51.100.1 dev eth1
+
+    workstation-b:
+      kind: linux
+      image: eclab-demo/router-base:0.1
+      exec:
+        - ip address add 198.51.100.11/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 198.51.100.1 dev eth1
+
+    real-wan:
+      kind: linux
+      image: eclab.containers/wan-access
+      env:
+        ECLAB_DHCP_SUBNET: 198.18.0.0/24
+        ECLAB_DHCP_GATEWAY: 198.18.0.1
+        ECLAB_DHCP_POOL_START: 198.18.0.100
+        ECLAB_DHCP_POOL_END: 198.18.0.200
+        ECLAB_DHCP_DNS: 1.1.1.1
+        ECLAB_DHCP_LEASE_TIME: "43200"
+
+  links:
+    - endpoints: ["client-a:eth1", "client-net|segments:client-a"]
+    - endpoints: ["client-b:eth1", "client-net|segments:client-b"]
+    - endpoints: ["fake-wan:eth1", "client-net|segments:fake-wan"]
+    - endpoints: ["fake-wan:eth2", "fgt:port2"]
+    - endpoints: ["fgt:port3", "dmz-net|segments:fgt"]
+    - endpoints: ["dmz-docker:eth1", "dmz-net|segments:dmz-docker"]
+    - endpoints: ["dmz-archive:eth1", "dmz-net|segments:dmz-archive"]
+    - endpoints: ["host-connector:eth1", "dmz-net|segments:host-connector"]
+    - endpoints: ["fgt:port4", "work-net|segments:fgt"]
+    - endpoints: ["workstation-a:eth1", "work-net|segments:workstation-a"]
+    - endpoints: ["workstation-b:eth1", "work-net|segments:workstation-b"]
+    - endpoints: ["fake-wan:eth3", "real-wan:eth1"]

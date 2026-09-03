@@ -13,12 +13,14 @@ fi
 
 "${python_executable}" -m pip uninstall --yes \
     engulf-clab-mcp \
+    engulf-clab-demo-lab \
     engulf-clab \
     engulf-clab-all-plugins \
     engulf-clab-develop-eclab-lab \
     engulf-clab-develop-lab-skill \
     engulf-clab-schema \
     engulf-clab-schema-api \
+    engulf-clab-pki-api \
     engulf-clab-health-gates \
     engulf-docker-image-core \
     engulf-docker-image-api \
@@ -28,6 +30,9 @@ fi
     engulf-clab-plugins \
     engulf-clab-license-pool \
     engulf-clab-freeze \
+    engulf-clab-freeze-api \
+    engulf-clab-pki \
+    engulf-clab-vrnetlab-fortigate-pki-injector \
     engulf-clab-wan \
     engulf-clab-vrnetlab-build \
     engulf-clab-vrnetlab \

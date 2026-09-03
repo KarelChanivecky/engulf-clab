@@ -1,0 +1,15 @@
+/local/
+/inputs/licenses/*
+/artifacts/*
+/.eclab/
+/.eclab-venv/
+/clab-*/
+/*.tar.gz
+/*.tgz
+/*.lic
+/*.license
+/*.licence
+*.key
+*.pem
+*.p12
+*.jks

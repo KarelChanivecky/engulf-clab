@@ -30,12 +30,15 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-license-pool` | Leased shared license selection and lab-local copies. |
 | `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Sanitized portable and strict offline lab archives. |
+| `engulf-clab-freeze-api`, `engulf-clab-pki-api`, and `engulf-clab-pki` | Format-2 extension contract plus typed opt-in PKI generation and private node views. |
+| `engulf-clab-vrnetlab-fortigate-pki-injector` | Automatic path-only installation of authorized PKI identities into FortiGate vrnetlab nodes. |
 
 Included feature packages are Dockerfile builds, the packaged-container manager
 and core collection, Containerlab and vrnetlab provisioning, vrnetlab image
 builds, license pools, managed DHCP/NAT WAN bridges, frozen shareable archives,
-and the topology mutation/collector infrastructure. Review the individual
-package READMEs before enabling host-affecting features such as WAN bridges or
+PKI catalogs, certificate mounts, FortiGate PKI injection, and the topology
+mutation/collector infrastructure. Review the individual package READMEs before
+enabling host-affecting features such as WAN bridges or
 automatic source updates.
 
 To keep an installation minimal, install `engulf-clab` and only the feature
@@ -69,5 +72,6 @@ The meta-package pins every maintained feature to its declared compatible
 release line and the stable image, container, and schema APIs to their `1.x`
 lines through dependencies. When a maintained plugin is added, removed, or moves to an
 incompatible series, update this dependency set and this table in the same
-release. The package contains no runtime configuration, source topology fields,
-state, entry points, or cleanup behavior of its own.
+release. Stable image, container, schema, freeze, and PKI projection APIs remain
+on compatible major lines. The package contains no runtime configuration,
+source topology fields, state, entry points, or cleanup behavior of its own.

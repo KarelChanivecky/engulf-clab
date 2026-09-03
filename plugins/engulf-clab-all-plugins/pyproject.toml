@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-all-plugins"
-version = "0.3.2"
+version = "0.5.0"
 description = "Meta-package that installs all engulf-clab plugins (requires Python 3.14+)"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -21,7 +21,11 @@ dependencies = [
     "engulf-clab-containers>=0.4.0,<0.5",
     "engulf-clab-containers-core>=0.3.0,<0.4",
     "engulf-clab-license-pool>=0.3.0,<0.4",
-    "engulf-clab-freeze>=0.3.0,<0.4",
+    "engulf-clab-freeze>=0.4.0,<0.5",
+    "engulf-clab-freeze-api>=1,<2",
+    "engulf-clab-pki-api>=1,<2",
+    "engulf-clab-pki>=0.2.0,<0.3",
+    "engulf-clab-vrnetlab-fortigate-pki-injector>=0.1.0,<0.2",
     "engulf-clab-lab-parser>=0.2.0,<0.3",
     "engulf-clab-lab-writer>=0.2.0,<0.3",
     "engulf-clab-dockerfile-build>=0.3.0,<0.4",

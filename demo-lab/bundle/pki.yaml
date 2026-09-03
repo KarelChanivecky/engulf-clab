@@ -1,0 +1,104 @@
+version: 1
+
+defaults:
+  leaf:
+    validity_days: 397
+    formats: [pem, der, pkcs12]
+
+profiles:
+  tls-service:
+    algorithm: {name: ecdsa, curve: secp384r1}
+    key_usage: [digital_signature, key_encipherment]
+    extended_key_usage: [server_auth, client_auth]
+
+stores:
+  persistent-local:
+    type: generated
+
+authorities:
+  demo-root:
+    store: persistent-local
+    algorithm: {name: rsa, bits: 3072}
+    subject:
+      organization: Engulf Demo Lab
+      common_name: Engulf Demo Root CA
+    freeze: {exportable: true}
+  alternate-root:
+    algorithm: {name: ecdsa, curve: secp384r1}
+    subject:
+      organization: Engulf Demo Lab
+      common_name: Engulf Alternate Root CA
+  issuing:
+    issuer: demo-root
+    subject:
+      organization: Engulf Demo Lab
+      common_name: Engulf Demo Issuing CA
+    variants:
+      alternate-chain:
+        issuer: alternate-root
+  deep-inspection:
+    issuer: demo-root
+    subject:
+      organization: Engulf Demo Lab
+      common_name: Engulf Demo Deep Inspection CA
+
+nodes:
+  fgt:
+    authorities:
+      - {name: deep-inspection, private: true}
+    certificates:
+      - name: management-tls
+        issuer: issuing/alternate-chain
+        profile: tls-service
+        subject: {common_name: fgt.demo.test}
+        sans:
+          dns: [fgt, fgt.demo.test]
+          ip: [203.0.113.2]
+        aia:
+          - {method: 1.3.6.1.5.5.7.48.1, uri: "http://pki-ocsp.demo.test/ocsp"}
+        crl_distribution_points: ["http://pki-crl.demo.test/demo-root.crl"]
+        extensions:
+          - {oid: 1.3.6.1.4.1.55555.1, value: eclab-demo, critical: false}
+        freeze: {exportable: true}
+  dmz-docker:
+    certificates:
+      - name: https
+        issuer: issuing
+        profile: tls-service
+        sans: {dns: [dmz-docker, dmz.demo.test], ip: [192.0.2.10]}
+  dmz-archive:
+    certificates:
+      - name: https
+        issuer: issuing
+        profile: tls-service
+        sans: {dns: [dmz-archive, archive.demo.test], ip: [192.0.2.11]}
+  workstation-a:
+    certificates:
+      - name: client
+        issuer: issuing
+        profile: tls-service
+        subject: {common_name: workstation-a.demo.test}
+
+services:
+  central-ca:
+    type: ejbca
+    node: pki-ca
+    authority: issuing
+  certificate-database:
+    type: mariadb
+    node: pki-db
+    env:
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+      MARIADB_DATABASE: certificate_database
+  certificate-directory:
+    type: directory
+    node: pki-directory
+  crl-responder:
+    type: crl
+    node: pki-crl
+  ocsp-responder:
+    type: ocsp
+    node: pki-ocsp
+  administration:
+    type: administration
+    node: pki-admin

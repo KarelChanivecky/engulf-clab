@@ -22,6 +22,8 @@ from urllib.parse import unquote, urlsplit
 import yaml  # type: ignore[import-untyped]
 from engulf_api import PluginLogger, StateStore
 from engulf_clab_ensure_vrnetlab import vrnetlab_image_path_env
+from engulf_clab_freeze_api import FreezeContext, discover_contributors
+from engulf_clab_freeze_api import FreezeError as ContributorError
 from engulf_clab_lab_parser.session import (
     TopologyError,
     load_topology,
@@ -89,6 +91,16 @@ def main(
         help="bundle the eclab runtime, Containerlab, vrnetlab, and lab images for offline use",
     )
     try:
+        contributors = discover_contributors()
+        for contributor in contributors:
+            contributor.add_freeze_arguments(parser)
+    except ContributorError as error:
+        if logger is None:
+            print(f"{program}: {error}", file=sys.stderr)
+        else:
+            logger.error("%s: %s", program, error)
+        return 1
+    try:
         arguments = parser.parse_args(argv)
     except SystemExit as error:
         return int(error.code or 0)
@@ -109,9 +121,12 @@ def main(
             user_state=user_state,
             application_name=application_name,
             environment=environment,
+            contributors=contributors,
+            contributor_arguments=arguments,
         )
     except (
         FreezeError,
+        ContributorError,
         FreezeStateError,
         TopologyError,
         OSError,
@@ -135,6 +150,8 @@ def freeze(
     user_state: StateStore | None = None,
     application_name: str = "eclab",
     environment: Mapping[str, str] | None = None,
+    contributors: tuple[Any, ...] = (),
+    contributor_arguments: argparse.Namespace | None = None,
 ) -> bool:
     """Create an atomic, sanitized ``.tar.gz`` archive from one topology."""
     topology_path = topology_path.expanduser().resolve()
@@ -199,6 +216,33 @@ def freeze(
             offline=offline,
             environment=current_environment,
         )
+        contribution_metadata: dict[str, Any] = {}
+        for contributor in contributors:
+            contributed = contributor.freeze(
+                FreezeContext(
+                    source_topology=topology_path,
+                    staged_topology=copied_topology,
+                    source_root=source_root,
+                    staging_root=staging,
+                    workspace_state=workspace.directory
+                    if workspace is not None
+                    else None,
+                    user_state=user_state.directory if user_state is not None else None,
+                    arguments=contributor_arguments or argparse.Namespace(),
+                    environment=current_environment,
+                )
+            )
+            if contributed is not None:
+                contribution_metadata[contributor.contributor_id] = dict(contributed)
+        if contribution_metadata:
+            updated = yaml.safe_load(copied_topology.read_text(encoding="utf-8"))
+            if not isinstance(updated, dict):
+                raise FreezeError("contributor produced an invalid topology")
+            updated[_FREEZE_KEY]["contributors"] = contribution_metadata
+            copied_topology.write_text(
+                yaml.safe_dump(updated, sort_keys=False), encoding="utf-8"
+            )
+            frozen["contributors"] = contribution_metadata
         (staging / ".eclab-freeze.env").write_text(
             _frozen_environment(frozen["tools"]), encoding="utf-8"
         )
@@ -440,7 +484,7 @@ def _freeze_topology(
             current_environment,
         )
     freeze_metadata: dict[str, Any] = {
-        "format": 1,
+        "format": 2,
         "application": "engulf-clab",
         "packages": [{"name": name, "version": version} for name, version in packages],
         "tools": _tool_provenance(current_environment),

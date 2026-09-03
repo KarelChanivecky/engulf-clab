@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import yaml
 from engulf_clab_freeze.defrost import (
@@ -103,6 +103,9 @@ class DefrostCommandTestCase(unittest.TestCase):
                 application_name="eclab",
                 logger=None,
                 environment=None,
+                contributors=ANY,
+                contributor_arguments=ANY,
+                user_state=None,
             )
 
     def test_main_forwards_every_recipient_option(self) -> None:
@@ -144,6 +147,9 @@ class DefrostCommandTestCase(unittest.TestCase):
                 application_name="eclab",
                 logger=None,
                 environment=None,
+                contributors=ANY,
+                contributor_arguments=ANY,
+                user_state=None,
             )
 
     def test_main_reports_failures_without_raising(self) -> None:

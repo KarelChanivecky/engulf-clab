@@ -24,6 +24,10 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   format, remove that key from the restored topology, reject members escaping
   the single archive root, and stage the expansion beside the destination so a
   failure leaves no partial lab and restores a replaced one.
+- Format 2 discovers optional hooks only through `engulf-clab-freeze-api` entry
+  points. Contributors may claim namespaced flags, transform the staged copy,
+  add metadata, and restore inside unpublished staging; freeze must never import
+  an optional feature package. Defrost accepts formats 1 and 2.
 - Replace a destination only when it carries this plugin's defrost record. The
   record keeps the removed freeze provenance beside the lab, never inside it.
 - Resolve licenses from `--license`, then `ECLAB_LICENSE_<NODE_NAME>`, then

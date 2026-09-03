@@ -54,14 +54,17 @@ class FreezePluginTest(unittest.TestCase):
         assert result is not None
         self.assertIs(result.status, GoalResultStatus.COMPLETED)
         self.assertEqual(result.exit_code, 13)
-        api.state.assert_called_once_with(StateScope.WORKSPACE)
+        self.assertEqual(
+            api.state.call_args_list,
+            [call(StateScope.WORKSPACE), call(StateScope.USER)],
+        )
         # Lease name is fixed regardless of edition, so two differently-branded
         # editions freezing the same workspace concurrently block each other.
         api.leases.assert_called_once_with(("eclab-freeze:/labs/demo",))
         command.assert_called_once_with(
             ["--output", "share.tar.gz"],
             workspace,
-            user_state=None,
+            user_state=workspace,
             program="fclab freeze",
             application_name="fclab",
             logger=api.logger,
@@ -130,8 +133,9 @@ class FreezePluginTest(unittest.TestCase):
         assert result is not None
         self.assertIs(result.status, GoalResultStatus.COMPLETED)
         self.assertEqual(result.exit_code, 7)
-        # Defrost writes one destination and reads no workspace state.
-        api.state.assert_not_called()
+        # Format-2 contributors may resolve recipient user-scoped bindings, but
+        # defrost still reads no workspace state.
+        api.state.assert_called_once_with(StateScope.USER)
         api.leases.assert_called_once_with(("eclab-defrost:/labs/demo",))
         command.assert_called_once_with(
             ["share.tar.gz", "--into", "demo"],
@@ -140,6 +144,7 @@ class FreezePluginTest(unittest.TestCase):
             logger=api.logger,
             environment=invocation.environment,
             cwd=invocation.cwd,
+            user_state=api.state.return_value.directory,
         )
 
     def test_non_freeze_invocations_continue_to_the_wrapped_goal(self) -> None:

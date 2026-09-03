@@ -1,6 +1,8 @@
 PYTHON := .venv/bin/python
 PACKAGES := \
 	engulf-clab-schema-api \
+	engulf-clab-freeze-api \
+	engulf-clab-pki-api \
 	engulf-clab-schema \
 	engulf-clab-develop-eclab-lab \
 	engulf-clab-develop-eclab-lab-static \
@@ -21,12 +23,17 @@ PACKAGES := \
 	engulf-clab-wan \
 	engulf-clab-license-pool \
 	engulf-clab-freeze \
+	engulf-clab-pki \
+	engulf-clab-vrnetlab-fortigate-pki-injector \
 	engulf-clab-all-plugins \
 	engulf-clab \
+	engulf-clab-demo-lab \
 	engulf-clab-mcp
 
 # Package name -> source directory
 DIR_engulf-clab-schema-api := plugins/engulf-clab-schema-api
+DIR_engulf-clab-freeze-api := plugins/engulf-clab-freeze-api
+DIR_engulf-clab-pki-api := plugins/engulf-clab-pki-api
 DIR_engulf-clab-schema := plugins/engulf-clab-schema
 DIR_engulf-clab-develop-eclab-lab := plugins/engulf-clab-develop-eclab-lab
 DIR_engulf-clab-develop-eclab-lab-static := skills/engulf-clab-develop-eclab-lab-static
@@ -47,13 +54,16 @@ DIR_engulf-clab-vrnetlab-build := plugins/engulf-clab-vrnetlab-build
 DIR_engulf-clab-wan := plugins/engulf-clab-wan
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool
 DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
+DIR_engulf-clab-pki := plugins/engulf-clab-pki
+DIR_engulf-clab-vrnetlab-fortigate-pki-injector := plugins/engulf-clab-vrnetlab-fortigate-pki-injector
 DIR_engulf-clab-all-plugins := plugins/engulf-clab-all-plugins
 DIR_engulf-clab := engulf-clab
+DIR_engulf-clab-demo-lab := demo-lab
 DIR_engulf-clab-mcp := mcp-server
 
 dir_of = $(DIR_$1)
 
-.PHONY: all environment clean-dist build publish check-skill
+.PHONY: all environment clean-dist build publish check-skill check-demo-lab
 
 # Default target: build everything, then upload whatever was not published yet.
 all: build publish
@@ -82,6 +92,9 @@ check-skill:
 		plugins/engulf-clab-schema-api/tests \
 		plugins/engulf-clab-schema/tests \
 		plugins/engulf-clab-develop-eclab-lab/tests
+
+check-demo-lab:
+	@PYTHONPATH=demo-lab/src $(PYTHON) -m pytest -q demo-lab/tests
 
 # --- Per-package build / publish rules --------------------------------------
 #

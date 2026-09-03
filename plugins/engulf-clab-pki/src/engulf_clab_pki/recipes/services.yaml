@@ -1,0 +1,18 @@
+ejbca:
+  kind: linux
+  image: keyfactor/ejbca-ce:latest
+mariadb:
+  kind: linux
+  image: mariadb:11
+crl:
+  kind: linux
+  image: nginx:alpine
+ocsp:
+  kind: linux
+  image: keyfactor/ejbca-ce:latest
+directory:
+  kind: linux
+  image: bitnami/openldap:latest
+administration:
+  kind: linux
+  image: alpine:latest

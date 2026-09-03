@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-freeze-api"
+version = "1.0.0"
+description = "Contributor contract for portable engulf-clab freeze archives"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_freeze_api"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_freeze_api"]

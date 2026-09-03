@@ -42,6 +42,17 @@ PLUGIN_SCHEMA = (
         "Include cached source material needed for an offline restore.",
         command="freeze",
     )
+    .add_cli_flag(
+        "--include-pki-secrets",
+        "Include exportable PKI identities when the PKI contributor is installed.",
+        command="freeze",
+    )
+    .add_cli_flag(
+        "--pki-passphrase-file",
+        "Read the PKI export passphrase from an owner-private file.",
+        command="freeze",
+        values=ValueType.FILE_PATH,
+    )
     .annotate(
         "freeze",
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
@@ -108,6 +119,24 @@ PLUGIN_SCHEMA = (
         "--load-images",
         "Load selected bundled image archives into Docker now.",
         command="defrost",
+    )
+    .add_cli_flag(
+        "--pki-authority",
+        "Resolve one frozen PKI binding as BINDING=REF.",
+        command="defrost",
+        values=ValueType.STRING,
+        repeatable=True,
+    )
+    .add_cli_flag(
+        "--no-pki-prompt",
+        "Keep unresolved PKI bindings as actionable manifest markers.",
+        command="defrost",
+    )
+    .add_cli_flag(
+        "--pki-passphrase-file",
+        "Read the PKI import passphrase from an owner-private file.",
+        command="defrost",
+        values=ValueType.FILE_PATH,
     )
     .annotate(
         "defrost",
@@ -199,7 +228,7 @@ class FreezePlugin(SchemaBackedPlugin):
         workspace = api.state(StateScope.WORKSPACE)
         offline = "--offline" in invocation.arguments[1:]
         application_name = api.application.short_product_name or api.application.product
-        user_state = api.state(StateScope.USER) if offline else None
+        user_state = api.state(StateScope.USER)
         # Fixed regardless of edition, so two differently-branded editions
         # freezing the same workspace concurrently actually block each other.
         leases = [f"eclab-freeze:{workspace.root}"]
@@ -235,14 +264,15 @@ class FreezePlugin(SchemaBackedPlugin):
                 logger=api.logger,
                 environment=invocation.environment,
                 cwd=invocation.cwd,
+                user_state=api.state(StateScope.USER).directory,
             )
         return GoalResult.completed(exit_code=exit_code)
 
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--offline]  "
+            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--offline] [--include-pki-secrets]  "
             "Create a sanitized portable lab archive\n"
-            "  defrost ARCHIVE [--into DIRECTORY] [--license NODE=VALUE]  "
+            "  defrost ARCHIVE [--into DIRECTORY] [--pki-authority BINDING=REF]  "
             "Expand a frozen archive into a runnable lab"
         )

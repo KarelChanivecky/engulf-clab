@@ -1,5 +1,11 @@
 # engulf-clab-freeze
 
+New archives use format 2. Defrost accepts legacy format 1 and format 2; older
+readers reject format 2. Installed contributors may add namespaced arguments,
+sanitize staged files, record authenticated metadata, resolve recipient
+bindings, and restore state before the destination is published. A required
+missing contributor fails without leaving a partial destination.
+
 Creates a shareable archive without changing or deploying the source lab, and
 expands a received archive back into a runnable one:
 

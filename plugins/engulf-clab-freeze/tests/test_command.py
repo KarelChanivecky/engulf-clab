@@ -8,7 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import yaml
 from engulf_clab_freeze.command import (
@@ -58,6 +58,8 @@ class FreezeCommandTestCase(unittest.TestCase):
                 user_state=None,
                 application_name="eclab",
                 environment=None,
+                contributors=ANY,
+                contributor_arguments=ANY,
             )
 
     def test_main_accepts_an_explicit_topology(self) -> None:
@@ -81,6 +83,8 @@ class FreezeCommandTestCase(unittest.TestCase):
                 user_state=None,
                 application_name="eclab",
                 environment=None,
+                contributors=ANY,
+                contributor_arguments=ANY,
             )
 
     def test_main_forwards_offline_mode_and_user_state(self) -> None:
@@ -115,6 +119,8 @@ class FreezeCommandTestCase(unittest.TestCase):
                 user_state=user_state,
                 application_name="eclab",
                 environment=None,
+                contributors=ANY,
+                contributor_arguments=ANY,
             )
 
     def test_freeze_sanitizes_a_copy_without_changing_source(self) -> None:

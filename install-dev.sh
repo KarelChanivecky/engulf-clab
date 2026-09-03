@@ -54,6 +54,8 @@ fi
 
 local_packages=(
     "plugins/engulf-clab-schema-api"
+    "plugins/engulf-clab-freeze-api"
+    "plugins/engulf-clab-pki-api"
     "plugins/engulf-clab-schema"
     "plugins/engulf-clab-develop-eclab-lab"
     "plugins/engulf-clab-ensure-checkout"
@@ -73,8 +75,11 @@ local_packages=(
     "plugins/engulf-clab-wan"
     "plugins/engulf-clab-license-pool"
     "plugins/engulf-clab-freeze"
+    "plugins/engulf-clab-pki"
+    "plugins/engulf-clab-vrnetlab-fortigate-pki-injector"
     "plugins/engulf-clab-all-plugins"
     "engulf-clab"
+    "demo-lab"
 )
 
 for package in "${local_packages[@]}"; do
