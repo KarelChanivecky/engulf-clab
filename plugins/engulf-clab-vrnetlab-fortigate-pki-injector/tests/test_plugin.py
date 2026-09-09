@@ -56,13 +56,13 @@ class FortigatePkiInjectorTest(unittest.TestCase):
             environment = session.materialize()["topology"]["nodes"]["fgt"]["env"]
             self.assertEqual(
                 environment[CA_CERTIFICATES],
-                "/mnt/pki/authorities/effective/root/default/certificate.pem",
+                "root:/mnt/pki/authorities/effective/root/default/certificate.pem",
             )
             self.assertEqual(
                 environment[LOCAL_CERTIFICATES],
-                "/mnt/pki/private/authorities/global/root/default/private-key.pem:"
+                "root:/mnt/pki/private/authorities/global/root/default/private-key.pem:"
                 "/mnt/pki/authorities/global/root/default/certificate.pem;"
-                "/mnt/pki/issued/fgt/tls/private-key.pem:"
+                "tls:/mnt/pki/issued/fgt/tls/private-key.pem:"
                 "/mnt/pki/issued/fgt/tls/certificate.pem",
             )
             self.assertNotIn(CRLS, environment)
@@ -84,6 +84,16 @@ class FortigatePkiInjectorTest(unittest.TestCase):
         _prepare(session, PkiNodeProjections((projection,)))
         self.assertNotIn("env", session.materialize()["topology"]["nodes"]["fgt"])
 
+    def test_projection_for_removed_build_only_node_is_a_noop(self) -> None:
+        projection = NodePkiProjection(
+            "image-build", "linux", Path("/missing/view"), PurePosixPath("/mnt/pki")
+        )
+        session = TopologySession(
+            Path("/tmp/lab.clab.yml"), {"topology": {"nodes": {}, "defaults": {}}}
+        )
+        _prepare(session, PkiNodeProjections((projection,)))
+        self.assertEqual(session.materialize()["topology"]["nodes"], {})
+
     def test_rejects_owned_variable_from_defaults_even_when_category_is_empty(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             projection = _projection(Path(directory), kind="fortinet_fortigate")
@@ -97,6 +107,63 @@ class FortigatePkiInjectorTest(unittest.TestCase):
             projection.public_authorities[0].certificate.host_path.unlink()
             session = _session(projection)
             with self.assertRaisesRegex(InjectorError, "unavailable"):
+                _prepare(session, PkiNodeProjections((projection,)))
+            self.assertNotIn("env", session.materialize()["topology"]["nodes"]["fgt"])
+
+    def test_emits_named_certificate_only_local_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            projection = _projection(Path(directory), kind="fortinet_fortigate")
+            requested = projection.requested_authorities[0]
+            projection = NodePkiProjection(
+                node_name=projection.node_name,
+                node_kind=projection.node_kind,
+                staged_view=projection.staged_view,
+                mount_target=projection.mount_target,
+                public_authorities=projection.public_authorities,
+                trusted_authorities=projection.trusted_authorities,
+                requested_authorities=(
+                    RequestedAuthorityProjection(
+                        requested.scope,
+                        requested.name,
+                        requested.variant,
+                        requested.fingerprint_sha256,
+                        requested.certificate,
+                        requested.chain,
+                        requested.full_chain,
+                    ),
+                ),
+            )
+            session = _session(projection)
+            _prepare(session, PkiNodeProjections((projection,)))
+            self.assertEqual(
+                session.materialize()["topology"]["nodes"]["fgt"]["env"][LOCAL_CERTIFICATES],
+                "root:/mnt/pki/authorities/global/root/default/certificate.pem",
+            )
+
+    def test_rejects_duplicate_local_refname_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            projection = _projection(Path(directory), kind="fortinet_fortigate")
+            requested = projection.requested_authorities[0]
+            duplicate = IssuedIdentityProjection(
+                "local/root",
+                "c" * 64,
+                _projected_file(projection.staged_view, "issued/fgt/root/certificate.pem"),
+                _projected_file(projection.staged_view, "issued/fgt/root/private-key.pem"),
+                _projected_file(projection.staged_view, "issued/fgt/root/chain.pem"),
+                _projected_file(projection.staged_view, "issued/fgt/root/full-chain.pem"),
+            )
+            projection = NodePkiProjection(
+                node_name=projection.node_name,
+                node_kind=projection.node_kind,
+                staged_view=projection.staged_view,
+                mount_target=projection.mount_target,
+                public_authorities=projection.public_authorities,
+                trusted_authorities=projection.trusted_authorities,
+                requested_authorities=(requested,),
+                issued_identities=(duplicate,),
+            )
+            session = _session(projection)
+            with self.assertRaisesRegex(InjectorError, "duplicate refname 'root'"):
                 _prepare(session, PkiNodeProjections((projection,)))
             self.assertNotIn("env", session.materialize()["topology"]["nodes"]["fgt"])
 
@@ -121,7 +188,7 @@ def _projection(root: Path, *, kind: str) -> NodePkiProjection:
         _projected_file(view, "authorities/effective/root/default/full-chain.pem"),
     )
     issued = IssuedIdentityProjection(
-        "tls",
+        "local/tls",
         "b" * 64,
         _projected_file(view, "issued/fgt/tls/certificate.pem"),
         _projected_file(view, "issued/fgt/tls/private-key.pem"),
@@ -139,7 +206,14 @@ def _projection(root: Path, *, kind: str) -> NodePkiProjection:
         _projected_file(view, "private/authorities/global/root/default/private-key.pem"),
     )
     return NodePkiProjection(
-        "fgt", kind, view, PurePosixPath("/mnt/pki"), (public,), (requested,), (issued,)
+        node_name="fgt",
+        node_kind=kind,
+        staged_view=view,
+        mount_target=PurePosixPath("/mnt/pki"),
+        public_authorities=(public,),
+        trusted_authorities=(public,),
+        requested_authorities=(requested,),
+        issued_identities=(issued,),
     )
 
 

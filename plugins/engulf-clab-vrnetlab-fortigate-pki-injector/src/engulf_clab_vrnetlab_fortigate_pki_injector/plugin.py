@@ -83,7 +83,7 @@ class FortigatePkiInjector(SchemaBackedPlugin):
         del api
         return (
             "  FortiGate PKI injection (automatic when PKI is selected)\n"
-            "      Generates FOS_PKI_CA_CERTS and FOS_PKI_LOCAL_CERTS from authorized paths\n"
+            "      Generates mandatory-refname FOS_PKI_CA_CERTS and FOS_PKI_LOCAL_CERTS entries\n"
             "      Existing injector-owned FOS_PKI_* variables are rejected"
         )
 
@@ -113,9 +113,11 @@ class FortigatePkiInjector(SchemaBackedPlugin):
         mutation = session.editor(self.plugin_id)
         for projection in value.nodes:
             node = nodes.get(projection.node_name)
+            if node is None:
+                continue
             if not isinstance(node, dict):
                 raise InjectorError(
-                    f"projected PKI node {projection.node_name!r} is unavailable in the topology"
+                    f"projected PKI node {projection.node_name!r} must be a mapping"
                 )
             kind = _node_kind(node, defaults)
             if kind != projection.node_kind:
@@ -128,10 +130,10 @@ class FortigatePkiInjector(SchemaBackedPlugin):
             environment = _environment(node, owner=f"node {projection.node_name!r}")
             _reject_collisions(projection.node_name, environment, defaults)
             generated = _environment_values(projection)
-            if generated:
+            for variable, generated_value in generated.items():
                 mutation.modify(
-                    ("topology", "nodes", projection.node_name, "env"),
-                    {**environment, **generated},
+                    ("topology", "nodes", projection.node_name, "env", variable),
+                    generated_value,
                 )
 
 
@@ -210,42 +212,53 @@ def _matching_bind(node: dict[str, Any], projection: NodePkiProjection) -> bool:
 
 
 def _environment_values(projection: NodePkiProjection) -> dict[str, str]:
-    ca_paths: list[str] = []
+    ca_entries: list[str] = []
+    ca_refnames: set[str] = set()
     ca_fingerprints: set[str] = set()
-    for authority in projection.public_authorities:
+    for authority in projection.trusted_authorities:
         if authority.fingerprint_sha256 not in ca_fingerprints:
             ca_fingerprints.add(authority.fingerprint_sha256)
-            ca_paths.append(str(authority.certificate.container_path))
-    for requested_authority in projection.requested_authorities:
-        if (
-            requested_authority.private_key is None
-            and requested_authority.fingerprint_sha256 not in ca_fingerprints
-        ):
-            ca_fingerprints.add(requested_authority.fingerprint_sha256)
-            ca_paths.append(str(requested_authority.certificate.container_path))
-
-    local_paths: list[str] = []
+            refname = _authority_refname(authority.name, authority.variant)
+            _claim_refname(CA_CERTIFICATES, refname, ca_refnames)
+            ca_entries.append(f"{refname}:{authority.certificate.container_path}")
+    local_entries: list[str] = []
+    local_refnames: set[str] = set()
     local_fingerprints: set[str] = set()
     for local_authority in projection.requested_authorities:
-        if (
-            local_authority.private_key is not None
-            and local_authority.fingerprint_sha256 not in local_fingerprints
-        ):
+        if local_authority.fingerprint_sha256 not in local_fingerprints:
             local_fingerprints.add(local_authority.fingerprint_sha256)
-            local_paths.append(
-                f"{local_authority.private_key.container_path}:"
-                f"{local_authority.certificate.container_path}"
-            )
+            refname = _authority_refname(local_authority.name, local_authority.variant)
+            _claim_refname(LOCAL_CERTIFICATES, refname, local_refnames)
+            fields = [refname]
+            if local_authority.private_key is not None:
+                fields.append(str(local_authority.private_key.container_path))
+            fields.append(str(local_authority.certificate.container_path))
+            local_entries.append(":".join(fields))
     for identity in projection.issued_identities:
         if identity.fingerprint_sha256 not in local_fingerprints:
             local_fingerprints.add(identity.fingerprint_sha256)
-            local_paths.append(
-                f"{identity.private_key.container_path}:{identity.certificate.container_path}"
+            refname = identity.request_name.split("/", 1)[1]
+            _claim_refname(LOCAL_CERTIFICATES, refname, local_refnames)
+            local_entries.append(
+                f"{refname}:{identity.private_key.container_path}:"
+                f"{identity.certificate.container_path}"
             )
 
     generated: dict[str, str] = {}
-    if ca_paths:
-        generated[CA_CERTIFICATES] = ";".join(ca_paths)
-    if local_paths:
-        generated[LOCAL_CERTIFICATES] = ";".join(local_paths)
+    if ca_entries:
+        generated[CA_CERTIFICATES] = ";".join(ca_entries)
+    if local_entries:
+        generated[LOCAL_CERTIFICATES] = ";".join(local_entries)
     return generated
+
+
+def _authority_refname(name: str, variant: str) -> str:
+    return name if variant == "default" else f"{name}-{variant}"
+
+
+def _claim_refname(variable: str, refname: str, claimed: set[str]) -> None:
+    if not refname or any(character in refname for character in (":", ";")):
+        raise InjectorError(f"{variable} refname {refname!r} is invalid")
+    if refname in claimed:
+        raise InjectorError(f"{variable} contains duplicate refname {refname!r}")
+    claimed.add(refname)
