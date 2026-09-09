@@ -1,20 +1,15 @@
-# Comprehensive demo-lab usage
+# Portable demo-lab usage
 
 ## Install
 
 Install with Python 3.14 or newer. The distribution installs eclab and the
-curated plugin set required by the lab; it deliberately excludes
-`engulf-clab-wan` and `engulf-clab-develop-eclab-lab`.
+curated plugin set required by the lab; it deliberately excludes proprietary
+vrnetlab, license-pool, managed-WAN, and generated-skill features.
 
 ```bash
 python3.14 -m pip install engulf-clab-demo-lab
-eclab-demo-lab-install --fortigate-image /entitled/fortios-v8.0.0.qcow2
+eclab-demo-lab-install
 ```
-
-Interactive installation asks for the same image path. Noninteractive use must
-pass `--fortigate-image`. The selected file remains outside the installed lab.
-The installer writes only its shell-quoted absolute path to owner-private
-`local/runtime.env`.
 
 The destination defaults to `./eclab-demo-lab`. Use `--check` for read-only
 verification. A changed recognized installation is replaced only with
@@ -30,31 +25,35 @@ cd eclab-demo-lab
 ./prepare-archive.sh
 ./run-eclab.sh pki effective -t all-features.clab.yml
 ./run-eclab.sh deploy -t all-features.clab.yml
+./run-eclab.sh inspect --name eclab-all-features
 ./run-eclab.sh destroy -t all-features.clab.yml
 ./run-eclab.sh freeze -t all-features.clab.yml --offline --output demo.tar.gz
 ```
 
-Before deploy, place one entitled FortiGate license file directly inside
-`inputs/licenses/`. The directory is intentionally empty after installation.
-Deploying the complete topology needs Docker access, QEMU tools, and the
-privileges required by Containerlab. It can pull the public images named by the
-topology and PKI service recipes.
+Inspect by lab name because the source contains build-only nodes that are
+intentionally absent from the deployed topology.
 
-The three internal L2 networks are bridges inside the `segments` container's
-network namespace. Unlike a plain host `kind: bridge`, they need no pre-created
-host bridge. Real-WAN access is supplied by the packaged
-`eclab.containers/wan-access` node and does not use the excluded managed-WAN
-plugin.
+Deployment needs Docker access and the privileges required by Containerlab. It
+can pull the public images named by the topology and PKI service recipes. The
+two internal L2 networks are bridges inside the `segments` container namespace,
+so no pre-created host bridge is needed. A small Linux router forwards between
+the client and DMZ subnets and uses the packaged `wan-access` node as an uplink.
+
+The Debian and Fedora consumers copy the matching PKI installer asset without
+changing that asset's base image. Client A demonstrates multiple identities,
+curl selection, Chromium origin policy, Firefox NSS discovery, and a Playwright
+descriptor. Debian nginx requires a generated client certificate directly;
+Fedora nginx serves a cross-signed chain. See `RUNBOOK.md` for positive and
+negative checks.
 
 ## Security and cleanup
 
-The package contains no VM image, license, credential, certificate, key, or
-passphrase. The database recipe requests a runtime-generated root password;
-that value is not lab source. Generated Docker archives, PKI state, local
-runtime selection, and license files are ignored. Review the topology,
-Dockerfiles, scripts, and external inputs before deployment. Use successful
-`destroy` for normal license and PKI-view cleanup.
+The package contains no credential, certificate, key, passphrase, VM image, or
+license. The database recipe requests a runtime-generated root password; that
+value is not lab source. Generated Docker archives and PKI state are ignored.
+Review the topology, Dockerfiles, and scripts before deployment. Use successful
+`destroy` for normal PKI-view cleanup.
 
-Use offline freeze for sharing this demo. It omits entitled vrnetlab VM inputs;
-the recipient must select their own image and license. Do not commit a defrosted
-directory after resolving private inputs.
+Offline freeze produces a self-contained sharing artifact from public container
+images. Optional private PKI export still requires an owner-private passphrase
+file, which must remain outside the lab.

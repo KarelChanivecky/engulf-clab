@@ -7,6 +7,6 @@
   not split behavior into separate labs.
 - Keep internal bridges namespaced below `segments`; a plain bridge requires a
   pre-existing host bridge.
-- Never package FortiGate images or licenses. The installer asks for an external
-  image and creates a truly empty license directory.
+- Keep the demo portable: it must not require a proprietary VM image, license,
+  or local runtime-selection file.
 - Read `USAGE.md` and `CONTRIBUTING.md` before changing behavior.

@@ -24,10 +24,6 @@ topology:
       kind: bridge
       network-mode: container:segments
 
-    work-net|segments:
-      kind: bridge
-      network-mode: container:segments
-
     router-base-build:
       kind: linux
       image: eclab-demo/router-base:0.1
@@ -38,45 +34,52 @@ topology:
         ECLAB_DOCKER_ARGS: "--label org.engulf.demo=all-features"
         ECLAB_DOCKER_BASE_NODE: "true"
 
-    fake-wan:
+    router:
       kind: linux
-      image: eclab-demo/fake-wan:0.1
+      image: eclab-demo/router:0.1
       cap-add: [NET_ADMIN]
       sysctls:
         net.ipv4.ip_forward: 1
       env:
-        ECLAB_DOCKERFILE: images/fake-wan/Dockerfile
-        ECLAB_DOCKER_CTX: images/fake-wan
-        ECLAB_IMAGE_PARAM_ROLE: fake-wan
+        ECLAB_DOCKERFILE: images/router/Dockerfile
+        ECLAB_DOCKER_CTX: images/router
+        ECLAB_IMAGE_PARAM_ROLE: router
 
     client-a:
       kind: linux
-      image: eclab-demo/router-base:0.1
+      image: eclab-demo/pki-client-debian:0.1
+      env:
+        ECLAB_DOCKERFILE: images/pki-client-debian/Dockerfile
+        ECLAB_DOCKER_CTX: images/pki-client-debian
+        ECLAB_PKI_CERTIFICATES: client-a-mtls,client-a-secondary
+        ECLAB_PKI_IDENTITY_CURL: client-a-mtls
+        ECLAB_PKI_BROWSER_CLIENT_CERTS: >-
+          [{"browser":"chromium","origin":"https://mtls.demo.test:443","identity":"client-a-mtls"}]
+        ECLAB_PKI_REQUIRED: "true"
+        ECLAB_PKI_SYSTEM_TRUST: augment
       exec:
         - ip address add 10.10.10.10/24 dev eth1
         - ip link set eth1 up
         - ip route replace default via 10.10.10.1 dev eth1
+        - sh -c "echo '192.0.2.10 mtls.demo.test' >> /etc/hosts"
+        - sh -c "echo '192.0.2.10 dmz.demo.test' >> /etc/hosts"
+        - sh -c "echo '192.0.2.12 cross.dmz.demo.test' >> /etc/hosts"
 
     client-b:
       kind: linux
-      image: eclab-demo/router-base:0.1
+      image: eclab-demo/pki-client-fedora:0.1
+      env:
+        ECLAB_DOCKERFILE: images/pki-client-fedora/Dockerfile
+        ECLAB_DOCKER_CTX: images/pki-client-fedora
+        ECLAB_PKI_REQUIRED: "true"
+        ECLAB_PKI_SYSTEM_TRUST: augment
+        ECLAB_PKI_TRUST_MODE: none
+        ECLAB_PKI_TRUST_INCLUDE: demo-root
       exec:
         - ip address add 10.10.10.11/24 dev eth1
         - ip link set eth1 up
         - ip route replace default via 10.10.10.1 dev eth1
-
-    fgt:
-      kind: fortinet_fortigate
-      image: eclab-demo/fortigate:external
-      enforce-startup-config: true
-      startup-config: configs/fgt.conf
-      license: inputs/licenses
-      env:
-        ECLAB_VRNETLAB_TYPE: fortinet/fortigate
-        ECLAB_PKI_MOUNT_TARGET: /opt/eclab/pki
-        FOS_UUID: 2bc9e818-61bf-5ae8-bf96-4c99a3b45217
-        FOS_LICENSE_STATUS_TIMEOUT_SECONDS: "180"
-        FOS_ONBOARDING: "true"
+        - sh -c "echo '192.0.2.10 mtls.demo.test' >> /etc/hosts"
 
     dmz-docker:
       kind: linux
@@ -84,8 +87,25 @@ topology:
       env:
         ECLAB_DOCKERFILE: images/dmz-server/Dockerfile
         ECLAB_DOCKER_CTX: images/dmz-server
+        ECLAB_PKI_CERTIFICATES: dmz-nginx-primary
+        ECLAB_PKI_IDENTITY_NGINX: dmz-nginx-primary
+        ECLAB_PKI_REQUIRED: "true"
       exec:
         - ip address add 192.0.2.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 192.0.2.1 dev eth1
+
+    dmz-fedora:
+      kind: linux
+      image: eclab-demo/dmz-fedora:0.1
+      env:
+        ECLAB_DOCKERFILE: images/dmz-fedora/Dockerfile
+        ECLAB_DOCKER_CTX: images/dmz-fedora
+        ECLAB_PKI_CERTIFICATES: dmz-nginx-cross-signed
+        ECLAB_PKI_IDENTITY_NGINX: dmz-nginx-cross-signed
+        ECLAB_PKI_REQUIRED: "true"
+      exec:
+        - ip address add 192.0.2.12/24 dev eth1
         - ip link set eth1 up
         - ip route replace default via 192.0.2.1 dev eth1
 
@@ -113,24 +133,8 @@ topology:
       kind: linux
       image: eclab.containers/host-connector
       env:
-        ECLAB_CONNECT_HOST: "192.0.2.200;198.51.100.200"
-        ECLAB_CONNECT_HOST_7: "2001:db8:2::200;2001:db8:51::200"
-
-    workstation-a:
-      kind: linux
-      image: eclab-demo/router-base:0.1
-      exec:
-        - ip address add 198.51.100.10/24 dev eth1
-        - ip link set eth1 up
-        - ip route replace default via 198.51.100.1 dev eth1
-
-    workstation-b:
-      kind: linux
-      image: eclab-demo/router-base:0.1
-      exec:
-        - ip address add 198.51.100.11/24 dev eth1
-        - ip link set eth1 up
-        - ip route replace default via 198.51.100.1 dev eth1
+        ECLAB_CONNECT_HOST: "192.0.2.200;192.0.2.201"
+        ECLAB_CONNECT_HOST_7: "2001:db8:2::200;2001:db8:2::201"
 
     real-wan:
       kind: linux
@@ -146,13 +150,10 @@ topology:
   links:
     - endpoints: ["client-a:eth1", "client-net|segments:client-a"]
     - endpoints: ["client-b:eth1", "client-net|segments:client-b"]
-    - endpoints: ["fake-wan:eth1", "client-net|segments:fake-wan"]
-    - endpoints: ["fake-wan:eth2", "fgt:port2"]
-    - endpoints: ["fgt:port3", "dmz-net|segments:fgt"]
+    - endpoints: ["router:eth1", "client-net|segments:router-client"]
+    - endpoints: ["router:eth2", "dmz-net|segments:router-dmz"]
     - endpoints: ["dmz-docker:eth1", "dmz-net|segments:dmz-docker"]
+    - endpoints: ["dmz-fedora:eth1", "dmz-net|segments:dmz-fedora"]
     - endpoints: ["dmz-archive:eth1", "dmz-net|segments:dmz-archive"]
     - endpoints: ["host-connector:eth1", "dmz-net|segments:host-connector"]
-    - endpoints: ["fgt:port4", "work-net|segments:fgt"]
-    - endpoints: ["workstation-a:eth1", "work-net|segments:workstation-a"]
-    - endpoints: ["workstation-b:eth1", "work-net|segments:workstation-b"]
-    - endpoints: ["fake-wan:eth3", "real-wan:eth1"]
+    - endpoints: ["router:eth3", "real-wan:eth1"]

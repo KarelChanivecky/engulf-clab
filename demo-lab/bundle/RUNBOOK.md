@@ -1,53 +1,38 @@
-# Eclab all-features lab
+# Eclab portable all-features lab
 
-This directory contains one source topology. The packet path is:
+This directory contains one source topology. Its packet path is:
 
 ```text
-client-net -- fake-wan -- FortiGate -- dmz-net
-                    |             `-- work-net
-                    `-- real-wan (packaged wan-access container)
+client-net -- Linux router -- dmz-net
+                     |          |-- Debian nginx with direct mTLS
+                     |          |-- Fedora nginx with a cross-signed chain
+                     |          `-- archive-built HTTP server
+                     `-- real-wan (packaged wan-access container)
 ```
 
-`client-net`, `dmz-net`, and `work-net` are created inside the `segments`
-container namespace. Their topology names contain `|segments` and their
-`network-mode` is `container:segments`; a plain bridge would instead require a
-pre-existing host bridge.
+The two internal bridges live in the `segments` container namespace. Their
+topology names contain `|segments` and use `network-mode: container:segments`,
+so they need no pre-created host bridge.
 
-## 1. Inspect and supply entitled inputs
+## 1. Inspect the runtime
 
-The installer already recorded the selected FortiGate source in
-`local/runtime.env`. It did not copy that file. Check the installation:
+Check the installation and inspect the active runtime before operating it:
 
 ```bash
 eclab-demo-lab-install --check "$PWD"
-```
-
-Place one entitled FortiGate license directly in the empty pool:
-
-```text
-inputs/licenses/
-```
-
-Do not add a placeholder or metadata file to that directory: every regular
-top-level file is a license candidate.
-
-Inspect the active runtime before operating it:
-
-```bash
 ./run-eclab.sh --engulf-plugin-list
 ./run-eclab.sh --eclab-containers-help
 ./run-eclab.sh --help
 ```
 
-The inventory must not need `engulf_clab.wan` or
-`engulf_clab.develop_lab_skill`. Their presence in a shared Python environment
-does not activate them because this topology has neither managed-WAN labels nor
-the generated-skill command.
+No FortiGate image or license is needed. The inventory deliberately omits the
+vrnetlab build, FortiGate PKI injector, and license-pool packages. It also does
+not need `engulf_clab.wan` or `engulf_clab.develop_lab_skill`.
 
-## 2. Prepare the ordinary Docker archive
+## 2. Prepare the Docker archive
 
-The archive provider needs a real `docker save` stream. Create the disposable
-demo archive; this is unrelated to the external FortiGate source:
+The archive provider needs a real `docker save` stream. Create its disposable
+input before deploying:
 
 ```bash
 ./prepare-archive.sh
@@ -57,83 +42,115 @@ The result is ignored at `artifacts/archive-source.tar.gz`.
 
 ## 3. Validate and inspect PKI
 
-Use the exact active generated schema as the validation authority. The package
-tests perform this check against the selected runtime. Inspect the effective
-PKI graph without generating material:
+Use the installed runtime's generated schema as the validation authority. The
+package tests perform this check. Inspect the effective PKI graph without
+generating material:
 
 ```bash
 ./run-eclab.sh pki effective -t all-features.clab.yml
 ```
 
-The local manifest declares a central CA, certificate database, certificate
-directory, CRL responder, OCSP responder, and administration node. The current
-generic PKI service contract injects those nodes and their read-only PKI views;
-it does not promise production database schema initialization, CRL publication,
-or OCSP signing policy.
+The manifest declares roots, an intermediate and cross-signed variant, TLS
+client/server profiles, two client identities, and two nginx identities. It
+also declares central CA, database, directory, CRL, OCSP, and administration
+service nodes. The generic service contract injects the nodes and read-only PKI
+views; it does not promise production service initialization or enforcement.
 
 ## 4. Deploy
 
-Deployment builds ordinary Docker images, loads the generated archive, builds
-the FortiGate vrnetlab image from the selected external source, allocates the
-license, generates PKI, and writes a temporary derived topology:
-
 ```bash
-./run-eclab.sh deploy -t all-features.clab.yml \
-  --eclab-image-build-jobs 2 \
-  --eclab-vrnetlab-build-jobs 1
+./run-eclab.sh deploy -t all-features.clab.yml --eclab-image-build-jobs 2
 ```
 
-The first FortiGate boot and license installation can take several minutes.
+This builds ordinary Docker images, loads the generated archive, creates PKI
+material, and writes a temporary derived topology. The source remains unchanged.
 
 ## 5. Verify
 
-Check Containerlab state and container health:
+Inspect by lab name because build-only nodes are absent from the deployed topology:
 
 ```bash
-./run-eclab.sh inspect -t all-features.clab.yml
+./run-eclab.sh inspect --name eclab-all-features
 docker ps --filter label=containerlab=eclab-all-features
 ```
 
-Then verify these paths from the appropriate nodes:
+The router should have `10.10.10.1/24` on `eth1`, `192.0.2.1/24` on `eth2`, a
+DHCP address on `eth3`, and IPv4 forwarding enabled. Verify routing:
 
-- `client-a` (`10.10.10.10`) through `fake-wan` and FortiGate to
-  `dmz-docker` (`192.0.2.10`).
-- `client-a` through the same path to `workstation-a` (`198.51.100.10`).
-- DMZ and work nodes through FortiGate, `fake-wan`, and `real-wan` to the
-  management network's real uplink.
-- `real-wan` has exactly `eth0` plus one lab-facing interface and is healthy.
-- FortiGate contains the generated public CA objects and its authorized local
-  certificate/key pairs.
-- `pki-db`, `pki-directory`, `pki-crl`, and `pki-ocsp` exist and received their
-  read-only PKI view.
+```bash
+docker exec clab-eclab-all-features-client-a ping -c 2 192.0.2.10
+docker exec clab-eclab-all-features-dmz-docker ping -c 2 10.10.10.10
+docker exec clab-eclab-all-features-router ip -brief address
+```
 
-The source `all-features.clab.yml` must still contain only eclab declarations;
-generated `FOS_PKI_*` values appear only in the temporary derived topology.
+`real-wan` should have exactly `eth0` plus one lab-facing interface and report
+healthy. PKI service nodes should exist with their read-only PKI views.
+
+### Direct mTLS
+
+Client A owns two identities, but its curl selector chooses `client-a-mtls`.
+The curl adapter supplies it to Debian nginx, which validates it against the
+generated trust bundle:
+
+```bash
+docker exec clab-eclab-all-features-client-a sh -c \
+  '. /opt/eclab-pki/state/environment; curl -fsS -D - https://mtls.demo.test/'
+```
+
+The response contains `X-Eclab-Client-Certificate: SUCCESS`. Client B trusts
+the server chain but has no client identity, so the same origin must reject it:
+
+```bash
+! docker exec clab-eclab-all-features-client-b curl -fsS https://mtls.demo.test/
+```
+
+### Server identities and cross-signing
+
+Inspect the direct Debian chain and reach the Fedora server's cross-signed chain:
+
+```bash
+docker exec clab-eclab-all-features-client-a sh -c \
+  '. /opt/eclab-pki/state/environment; openssl s_client -connect dmz.demo.test:443 -servername dmz.demo.test -cert "$ECLAB_PKI_CURL_FULL_CHAIN_FILE" -key "$ECLAB_PKI_CURL_KEY_FILE" </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject'
+docker exec clab-eclab-all-features-client-a sh -c \
+  '. /opt/eclab-pki/state/environment; curl -fsS https://cross.dmz.demo.test/'
+```
+
+The Debian leaf is issued through `issuing -> demo-root`; the Fedora leaf uses
+the same issuing key and subject through `issuing/alternate-chain -> alternate-root`.
+
+### Browser identity discovery
+
+Client A's Chromium and Firefox NSS stores contain both `client_auth`
+identities. Only the explicit Chromium rule may automatically send
+`client-a-mtls`, and only to the exact mTLS origin:
+
+```bash
+docker exec clab-eclab-all-features-client-a certutil -L -d sql:/root/.pki/nssdb
+docker exec clab-eclab-all-features-client-a certutil -L -d sql:/root/.local/share/pki/nssdb
+docker exec clab-eclab-all-features-client-a cat /etc/chromium/policies/managed/eclab-pki.json
+docker exec clab-eclab-all-features-client-a cat /opt/eclab-pki/state/playwright-client-certificates.json
+docker exec clab-eclab-all-features-client-a /opt/eclab-pki/runtime.py --firefox-profile client-a-mtls
+```
 
 ## 6. Destroy
-
-Use normal lifecycle cleanup before freezing or changing the license pool:
 
 ```bash
 ./run-eclab.sh destroy -t all-features.clab.yml
 ```
 
-Destroy releases the license allocation and removes generated PKI views and the
-temporary topology. Built Docker images and persistent PKI history remain.
+Destroy removes generated PKI views and the temporary topology. Built Docker
+images and persistent PKI history remain.
 
 ## 7. Freeze and defrost
 
-Use offline freeze as this demo's sharing path. It deliberately omits the
-entitled FortiGate source, so every recipient supplies their own:
+The portable lab can be shared with offline freeze without proprietary inputs:
 
 ```bash
 ./run-eclab.sh freeze -t all-features.clab.yml --offline --output demo.tar.gz
 ./run-eclab.sh defrost demo.tar.gz --into restored-demo --no-license-prompt
 ```
 
-The recipient installs or selects their FortiGate source and places a license
-in the restored empty pool before deploy. Optional private PKI export additionally
-requires an owner-private passphrase file:
+Optional private PKI export requires an owner-private passphrase file:
 
 ```bash
 ./run-eclab.sh freeze -t all-features.clab.yml --offline \

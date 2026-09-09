@@ -3,9 +3,13 @@ version: 1
 topology: all-features.clab.yml
 
 excluded_distributions:
-  engulf-clab-wan: requested exclusion; real WAN uses the packaged wan-access container
-  engulf-clab-develop-eclab-lab: requested exclusion; skill installation is not a lab feature
-  engulf-clab-develop-eclab-lab-static: requested exclusion; comparison skill is not a lab feature
+  engulf-clab-wan: real WAN uses the packaged wan-access container
+  engulf-clab-ensure-vrnetlab: portable demo has no virtual network appliance
+  engulf-clab-vrnetlab-build: portable demo has no proprietary VM image input
+  engulf-clab-license-pool: portable demo has no licensed node
+  engulf-clab-vrnetlab-fortigate-pki-injector: PKI consumers are ordinary Linux containers
+  engulf-clab-develop-eclab-lab: skill installation is not a lab feature
+  engulf-clab-develop-eclab-lab-static: comparison skill is not a lab feature
 
 plugins:
   engulf_clab.ensure_containerlab:
@@ -18,16 +22,6 @@ plugins:
     coverage:
       - explicit topology selection
       - topology-relative paths and source immutability
-  engulf_clab.ensure_vrnetlab:
-    distribution: engulf-clab-ensure-vrnetlab
-    coverage:
-      - fgt.env.ECLAB_VRNETLAB_TYPE
-      - configured or managed checkout preparation
-  engulf_clab.vrnetlab_build:
-    distribution: engulf-clab-vrnetlab-build
-    coverage:
-      - external node-specific FortiGate source selected by run-eclab.sh
-      - build concurrency and lab-unique output tag
   engulf_clab.image_archive:
     distribution: engulf-clab-image-archive
     coverage:
@@ -41,12 +35,6 @@ plugins:
       - ECLAB_DOCKER_VAR_DEMO_RELEASE
       - ECLAB_DOCKER_ARGS
       - ECLAB_DOCKER_BASE_NODE
-  engulf_clab.license_pool:
-    distribution: engulf-clab-license-pool
-    coverage:
-      - fgt.license points to installer-created empty inputs/licenses
-      - stable fgt.env.FOS_UUID
-      - allocation, rollback, destroy release, and freeze redaction
   eclab.containers:
     distribution: engulf-clab-containers-core
     coverage:
@@ -62,29 +50,41 @@ plugins:
     distribution: engulf-clab-image-build
     coverage:
       - recursive literal FROM graph
+      - external COPY --from installer-image dependencies
       - ECLAB_IMAGE_PARAM_ROLE
       - provider precedence, concurrency, local reuse, pull fallback, and Never policy
   engulf_clab.pki:
     distribution: engulf-clab-pki
     coverage:
       - ECLAB_PKI_MANIFEST and ECLAB_PKI_MOUNT_TARGET controls
-      - generated store, reusable profile, roots, intermediate, and cross-signed variant
-      - authorized CA private key and node leaf identities
-      - PEM, DER, PKCS12, SAN, AIA, CRL distribution, and custom extension
+      - generated store, reusable profiles, roots, intermediate, and cross-signed variant
+      - ECLAB_PKI_CERTIFICATES topology requests and ECLAB_PKI_TRUST_MODE selection
+      - ECLAB_PKI_TRUST_INCLUDE node trust selection
+      - multiple leaf identities, PEM, DER, PKCS12, SAN, AIA, CRL distribution, and custom extension
       - central CA, certificate database, directory, CRL, OCSP, and administration services
       - global catalog and effective-inspection commands documented in RUNBOOK.md
+  engulf_clab.pki_linux_core:
+    distribution: engulf-clab-pki-linux-core
+    coverage:
+      - ECLAB_PKI_REQUIRED startup and ECLAB_PKI_SYSTEM_TRUST augment mode
+      - ECLAB_PKI_IDENTITY_CURL and ECLAB_PKI_IDENTITY_NGINX selectors
+      - automatic multi-identity NSS import and ECLAB_PKI_BROWSER_CLIENT_CERTS origin policy
+      - integration-owned curl configuration, nginx TLS fragment, and direct mTLS
+  engulf_clab.pki_linux_debian:
+    distribution: engulf-clab-pki-linux-debian
+    coverage:
+      - Debian 13 client and nginx consumers copy and run the installer asset
+      - target applications are installed by the consumers
+  engulf_clab.pki_linux_fedora:
+    distribution: engulf-clab-pki-linux-fedora
+    coverage:
+      - Fedora 44 client and nginx consumers copy and run the installer asset
+      - runtime detection overrides build-time capability recording
   engulf_clab.freeze:
     distribution: engulf-clab-freeze
     coverage:
-      - offline freeze without entitled VM input
-      - license redaction and PKI contribution
-      - defrost destination, retained license prompt, and optional encrypted PKI export
-  engulf_clab.vrnetlab_fortigate_pki_injector:
-    distribution: engulf-clab-vrnetlab-fortigate-pki-injector
-    coverage:
-      - deterministic FOS_PKI_CA_CERTS
-      - authorized FOS_PKI_LOCAL_CERTS
-      - custom FortiGate mount target and collision rejection
+      - portable offline freeze and PKI contribution
+      - defrost destination and optional encrypted PKI export
   engulf_clab.lab_writer:
     distribution: engulf-clab-lab-writer
     coverage:
@@ -97,8 +97,8 @@ plugins:
 supporting_contracts:
   engulf-clab-schema-api: schema declarations used by every included plugin
   engulf-clab-freeze-api: PKI freeze and defrost contribution
-  engulf-clab-pki-api: typed node projections consumed by the FortiGate injector
-  engulf-clab-ensure-checkout: managed Containerlab and vrnetlab checkout behavior
+  engulf-clab-pki-api: typed node projections consumed by Linux integrations
+  engulf-clab-ensure-checkout: managed Containerlab checkout behavior
   engulf-docker-image-api: neutral image requirement and provider graph
   engulf-docker-image-core: recursive dependency-first image provisioning
   engulf-clab-containers-api: packaged host-connector and wan-access definitions

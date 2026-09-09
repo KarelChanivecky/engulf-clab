@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -18,68 +17,79 @@ def invoke(*arguments: str) -> int:
         return main()
 
 
-def test_install_records_external_image_and_creates_empty_pool() -> None:
+def test_install_needs_no_external_input() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        image = root / "fortios-v8.0.0.qcow2"
-        image.write_bytes(b"external-test-image")
-        target = root / "lab"
-
-        assert invoke(str(target), "--fortigate-image", str(image)) == 0
+        target = Path(directory) / "lab"
+        assert invoke(str(target)) == 0
 
         marker = json.loads((target / MARKER).read_text(encoding="utf-8"))
         assert marker["format"] == BUNDLE_FORMAT
         assert marker["version"] == DISTRIBUTION_VERSION
-        assert str(image) in (target / "local/runtime.env").read_text(encoding="utf-8")
-        assert list((target / "inputs/licenses").iterdir()) == []
-        assert not any(path.suffix == ".qcow2" for path in target.rglob("*"))
-        assert stat.S_IMODE((target / "local/runtime.env").stat().st_mode) == 0o600
+        assert (target / "artifacts").is_dir()
+        assert not (target / "local").exists()
+        assert not (target / "licenses").exists()
+        assert not (target / "inputs").exists()
         assert os.access(target / "run-eclab.sh", os.X_OK)
         assert invoke(str(target)) == 0
         assert invoke(str(target), "--check") == 0
 
-
-def test_noninteractive_install_requires_image() -> None:
-    with (
-        tempfile.TemporaryDirectory() as directory,
-        patch("sys.stdin.isatty", return_value=False),
-        pytest.raises(SystemExit, match="--fortigate-image is required"),
-    ):
-        invoke(str(Path(directory) / "lab"))
+        (target / ".engulf-clab-lab-deadbeef.clab.yml").write_text("name: derived\n")
+        (target / "clab-eclab-all-features").mkdir()
+        (target / "clab-eclab-all-features/topology-data.json").write_text("{}\n")
+        (target / ".eclab").mkdir()
+        (target / ".eclab/runtime.json").write_text("{}\n")
+        assert invoke(str(target), "--check") == 0
 
 
-def test_rejects_unsupported_image_and_symlink_target() -> None:
+def test_rejects_symlink_target() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        bad = root / "fortios.img"
-        bad.write_bytes(b"not-supported")
-        with pytest.raises(SystemExit, match="must be .qcow2"):
-            invoke(str(root / "lab"), "--fortigate-image", str(bad))
-
-        image = root / "fortios.qcow2"
-        image.write_bytes(b"image")
         real = root / "real"
         real.mkdir()
         link = root / "lab"
         link.symlink_to(real, target_is_directory=True)
         with pytest.raises(SystemExit, match="destination must not be a symlink"):
-            invoke(str(link), "--fortigate-image", str(image))
+            invoke(str(link))
 
 
 def test_changed_install_requires_replace_and_is_backed_up() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        image = root / "fortios.qcow2"
-        image.write_bytes(b"image")
         target = root / "lab"
-        invoke(str(target), "--fortigate-image", str(image))
+        invoke(str(target))
         (target / "RUNBOOK.md").write_text("changed\n", encoding="utf-8")
 
         with pytest.raises(SystemExit, match="packaged files.*have changed"):
-            invoke(str(target), "--fortigate-image", str(image))
+            invoke(str(target))
 
-        assert invoke(str(target), "--fortigate-image", str(image), "--replace") == 0
+        assert invoke(str(target), "--replace") == 0
         backups = list((root / ".lab-backups").iterdir())
         assert len(backups) == 1
         assert (backups[0] / "RUNBOOK.md").read_text(encoding="utf-8") == "changed\n"
+        assert invoke(str(target), "--check") == 0
+
+
+def test_check_rejects_replace() -> None:
+    with (
+        tempfile.TemporaryDirectory() as directory,
+        pytest.raises(SystemExit, match="--check cannot be combined with --replace"),
+    ):
+        invoke(str(Path(directory) / "lab"), "--check", "--replace")
+
+
+def test_replace_accepts_owned_previous_bundle_format() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        target = root / "lab"
+        target.mkdir()
+        (target / MARKER).write_text(
+            json.dumps({
+                "distribution": "engulf-clab-demo-lab",
+                "format": 1,
+                "version": "0.3.0",
+                "files": {},
+            }),
+            encoding="utf-8",
+        )
+        assert invoke(str(target), "--replace") == 0
         assert invoke(str(target), "--check") == 0
