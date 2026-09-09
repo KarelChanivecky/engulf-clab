@@ -16,22 +16,40 @@ must not reacquire an already-held lease; later-plugin rollback may acquire its
 own lease if necessary. Never delete historical persistent state or recipient
 global state.
 
+Once the wrapped deploy process starts, a nonzero exit may leave partial
+containers consuming staged paths. Retain that attempt's views and provisioning
+journal until successful `destroy`; only a pre-call/spawn failure can unwind them
+immediately.
+
 Global definitions cannot depend on local objects. Authority variants reuse the
 authority identity and change only signing inputs. Fingerprint every complete
 definition together with its resolved issuer identity; do not overwrite an old
 generation. Inventory and freeze metadata must not contain key bytes, passwords,
 or service credentials.
 
+Only manifest v2 is accepted. Named certificate declarations live beside the
+other catalogs; node binding lives exclusively in topology environment lists.
+Resolve each list before duplicate checking, preserve whole-object shadowing,
+and key leaf state by `(node, canonical declaration reference)`. Certificate
+fields are fixed except for the documented omitted-CN node default; never add a
+node-derived SAN. Build trust bundles from the resolved node trust set, not the
+available public-authority catalog.
+
 Service nodes are purely conditional and explicitly named. Keep generation-only
 manifests free of service images and network behavior. EJBCA imports only the
 default chain; alternate cross-sign variants remain static. Keep ML-DSA offline
 until a supported transfer format exists.
 
+Keep packaged service images on publicly pullable, explicit tags and cover
+their exact references in tests. Do not use a removed or mutable `latest` tag
+for the OpenLDAP directory recipe.
+
 The implemented image-integration boundary is documented in
 [`VRNETLAB_INTEGRATION.md`](VRNETLAB_INTEGRATION.md). PKI publishes authorized
 typed paths without discovering consumers; image-family injectors translate
 them, and vrnetlab owns guest installation. Preserve API immutability, canonical
-ordering, fingerprint deduplication, and host/container path correspondence.
+ordering, identity IDs, and host/container path correspondence. Do not
+fingerprint-deduplicate distinct named leaf declarations.
 
 Run the narrow suites after changes:
 

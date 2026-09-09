@@ -67,7 +67,8 @@ class PkiFreezeContributor:
         portable = json.loads(json.dumps(local))
         redacted: list[str] = []
         _remove_secrets(portable, (), redacted)
-        bindings = _external_bindings(local, context.user_state)
+        _vendor_global_certificate_declarations(portable, document, context.user_state)
+        bindings = _external_bindings(portable, context.user_state, document)
         export_catalog = local
         export_locations: dict[str, Path] = {}
         if context.arguments.include_pki_secrets:
@@ -111,6 +112,7 @@ class PkiFreezeContributor:
                 context.workspace_state,
                 context.user_state,
                 authority_locations=export_locations,
+                topology=document,
             )
             bundle = _encrypt(json.dumps(exported, sort_keys=True).encode(), passphrase)
             bundle_path = context.staging_root / ".eclab-pki-identities.enc"
@@ -135,7 +137,7 @@ class PkiFreezeContributor:
         global_catalog = (
             load_catalog(context.user_state / "global.yaml", global_scope=True)
             if context.user_state is not None
-            else {"version": 1}
+            else {"version": 2}
         )
         for name, binding in bindings.items():
             if not isinstance(binding, dict):
@@ -160,6 +162,7 @@ class PkiFreezeContributor:
                         f"{answer!r} does not match"
                     )
             _rewrite_authority_references(local, name, answer)
+            _rewrite_topology_authority_references(document, name, answer)
         if unresolved:
             local["unresolved_bindings"] = unresolved
         manifest.write_text(yaml.safe_dump(local, sort_keys=False), encoding="utf-8")
@@ -198,7 +201,7 @@ class PkiFreezeContributor:
             }
             for name in local.get("authorities", {}):
                 local["authorities"][name]["store"] = "frozen-identities"
-            _mark_restored_leaves(local, context.destination, identities)
+            _mark_restored_leaves(local, context.destination, identities, document)
             manifest.write_text(yaml.safe_dump(local, sort_keys=False), encoding="utf-8")
             (context.staging_root / bundle_name).unlink(missing_ok=True)
         _set_selector(document, "./pki.yaml")
@@ -251,11 +254,15 @@ def _sanitize_staged_state(context: FreezeContext, local: dict[str, Any]) -> Non
             shutil.rmtree(staged)
 
 
-def _external_bindings(local: dict[str, Any], user_state: Path | None) -> dict[str, Any]:
+def _external_bindings(
+    local: dict[str, Any],
+    user_state: Path | None,
+    topology: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     global_catalog = (
         load_catalog(user_state / "global.yaml", global_scope=True)
         if user_state is not None and (user_state / "global.yaml").is_file()
-        else {"version": 1}
+        else {"version": 2}
     )
     local_authorities = local.get("authorities", {})
     global_authorities: Any = global_catalog.get("authorities", {})
@@ -286,6 +293,17 @@ def _external_bindings(local: dict[str, Any], user_state: Path | None) -> dict[s
             )
             for value in candidates:
                 collect(value)
+    for spec in local.get("certificates", {}).values():
+        if isinstance(spec, dict):
+            collect(spec.get("issuer"))
+    if topology is not None:
+        for variable in (
+            "ECLAB_PKI_PRIVATE_AUTHORITIES",
+            "ECLAB_PKI_TRUST_INCLUDE",
+            "ECLAB_PKI_TRUST_EXCLUDE",
+        ):
+            for _node, reference in _topology_environment_requests(topology, variable):
+                collect(reference)
     for node in local.get("nodes", {}).values():
         if isinstance(node, dict):
             for value in node.get("certificates", []):
@@ -336,6 +354,82 @@ def _remove_secrets(value: Any, path: tuple[str, ...], redacted: list[str]) -> N
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _remove_secrets(item, (*path, str(index)), redacted)
+
+
+def _vendor_global_certificate_declarations(
+    portable: dict[str, Any], document: dict[str, Any], user_state: Path | None
+) -> None:
+    if user_state is None or not (user_state / "global.yaml").is_file():
+        return
+    global_catalog = load_catalog(user_state / "global.yaml", global_scope=True)
+    portable["defaults"] = _merge_mappings(
+        global_catalog.get("defaults", {}), portable.get("defaults", {})
+    )
+    global_certificates = global_catalog.get("certificates", {})
+    global_profiles = global_catalog.get("profiles", {})
+    local_certificates = portable.setdefault("certificates", {})
+    local_profiles = portable.setdefault("profiles", {})
+    if not all(
+        isinstance(value, dict)
+        for value in (global_certificates, global_profiles, local_certificates, local_profiles)
+    ):
+        return
+    replacements: dict[str, str] = {}
+    for _node, reference in _topology_certificate_requests(document):
+        parts = reference.split("/")
+        explicit_global = len(parts) == 2 and parts[0] == "global"
+        name = parts[-1]
+        if not explicit_global and name in local_certificates:
+            continue
+        definition = global_certificates.get(name)
+        if not isinstance(definition, dict):
+            continue
+        target = name if name not in local_certificates else f"frozen-global-{name}"
+        copied = json.loads(json.dumps(definition))
+        issuer = copied.get("issuer")
+        if isinstance(issuer, str) and not issuer.startswith(("global/", "local/")):
+            copied["issuer"] = f"global/{issuer}"
+        profile = copied.get("profile")
+        if isinstance(profile, str) and profile != "tls-peer":
+            profile_name = profile.split("/", 1)[-1]
+            profile_definition = global_profiles.get(profile_name)
+            if isinstance(profile_definition, dict):
+                profile_target = (
+                    profile_name
+                    if profile_name not in local_profiles
+                    else f"frozen-global-{profile_name}"
+                )
+                local_profiles[profile_target] = json.loads(json.dumps(profile_definition))
+                copied["profile"] = f"local/{profile_target}"
+        local_certificates[target] = copied
+        replacements[reference] = f"local/{target}"
+    if not replacements:
+        return
+    block = document.get("topology", {})
+    owners = []
+    if isinstance(block, dict):
+        owners.append(block.get("defaults", {}))
+        if isinstance(block.get("nodes"), dict):
+            owners.extend(block["nodes"].values())
+    for owner in owners:
+        environment = owner.get("env", {}) if isinstance(owner, dict) else {}
+        value = environment.get("ECLAB_PKI_CERTIFICATES") if isinstance(environment, dict) else None
+        if isinstance(value, str):
+            environment["ECLAB_PKI_CERTIFICATES"] = ",".join(
+                replacements.get(item.strip(), item.strip()) for item in value.split(",")
+            )
+
+
+def _merge_mappings(base: Any, override: Any) -> dict[str, Any]:
+    result = json.loads(json.dumps(base)) if isinstance(base, dict) else {}
+    if not isinstance(override, dict):
+        return result
+    for key, value in override.items():
+        if isinstance(result.get(key), dict) and isinstance(value, dict):
+            result[key] = _merge_mappings(result[key], value)
+        else:
+            result[key] = json.loads(json.dumps(value))
+    return result
 
 
 def _portable_external_stores(
@@ -565,6 +659,7 @@ def _exportable_material(
     user: Path | None,
     *,
     authority_locations: dict[str, Path] | None = None,
+    topology: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     refused: list[str] = []
     exported: dict[str, str] = {}
@@ -597,71 +692,117 @@ def _exportable_material(
                 exported[
                     f".eclab-pki-import/authorities/{name}/{file.relative_to(authority_root)}"
                 ] = base64.b64encode(file.read_bytes()).decode()
-    for node, node_spec in local.get("nodes", {}).items():
-        if not isinstance(node_spec, dict):
+    for node, reference in _topology_certificate_requests(topology or {}):
+        reference_parts = reference.split("/")
+        scope = (
+            reference_parts[0]
+            if len(reference_parts) == 2 and reference_parts[0] in {"local", "global"}
+            else "local"
+        )
+        name = reference_parts[-1]
+        request = local.get("certificates", {}).get(name)
+        if scope != "local" or not isinstance(request, dict):
+            refused.append(f"leaf:{node}/{scope}/{name}")
             continue
-        for request in node_spec.get("certificates", []):
-            name = request.get("name") if isinstance(request, dict) else None
-            if not isinstance(name, str):
-                continue
-            if not bool(request.get("freeze", {}).get("exportable", False)):
-                refused.append(f"leaf:{node}/{name}")
-                continue
-            if workspace is None:
-                raise FreezeError(f"exportable leaf {node}/{name} has no workspace state")
-            source = workspace / "pki" / "issued" / str(node) / name
-            generations = (
-                sorted(source.glob("*"), key=lambda item: item.stat().st_mtime, reverse=True)
-                if source.is_dir()
-                else []
-            )
-            if not generations:
-                raise FreezeError(f"exportable leaf {node}/{name} has no existing material")
-            for file in generations[0].rglob("*"):
-                if file.is_file():
-                    exported[
-                        f".eclab-pki-import/issued/{node}/{name}/{generations[0].name}/"
-                        f"{file.relative_to(generations[0])}"
-                    ] = base64.b64encode(file.read_bytes()).decode()
+        if not bool(request.get("freeze", {}).get("exportable", False)):
+            refused.append(f"leaf:{node}/local/{name}")
+            continue
+        if workspace is None:
+            raise FreezeError(f"exportable leaf {node}/local/{name} has no workspace state")
+        source = workspace / "pki" / "issued" / str(node) / "local" / name
+        generations = (
+            sorted(source.glob("*"), key=lambda item: item.stat().st_mtime, reverse=True)
+            if source.is_dir()
+            else []
+        )
+        if not generations:
+            raise FreezeError(f"exportable leaf {node}/local/{name} has no existing material")
+        for file in generations[0].rglob("*"):
+            if file.is_file():
+                exported[
+                    f".eclab-pki-import/issued/{node}/local/{name}/{generations[0].name}/"
+                    f"{file.relative_to(generations[0])}"
+                ] = base64.b64encode(file.read_bytes()).decode()
     if refused:
         raise FreezeError("non-exportable PKI identities: " + ", ".join(sorted(refused)))
     return exported
 
 
 def _mark_restored_leaves(
-    local: dict[str, Any], destination: Path, identities: dict[str, str]
+    local: dict[str, Any],
+    destination: Path,
+    identities: dict[str, str],
+    topology: dict[str, Any],
 ) -> None:
     prefix = (".eclab-pki-import", "issued")
-    generations: dict[tuple[str, str], str] = {}
+    generations: dict[tuple[str, str, str], str] = {}
     for relative in identities:
         parts = Path(relative).parts
-        if len(parts) == 6 and parts[:2] == prefix and parts[-1] == "certificate.pem":
-            generations[(parts[2], parts[3])] = parts[4]
-    for node, node_spec in local.get("nodes", {}).items():
-        if not isinstance(node_spec, dict):
+        if len(parts) == 7 and parts[:2] == prefix and parts[-1] == "certificate.pem":
+            generations[(parts[2], parts[3], parts[4])] = parts[5]
+    for node, reference in _topology_certificate_requests(topology):
+        reference_parts = reference.split("/")
+        scope = (
+            reference_parts[0]
+            if len(reference_parts) == 2 and reference_parts[0] in {"local", "global"}
+            else "local"
+        )
+        name = reference_parts[-1]
+        request = local.get("certificates", {}).get(name)
+        if scope != "local" or not isinstance(request, dict):
             continue
-        for request in node_spec.get("certificates", []):
-            if not isinstance(request, dict) or not isinstance(request.get("name"), str):
-                continue
-            name = request["name"]
-            generation = generations.get((str(node), name))
-            if generation is None:
-                continue
-            definition = {
-                key: value
-                for key, value in request.items()
-                if key not in {"freeze", "restored_snapshot"}
-            }
-            request["restored_snapshot"] = {
-                "path": str(
-                    (
-                        destination / ".eclab-pki-import" / "issued" / str(node) / name / generation
-                    ).resolve()
-                ),
-                "definition_sha256": hashlib.sha256(
-                    json.dumps(definition, sort_keys=True, default=str).encode()
-                ).hexdigest(),
-            }
+        generation = generations.get((str(node), scope, name))
+        if generation is None:
+            continue
+        definition = {
+            key: value
+            for key, value in request.items()
+            if key not in {"freeze", "restored_snapshot", "restored_snapshots"}
+        }
+        request.setdefault("restored_snapshots", {})[str(node)] = {
+            "path": str(
+                (
+                    destination
+                    / ".eclab-pki-import"
+                    / "issued"
+                    / str(node)
+                    / scope
+                    / name
+                    / generation
+                ).resolve()
+            ),
+            "definition_sha256": hashlib.sha256(
+                json.dumps(definition, sort_keys=True, default=str).encode()
+            ).hexdigest(),
+        }
+
+
+def _topology_certificate_requests(topology: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    return _topology_environment_requests(topology, "ECLAB_PKI_CERTIFICATES")
+
+
+def _topology_environment_requests(
+    topology: dict[str, Any], variable: str
+) -> tuple[tuple[str, str], ...]:
+    block = topology.get("topology", {})
+    defaults = block.get("defaults", {}) if isinstance(block, dict) else {}
+    nodes = block.get("nodes", {}) if isinstance(block, dict) else {}
+    default_env = defaults.get("env", {}) if isinstance(defaults, dict) else {}
+    result: list[tuple[str, str]] = []
+    if not isinstance(nodes, dict):
+        return ()
+    for node, spec in nodes.items():
+        environment = spec.get("env", {}) if isinstance(spec, dict) else {}
+        value = (
+            environment.get(variable)
+            if isinstance(environment, dict) and variable in environment
+            else default_env.get(variable)
+            if isinstance(default_env, dict)
+            else None
+        )
+        if isinstance(value, str):
+            result.extend((str(node), item.strip()) for item in value.split(",") if item.strip())
+    return tuple(result)
 
 
 def _binding_answers(values: list[str]) -> dict[str, str]:
@@ -713,6 +854,32 @@ def _rewrite_authority_references(
                 value[index] = _rewritten_reference(item, binding, replacement)
             else:
                 _rewrite_authority_references(item, binding, replacement)
+
+
+def _rewrite_topology_authority_references(
+    document: dict[str, Any], binding: str, replacement: str
+) -> None:
+    block = document.get("topology", {})
+    if not isinstance(block, dict):
+        return
+    owners = [block.get("defaults", {}), *(
+        block.get("nodes", {}).values() if isinstance(block.get("nodes"), dict) else ()
+    )]
+    for owner in owners:
+        environment = owner.get("env", {}) if isinstance(owner, dict) else {}
+        if not isinstance(environment, dict):
+            continue
+        for variable in (
+            "ECLAB_PKI_PRIVATE_AUTHORITIES",
+            "ECLAB_PKI_TRUST_INCLUDE",
+            "ECLAB_PKI_TRUST_EXCLUDE",
+        ):
+            value = environment.get(variable)
+            if isinstance(value, str):
+                environment[variable] = ",".join(
+                    _rewritten_reference(item.strip(), binding, replacement)
+                    for item in value.split(",")
+                )
 
 
 def _rewritten_reference(value: str, binding: str, replacement: str) -> str:

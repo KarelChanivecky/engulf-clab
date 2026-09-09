@@ -160,17 +160,17 @@ def generate_catalog(
     for node, node_spec in catalog.nodes.items():
         for request in node_spec.get("certificates", []):
             request_name = request["name"]
+            request_scope = cast(Scope, request.get("scope", "local"))
             issuer_scope, issuer_name, issuer_variant, _ = catalog.resolve_authority(
-                request["issuer"]
+                request["issuer"], owner=request_scope
             )
             issuer = authority(issuer_scope, issuer_name, issuer_variant)
-            profile = _profile(catalog, request, "local", ca=False, intermediate=False)
+            profile = _profile(catalog, request, request_scope, ca=False, intermediate=False)
             profile = _merged(profile, request)
             profile.setdefault("subject", {})
             profile["subject"].setdefault("common_name", node)
             profile.setdefault("sans", {})
-            if profile.pop("node_dns_san", False):
-                profile["sans"].setdefault("dns", [node])
+            profile.pop("node_dns_san", None)
             restored_leaf = _restored_leaf(request, node, request_name)
             if restored_leaf is not None:
                 private_key, cert, chain, directory = restored_leaf
@@ -291,7 +291,8 @@ def _restored_authority(
 def _restored_leaf(
     request: dict[str, Any], node: str, name: str
 ) -> tuple[Any, x509.Certificate, tuple[x509.Certificate, ...], Path] | None:
-    snapshot = request.get("restored_snapshot")
+    snapshots = request.get("restored_snapshots")
+    snapshot = snapshots.get(node) if isinstance(snapshots, dict) else request.get("restored_snapshot")
     if not isinstance(snapshot, dict):
         return None
     expected = hashlib.sha256(
@@ -299,7 +300,15 @@ def _restored_leaf(
             {
                 key: value
                 for key, value in request.items()
-                if key not in {"freeze", "restored_snapshot"}
+                if key
+                not in {
+                    "freeze",
+                    "restored_snapshot",
+                    "restored_snapshots",
+                    "name",
+                    "scope",
+                    "declaration_name",
+                }
             },
             sort_keys=True,
             default=str,
@@ -354,7 +363,16 @@ def _profile(
         {
             key: value
             for key, value in spec.items()
-            if key not in {"variants", "issuer", "freeze", "restored_snapshot"}
+            if key
+            not in {
+                "variants",
+                "issuer",
+                "freeze",
+                "restored_snapshot",
+                "name",
+                "scope",
+                "declaration_name",
+            }
         },
     )
     algorithm = result.get("algorithm", "rsa")
@@ -381,7 +399,6 @@ def _builtin_profile(*, ca: bool, intermediate: bool) -> dict[str, Any]:
         "validity_days": 397,
         "key_usage": ["digital_signature", "key_encipherment"],
         "extended_key_usage": ["server_auth", "client_auth"],
-        "node_dns_san": True,
     }
 
 
@@ -462,7 +479,7 @@ def _certificate(
     )
     if serial <= 0 or serial.bit_length() > 159:
         raise MaterialError("certificate serial must be positive and at most 159 bits")
-    not_before = _certificate_time(spec.get("not_before"), now - timedelta(minutes=5))
+    not_before = _certificate_time(spec.get("not_before"), now - timedelta(days=2))
     not_after = _certificate_time(
         spec.get("not_after"),
         now + timedelta(days=int(spec.get("validity_days", 365))),

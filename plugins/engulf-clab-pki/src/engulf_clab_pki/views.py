@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from .catalog import CatalogError, EffectiveCatalog
@@ -40,43 +41,65 @@ def build_views(
 def _build_view(target: Path, node: str, catalog: EffectiveCatalog, material: MaterialSet) -> None:
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     work = Path(tempfile.mkdtemp(prefix=f".{node}.", dir=target.parent))
-    inventory: dict[str, Any] = {"version": 1, "authorities": [], "issued": []}
+    inventory: dict[str, Any] = {
+        "version": 2,
+        "available_public_authorities": [],
+        "trusted_authorities": [],
+        "requested_private_authorities": [],
+        "issued_identities": [],
+    }
     try:
         os.chmod(work, 0o700)
         effective_names = catalog.origins["authorities"]
-        bundle: list[bytes] = []
         for (scope, name, variant), item in sorted(material.authorities.items()):
             public = work / "authorities" / scope / name / variant
             _copy_public(item.directory, public)
             if effective_names.get(name) == scope:
                 alias = work / "authorities" / "effective" / name / variant
                 _copy_public(item.directory, alias)
-                bundle.append(item.certificate.public_bytes(serialization.Encoding.PEM))
-            inventory["authorities"].append(
+            canonical = f"{scope}/{name}" + (f"/{variant}" if variant != "default" else "")
+            inventory["available_public_authorities"].append(
                 {
+                    "identity_id": canonical,
                     "origin": scope,
                     "name": name,
                     "variant": variant,
                     "fingerprint_sha256": item.fingerprint,
-                    "formats": _formats(item.directory),
+                    "formats": _public_formats(item.directory),
+                    "path": str(Path("authorities") / scope / name / variant),
+                }
+            )
+        requests = catalog.nodes.get(node, {})
+        bundle: list[bytes] = []
+        for reference in requests.get("trusted_authorities", []):
+            scope, name, variant, _ = catalog.resolve_authority(reference)
+            item = material.authorities[(scope, name, variant)]
+            canonical = f"{scope}/{name}" + (f"/{variant}" if variant != "default" else "")
+            bundle.append(item.certificate.public_bytes(serialization.Encoding.PEM))
+            inventory["trusted_authorities"].append(
+                {
+                    "identity_id": canonical,
+                    "fingerprint_sha256": item.fingerprint,
+                    "formats": _public_formats(item.directory),
                     "path": str(Path("authorities") / scope / name / variant),
                 }
             )
         trust = work / "trust"
         trust.mkdir(parents=True, exist_ok=True)
         (trust / "ca-bundle.pem").write_bytes(b"".join(bundle))
-        requests = catalog.nodes.get(node, {})
         for request in requests.get("certificates", []):
             name = request["name"]
             leaf = material.leaves[(node, name)]
             destination = work / "issued" / node / name
             _copy_all(leaf.directory, destination)
-            inventory["issued"].append(
+            inventory["issued_identities"].append(
                 {
+                    "identity_id": name,
                     "node": node,
                     "name": name,
                     "fingerprint_sha256": leaf.fingerprint,
                     "formats": _formats(leaf.directory),
+                    "extended_key_usage": _extended_key_usage(leaf.certificate),
                     "path": str(Path("issued") / node / name),
                 }
             )
@@ -92,6 +115,7 @@ def _build_view(target: Path, node: str, catalog: EffectiveCatalog, material: Ma
             if private:
                 private_dir = work / "private" / "authorities" / scope / name / variant
                 private_dir.mkdir(parents=True, exist_ok=True)
+                _copy_public(authority.directory, private_dir)
                 (private_dir / "private-key.pem").write_bytes(
                     authority.private_key.private_bytes(
                         serialization.Encoding.PEM,
@@ -100,6 +124,14 @@ def _build_view(target: Path, node: str, catalog: EffectiveCatalog, material: Ma
                     )
                 )
                 os.chmod(private_dir / "private-key.pem", 0o600)
+                inventory["requested_private_authorities"].append(
+                    {
+                        "identity_id": reference,
+                        "fingerprint_sha256": authority.fingerprint,
+                        "formats": _public_formats(authority.directory),
+                        "path": str(Path("private") / "authorities" / scope / name / variant),
+                    }
+                )
         (work / "inventory.json").write_text(
             json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -146,6 +178,22 @@ def _formats(source: Path) -> list[str]:
     if any(source.glob("*.jks")):
         formats.append("jks")
     return formats
+
+
+def _public_formats(source: Path) -> list[str]:
+    return ["pem", *(["der"] if (source / "certificate.der").is_file() else [])]
+
+
+def _extended_key_usage(certificate: x509.Certificate) -> list[str]:
+    try:
+        values = certificate.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+    except x509.ExtensionNotFound:
+        return []
+    names = {
+        x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH: "client_auth",
+        x509.oid.ExtendedKeyUsageOID.SERVER_AUTH: "server_auth",
+    }
+    return [names.get(value, value.dotted_string) for value in values]
 
 
 def incompatible_mount(node: dict[str, Any], target: str = MOUNT_TARGET) -> bool:

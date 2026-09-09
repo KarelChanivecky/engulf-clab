@@ -13,7 +13,7 @@ from engulf_clab_freeze.command import freeze as freeze_archive
 from engulf_clab_freeze.defrost import defrost
 from engulf_clab_freeze_api import DefrostContext, FreezeContext, FreezeError
 
-from engulf_clab_pki.catalog import load_catalog, merge_catalogs
+from engulf_clab_pki.catalog import bind_topology_requests, load_catalog, merge_catalogs
 from engulf_clab_pki.freeze import (
     PkiFreezeContributor,
     _decrypt,
@@ -41,7 +41,7 @@ class FreezeTest(unittest.TestCase):
             staged_imported.mkdir(parents=True)
             (staged_imported / "private-key.pem").write_text("private", encoding="utf-8")
             (root / "outside.yaml").write_text(
-                "version: 1\nauthorities: {root: {}}\n", encoding="utf-8"
+                "version: 2\nauthorities: {root: {}}\n", encoding="utf-8"
             )
             topology = {
                 "topology": {
@@ -113,12 +113,12 @@ class FreezeTest(unittest.TestCase):
             root = Path(directory)
             external = root / "external"
             catalog = {
-                "version": 1,
+                "version": 2,
                 "stores": {"offbox": {"type": "directory", "path": str(external)}},
                 "authorities": {"root": {"store": "offbox"}},
             }
             generate_catalog(
-                merge_catalogs({"version": 1}, catalog),
+                merge_catalogs({"version": 2}, catalog),
                 user_root=root / "user",
                 workspace_root=root / "workspace",
             )
@@ -138,38 +138,34 @@ class FreezeTest(unittest.TestCase):
             source.mkdir()
             frozen.mkdir()
             manifest_document = {
-                "version": 1,
+                "version": 2,
                 "authorities": {"root": {"freeze": {"exportable": True}}},
-                "nodes": {
-                    "router": {
-                        "certificates": [
-                            {
-                                "name": "tls",
-                                "issuer": "root",
-                                "freeze": {"exportable": True},
-                            }
-                        ]
-                    }
+                "certificates": {
+                    "tls": {"issuer": "root", "freeze": {"exportable": True}}
                 },
             }
             (source / "pki.yaml").write_text(yaml.safe_dump(manifest_document), encoding="utf-8")
             topology_document = {
                 "topology": {
                     "defaults": {"env": {"ECLAB_PKI_MANIFEST": "./pki.yaml"}},
-                    "nodes": {},
+                    "nodes": {
+                        "router": {"env": {"ECLAB_PKI_CERTIFICATES": "tls"}}
+                    },
                 }
             }
             source_topology = source / "lab.clab.yml"
             staged_topology = frozen / "lab.clab.yml"
             source_topology.write_text(yaml.safe_dump(topology_document), encoding="utf-8")
             staged_topology.write_text(yaml.safe_dump(topology_document), encoding="utf-8")
+            effective = merge_catalogs({"version": 2}, manifest_document)
+            bind_topology_requests(effective, topology_document)
             generated = generate_catalog(
-                merge_catalogs({"version": 1}, manifest_document),
+                effective,
                 user_root=root / "user-state",
                 workspace_root=workspace,
             )
             fingerprint = generated.authorities[("local", "root", "default")].fingerprint
-            leaf_fingerprint = generated.leaves[("router", "tls")].fingerprint
+            leaf_fingerprint = generated.leaves[("router", "local/tls")].fingerprint
             passphrase = root / "passphrase"
             passphrase.write_text("portable secret\n", encoding="utf-8")
             passphrase.chmod(0o600)
@@ -205,7 +201,11 @@ class FreezeTest(unittest.TestCase):
                 )
             )
             restored_catalog = merge_catalogs(
-                {"version": 1}, load_catalog(frozen / "pki.yaml", required=True)
+                {"version": 2}, load_catalog(frozen / "pki.yaml", required=True)
+            )
+            bind_topology_requests(
+                restored_catalog,
+                yaml.safe_load(staged_topology.read_text(encoding="utf-8")),
             )
             restored = generate_catalog(
                 restored_catalog,
@@ -216,7 +216,10 @@ class FreezeTest(unittest.TestCase):
                 restored.authorities[("local", "root", "default")].fingerprint,
                 fingerprint,
             )
-            self.assertEqual(restored.leaves[("router", "tls")].fingerprint, leaf_fingerprint)
+            self.assertEqual(
+                restored.leaves[("router", "local/tls")].fingerprint,
+                leaf_fingerprint,
+            )
 
     def test_encrypted_global_binding_restores_into_local_scope(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -229,11 +232,11 @@ class FreezeTest(unittest.TestCase):
             frozen.mkdir()
             user.mkdir()
             global_document = {
-                "version": 1,
+                "version": 2,
                 "authorities": {"site-root": {"freeze": {"exportable": True}}},
             }
             local_document = {
-                "version": 1,
+                "version": 2,
                 "authorities": {
                     "issuing": {
                         "issuer": "global/site-root",
@@ -296,7 +299,7 @@ class FreezeTest(unittest.TestCase):
                 )
             )
             restored_catalog = merge_catalogs(
-                {"version": 1}, load_catalog(frozen / "pki.yaml", required=True)
+                {"version": 2}, load_catalog(frozen / "pki.yaml", required=True)
             )
             restored = generate_catalog(
                 restored_catalog,
@@ -315,16 +318,16 @@ class FreezeTest(unittest.TestCase):
     def test_unqualified_global_reference_becomes_fingerprinted_public_binding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
-            global_catalog = {"version": 1, "authorities": {"site-root": {}}}
+            global_catalog = {"version": 2, "authorities": {"site-root": {}}}
             (state / "global.yaml").write_text(yaml.safe_dump(global_catalog), encoding="utf-8")
             generate_catalog(
-                merge_catalogs(global_catalog, {"version": 1}),
+                merge_catalogs(global_catalog, {"version": 2}),
                 user_root=state,
                 workspace_root=state / "workspace",
             )
             bindings = _external_bindings(
                 {
-                    "version": 1,
+                    "version": 2,
                     "authorities": {},
                     "nodes": {"router": {"certificates": [{"name": "tls", "issuer": "site-root"}]}},
                 },
@@ -340,7 +343,7 @@ class FreezeTest(unittest.TestCase):
             source = root / "lab"
             source.mkdir()
             outside = root / "outside.yaml"
-            outside.write_text("version: 1\nauthorities: {root: {}}\n", encoding="utf-8")
+            outside.write_text("version: 2\nauthorities: {root: {}}\n", encoding="utf-8")
             topology = source / "lab.clab.yml"
             topology.write_text(
                 yaml.safe_dump(

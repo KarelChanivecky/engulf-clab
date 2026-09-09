@@ -12,7 +12,7 @@ ocsp:
   image: keyfactor/ejbca-ce:latest
 directory:
   kind: linux
-  image: bitnami/openldap:latest
+  image: osixia/openldap:1.5.0
 administration:
   kind: linux
   image: alpine:latest

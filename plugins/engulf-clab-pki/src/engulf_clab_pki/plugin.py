@@ -42,13 +42,27 @@ from engulf_executable_wrapper_api import (
     PreparedCallEvent,
 )
 
-from .catalog import CatalogError, EffectiveCatalog, load_catalog, merge_catalogs
+from .catalog import (
+    CatalogError,
+    EffectiveCatalog,
+    bind_topology_requests,
+    load_catalog,
+    merge_catalogs,
+)
 from .material import MaterialSet, generate_catalog, rollback_created
 from .projections import build_node_projections
 from .views import MOUNT_TARGET, build_views, cleanup_views, incompatible_mount
 
 MANIFEST_ENVIRONMENT = "ECLAB_PKI_MANIFEST"
 MOUNT_TARGET_ENVIRONMENT = "ECLAB_PKI_MOUNT_TARGET"
+CERTIFICATES_ENVIRONMENT = "ECLAB_PKI_CERTIFICATES"
+PRIVATE_AUTHORITIES_ENVIRONMENT = "ECLAB_PKI_PRIVATE_AUTHORITIES"
+ROOT_ENVIRONMENT = "ECLAB_PKI_ROOT"
+TRUST_ENVIRONMENTS = (
+    "ECLAB_PKI_TRUST_MODE",
+    "ECLAB_PKI_TRUST_INCLUDE",
+    "ECLAB_PKI_TRUST_EXCLUDE",
+)
 _INVOCATION_CONTEXT = "engulf_clab.pki.invocation"
 
 PLUGIN_SCHEMA = (
@@ -64,6 +78,19 @@ PLUGIN_SCHEMA = (
         values=ValueType.STRING,
         default=MOUNT_TARGET,
     )
+    .add_node_var(
+        CERTIFICATES_ENVIRONMENT,
+        "Request comma-separated named leaf certificates from the v2 PKI catalog.",
+        values=ValueType.STRING,
+    )
+    .add_node_var(
+        PRIVATE_AUTHORITIES_ENVIRONMENT,
+        "Authorize comma-separated private CA identities for this node.",
+        values=ValueType.STRING,
+    )
+    .add_node_var("ECLAB_PKI_TRUST_MODE", "Select natural anchors with all or start empty with none.", values=ValueType.STRING, default="all")
+    .add_node_var("ECLAB_PKI_TRUST_INCLUDE", "Add comma-separated authority references to node trust.", values=ValueType.STRING)
+    .add_node_var("ECLAB_PKI_TRUST_EXCLUDE", "Remove comma-separated authority references from node trust last.", values=ValueType.STRING)
     .add_command("pki", "Manage and inspect PKI catalogs without deploying a lab.")
     .add_cli_argument(
         "pki",
@@ -83,6 +110,20 @@ PLUGIN_SCHEMA = (
         commands=("deploy", "destroy", "freeze"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         implies=("remove this control from the derived topology",),
+    )
+    .annotate(
+        CERTIFICATES_ENVIRONMENT,
+        commands=("deploy", "freeze"),
+        lifecycle=(LifecycleStage.PREPARE_CALL,),
+        requires=(MANIFEST_ENVIRONMENT,),
+        implies=("issue every resolved named declaration and consume this control",),
+    )
+    .annotate(
+        PRIVATE_AUTHORITIES_ENVIRONMENT,
+        commands=("deploy", "freeze"),
+        lifecycle=(LifecycleStage.PREPARE_CALL,),
+        requires=(MANIFEST_ENVIRONMENT,),
+        implies=("authorize every resolved CA keypair and consume this control",),
     )
     .annotate("pki", lifecycle=(LifecycleStage.BEFORE_GOAL,))
     .use_case("Generate persistent CA and node identities only for explicitly opted-in labs.")
@@ -144,7 +185,10 @@ class PkiPlugin(SchemaBackedPlugin):
             "  pki effective -t TOPOLOGY           Print merged origin-labelled PKI\n"
             f"  topology.defaults.env.{MANIFEST_ENVIRONMENT}: ./pki.yaml\n"
             f"  [defaults|node].env.{MOUNT_TARGET_ENVIRONMENT}: {MOUNT_TARGET}\n"
-            "      Opt in and mount isolated read-only views at the resolved target\n"
+            f"  [defaults|node].env.{CERTIFICATES_ENVIRONMENT}: REF,...\n"
+            f"  [defaults|node].env.{PRIVATE_AUTHORITIES_ENVIRONMENT}: REF,...\n"
+            "  ECLAB_PKI_TRUST_MODE=all|none with TRUST_INCLUDE/EXCLUDE=REF,...\n"
+            "      Request named v2 identities and mount a node-specific read-only inventory\n"
             "  freeze --include-pki-secrets [--pki-passphrase-file FILE]\n"
             "  defrost --pki-authority BINDING=REF [--no-pki-prompt]"
         )
@@ -168,18 +212,25 @@ class PkiPlugin(SchemaBackedPlugin):
         topology_nodes = topology.get("topology", {}).get("nodes", {})
         if not isinstance(topology_nodes, dict):
             raise CatalogError("topology.nodes must be a mapping")
-        unknown = sorted(set(catalog.nodes) - set(topology_nodes))
-        if unknown:
-            raise CatalogError("PKI requests name unknown topology nodes: " + ", ".join(unknown))
+        bind_topology_requests(catalog, topology)
         services = _validated_services(catalog, topology_nodes)
         catalog.local_catalog["_topology_nodes"] = [*topology_nodes, *services.values()]
         mount_targets = _mount_targets(topology, topology_nodes)
         default_mount_target = _default_mount_target(topology)
+        defaults = topology.get("topology", {}).get("defaults", {})
+        default_environment = defaults.get("env", {}) if isinstance(defaults, dict) else {}
+        if isinstance(default_environment, dict) and ROOT_ENVIRONMENT in default_environment:
+            raise CatalogError(f"topology defaults define PKI-owned variable {ROOT_ENVIRONMENT}")
         for warning in catalog.warnings:
             api.logger.warning("%s", warning)
         for name, node in topology_nodes.items():
             if not isinstance(node, dict):
                 raise CatalogError(f"topology node {name!r} must be a mapping")
+            environment = node.get("env", {})
+            if isinstance(environment, dict) and ROOT_ENVIRONMENT in environment:
+                raise CatalogError(
+                    f"node {name!r} defines PKI-owned variable {ROOT_ENVIRONMENT}"
+                )
             if incompatible_mount(node, str(mount_targets[str(name)])):
                 raise CatalogError(
                     f"node {name!r} already has an incompatible mount at {mount_targets[str(name)]}"
@@ -203,12 +254,32 @@ class PkiPlugin(SchemaBackedPlugin):
             mutation = editor(api, self.plugin_id)
             mutation.delete(("topology", "defaults", "env", MANIFEST_ENVIRONMENT))
             mutation.delete(("topology", "defaults", "env", MOUNT_TARGET_ENVIRONMENT))
+            for variable in (CERTIFICATES_ENVIRONMENT, PRIVATE_AUTHORITIES_ENVIRONMENT, *TRUST_ENVIRONMENTS):
+                mutation.delete(("topology", "defaults", "env", variable))
             for name, node in topology_nodes.items():
                 binds = list(node.get("binds", []))
                 target = mount_targets[str(name)]
                 binds.append(f"{views[str(name)]}:{target}:ro")
                 mutation.modify(("topology", "nodes", name, "binds"), binds)
                 mutation.delete(("topology", "nodes", name, "env", MOUNT_TARGET_ENVIRONMENT))
+                environment = node.get("env", {})
+                if environment is None:
+                    environment = {}
+                filtered_environment = {
+                    key: value
+                    for key, value in environment.items()
+                    if key
+                    not in {
+                        MOUNT_TARGET_ENVIRONMENT,
+                        CERTIFICATES_ENVIRONMENT,
+                        PRIVATE_AUTHORITIES_ENVIRONMENT,
+                        *TRUST_ENVIRONMENTS,
+                    }
+                }
+                mutation.modify(
+                    ("topology", "nodes", name, "env"),
+                    {**filtered_environment, ROOT_ENVIRONMENT: str(target)},
+                )
             _inject_services(catalog, services, views, default_mount_target, mutation)
             prepared = _Prepared(material, tuple(created_views), workspace)
             projections = build_node_projections(catalog, material, topology, views, mount_targets)
@@ -234,12 +305,20 @@ class PkiPlugin(SchemaBackedPlugin):
         action = event.wrapper_args[0]
         value = api.get_context(_INVOCATION_CONTEXT)
         if action == "deploy":
-            if isinstance(value, _Prepared) and (
-                event.outcome.kind is not OutcomeKind.COMPLETED or event.outcome.exit_code != 0
-            ):
-                _rollback(value)
-            elif isinstance(value, _Prepared):
-                _clear_journal(value.workspace_root)
+            if isinstance(value, _Prepared):
+                succeeded = (
+                    event.outcome.kind is OutcomeKind.COMPLETED
+                    and event.outcome.exit_code == 0
+                )
+                if succeeded:
+                    _clear_journal(value.workspace_root)
+                elif not event.outcome.process_started:
+                    _rollback(value)
+                else:
+                    api.logger.warning(
+                        "retaining staged PKI after failed deploy for partial containers; "
+                        "a successful destroy will clean it"
+                    )
             return
         if (
             action == "destroy"
@@ -370,6 +449,7 @@ def _pki_command(argv: list[str], *, user_root: Path, cwd: Path, environment: An
     if selector is None:
         raise CatalogError("topology has not opted into PKI")
     catalog = _effective(user_root, _resolve_manifest(topology, selector))
+    bind_topology_requests(catalog, document)
     print(yaml.safe_dump(catalog.public_graph(), sort_keys=False), end="")
     return 0
 
@@ -377,7 +457,7 @@ def _pki_command(argv: list[str], *, user_root: Path, cwd: Path, environment: An
 def _global_init(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path.parent, 0o700)
-    content = """# Global PKI catalog. Local pki.yaml definitions shadow names here.\nversion: 1\n\ndefaults: {}\nprofiles: {}\nstores: {}\nauthorities: {}\n"""
+    content = """# Global PKI catalog. Local pki.yaml definitions shadow names here.\nversion: 2\n\ndefaults: {}\nprofiles: {}\nstores: {}\nauthorities: {}\ncertificates: {}\n"""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     descriptor = os.open(path, flags, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -447,13 +527,24 @@ def _inject_services(
         image = spec.get("image", recipe.get("image") if isinstance(recipe, dict) else None)
         if not isinstance(image, str):
             raise CatalogError(f"service {service!r} requires an image")
-        definition = {
+        definition: dict[str, Any] = {
             "kind": str(recipe.get("kind", "linux")) if isinstance(recipe, dict) else "linux",
             "image": image,
             "binds": [f"{views[node]}:{mount_target}:ro"],
         }
-        if isinstance(spec.get("env"), dict):
-            definition["env"] = spec["env"]
+        service_environment = spec.get("env", {})
+        if service_environment is None:
+            service_environment = {}
+        if not isinstance(service_environment, dict):
+            raise CatalogError(f"service {service!r} env must be a mapping")
+        if ROOT_ENVIRONMENT in service_environment:
+            raise CatalogError(
+                f"service {service!r} defines PKI-owned variable {ROOT_ENVIRONMENT}"
+            )
+        definition["env"] = {
+            **service_environment,
+            ROOT_ENVIRONMENT: str(mount_target),
+        }
         mutation.add(("topology", "nodes", node), definition)
 
 

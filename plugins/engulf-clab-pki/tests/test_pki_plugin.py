@@ -11,7 +11,14 @@ from unittest.mock import Mock
 from engulf_api import InvocationAPI, StateScope
 from engulf_clab_lab_parser import TopologySession
 from engulf_clab_pki_api import PKI_NODE_PROJECTIONS_CONTEXT, PkiNodeProjections
-from engulf_executable_wrapper_api import CallMode, PreparationFailedEvent, PreparedCallEvent
+from engulf_executable_wrapper_api import (
+    AfterCallEvent,
+    CallMode,
+    CallOutcome,
+    OutcomeKind,
+    PreparationFailedEvent,
+    PreparedCallEvent,
+)
 
 from engulf_clab_pki.plugin import (
     _INVOCATION_CONTEXT,
@@ -22,6 +29,13 @@ from engulf_clab_pki.plugin import (
 
 
 class PkiPluginTest(unittest.TestCase):
+    def test_directory_service_uses_available_pinned_image(self) -> None:
+        recipe = (
+            Path(__file__).parents[1] / "src/engulf_clab_pki/recipes/services.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("image: osixia/openldap:1.5.0", recipe)
+        self.assertNotIn("bitnami/openldap", recipe)
+
     def test_package_declares_parser_writer_freeze_and_schema_ordering(self) -> None:
         package = Path(__file__).parents[1]
         metadata = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
@@ -62,20 +76,21 @@ class PkiPluginTest(unittest.TestCase):
             topology = root / "lab.clab.yml"
             manifest = root / "pki.yaml"
             manifest.write_text(
-                "version: 1\n"
+                "version: 2\n"
                 "authorities:\n"
                 "  root: {}\n"
                 "  issuing: {issuer: root}\n"
-                "nodes:\n"
-                "  r:\n"
-                "    authorities: [{name: root, private: true}]\n"
-                "    certificates: [{name: tls, issuer: issuing}]\n",
+                "certificates:\n"
+                "  tls: {issuer: issuing}\n",
                 encoding="utf-8",
             )
             document = {
                 "topology": {
                     "defaults": {"env": {"ECLAB_PKI_MANIFEST": "./pki.yaml"}},
-                    "nodes": {"r": {}, "observer": {}},
+                    "nodes": {
+                        "r": {"env": {"ECLAB_PKI_CERTIFICATES": "tls", "ECLAB_PKI_PRIVATE_AUTHORITIES": "root"}},
+                        "observer": {},
+                    },
                 }
             }
             session = TopologySession(topology, document)
@@ -100,7 +115,7 @@ class PkiPluginTest(unittest.TestCase):
             self.assertIsInstance(published, PkiNodeProjections)
             self.assertEqual(tuple(node.node_name for node in published.nodes), ("observer", "r"))
             issued = next(node for node in published.nodes if node.node_name == "r")
-            self.assertEqual(issued.issued_identities[0].request_name, "tls")
+            self.assertEqual(issued.issued_identities[0].request_name, "local/tls")
             self.assertIsNotNone(issued.requested_authorities[0].private_key)
             self.assertEqual(
                 {
@@ -117,7 +132,7 @@ class PkiPluginTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             topology = root / "lab.clab.yml"
-            (root / "pki.yaml").write_text("version: 1\n", encoding="utf-8")
+            (root / "pki.yaml").write_text("version: 2\n", encoding="utf-8")
             document = {
                 "topology": {
                     "defaults": {
@@ -175,7 +190,7 @@ class PkiPluginTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             topology = root / "lab.clab.yml"
-            (root / "pki.yaml").write_text("version: 1\n", encoding="utf-8")
+            (root / "pki.yaml").write_text("version: 2\n", encoding="utf-8")
             session = TopologySession(
                 topology,
                 {
@@ -207,3 +222,48 @@ class PkiPluginTest(unittest.TestCase):
                 api,
             )
             self.assertTrue(all(not path.exists() for path in prepared.views))
+
+    def test_failed_started_deploy_retains_views_for_partial_containers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            (root / "pki.yaml").write_text("version: 2\n", encoding="utf-8")
+            session = TopologySession(
+                topology,
+                {
+                    "topology": {
+                        "defaults": {"env": {"ECLAB_PKI_MANIFEST": "./pki.yaml"}},
+                        "nodes": {"fgt": {"kind": "fortinet_fortigate"}},
+                    }
+                },
+            )
+            api = self._api(session, root / "user", root / "workspace")
+            plugin = PkiPlugin()
+            plugin.prepare_call(
+                PreparedCallEvent(
+                    "containerlab", ("deploy",), ("deploy",), CallMode.NORMAL, {}
+                ),
+                api,
+            )
+            prepared = next(
+                call.args[1]
+                for call in api.set_context.call_args_list
+                if call.args[0] == _INVOCATION_CONTEXT
+            )
+            api.get_context.return_value = prepared
+
+            plugin.after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    ("deploy",),
+                    ("deploy",),
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 1, True),
+                    1.0,
+                ),
+                api,
+            )
+
+            self.assertTrue(all(path.is_dir() for path in prepared.views))
+            self.assertTrue((root / "workspace/pki/provisioning.json").is_file())
+            api.logger.warning.assert_called_once()

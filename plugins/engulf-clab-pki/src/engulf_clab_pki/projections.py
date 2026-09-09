@@ -39,13 +39,18 @@ def build_node_projections(
         mount = mount_targets[name]
         projected.append(
             NodePkiProjection(
-                name,
-                _node_kind(node_value, defaults),
-                view,
-                mount,
-                _public_authorities(catalog, material, view, mount),
-                _requested_authorities(name, catalog, material, view, mount),
-                _issued_identities(name, catalog, material, view, mount),
+                node_name=name,
+                node_kind=_node_kind(node_value, defaults),
+                staged_view=view,
+                mount_target=mount,
+                public_authorities=_public_authorities(catalog, material, view, mount),
+                trusted_authorities=_trusted_authorities(
+                    name, catalog, material, view, mount
+                ),
+                requested_authorities=_requested_authorities(
+                    name, catalog, material, view, mount
+                ),
+                issued_identities=_issued_identities(name, catalog, material, view, mount),
             )
         )
     return PkiNodeProjections(tuple(projected))
@@ -72,7 +77,7 @@ def _public_projection(
     view: Path,
     mount: PurePosixPath,
 ) -> PublicAuthorityProjection:
-    relative = PurePosixPath("authorities", "effective", item.name, item.variant)
+    relative = PurePosixPath("authorities", item.scope, item.name, item.variant)
     return PublicAuthorityProjection(
         item.scope,
         item.name,
@@ -98,8 +103,23 @@ def _public_authorities(
     values = [
         _public_projection(catalog, item, view, mount)
         for (scope, name, _variant), item in sorted(material.authorities.items())
-        if catalog.origins["authorities"].get(name) == scope
     ]
+    return tuple(values)
+
+
+def _trusted_authorities(
+    node: str,
+    catalog: EffectiveCatalog,
+    material: MaterialSet,
+    view: Path,
+    mount: PurePosixPath,
+) -> tuple[PublicAuthorityProjection, ...]:
+    values: list[PublicAuthorityProjection] = []
+    for reference in catalog.nodes.get(node, {}).get("trusted_authorities", []):
+        scope, name, variant, _ = catalog.resolve_authority(reference)
+        values.append(
+            _public_projection(catalog, material.authorities[(scope, name, variant)], view, mount)
+        )
     return tuple(_deduplicate(values, lambda item: item.fingerprint_sha256))
 
 
@@ -118,6 +138,8 @@ def _requested_authorities(
             reference, private = request["name"], bool(request.get("private", False))
         else:
             raise CatalogError(f"nodes.{node}.authorities entries require a name")
+        if not private:
+            continue
         scope, name, variant, _spec = catalog.resolve_authority(reference)
         item = material.authorities[(scope, name, variant)]
         relative = PurePosixPath("authorities", scope, name, variant)
@@ -181,8 +203,7 @@ def _issued_identities(
                 _file(view, mount, relative / "full-chain.pem"),
             )
         )
-    ordered = sorted(values, key=lambda item: (item.request_name, item.fingerprint_sha256))
-    return tuple(_deduplicate(ordered, lambda item: item.fingerprint_sha256))
+    return tuple(sorted(values, key=lambda item: (item.request_name, item.fingerprint_sha256)))
 
 
 def _authority_has_issuer(catalog: EffectiveCatalog, scope: Scope, name: str, variant: str) -> bool:

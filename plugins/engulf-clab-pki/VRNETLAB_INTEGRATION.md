@@ -42,7 +42,7 @@ vrnetlab launcher.
 ## Projection API
 
 `engulf-clab-pki-api` exposes the stable context key
-`engulf_clab.pki.node_projections.v1` plus frozen, slotted value types. The
+`engulf_clab.pki.node_projections.v2` plus frozen, slotted value types. The
 public contract has the following logical shape:
 
 ```text
@@ -98,7 +98,7 @@ unused-context diagnostic.
 
 For every topology node in an opted-in deploy, PKI publishes:
 
-- every public variant of every effective authority, identified by resolved
+- every public variant of every available authority, identified by resolved
   scope, name, variant, and certificate fingerprint;
 - every authority identity explicitly requested by that node, including a
   private-key path only when that request set `private: true`; and
@@ -184,28 +184,36 @@ The injector targets this exact launcher-owned environment contract:
 
 | Variable | Grammar | FortiOS effect |
 | --- | --- | --- |
-| `FOS_PKI_CA_CERTS` | `path;path;...` | Stages each file under `/tftpboot`, then runs `execute vpn certificate ca import tftp <file> <gateway>`. FortiOS creates a CA object named from the certificate CN under `config vpn certificate ca`. |
-| `FOS_PKI_LOCAL_CERTS` | `key_path:cert_path` or `cert_path`, with entries separated by `;` | Reads the referenced contents and configures `config vpn certificate local`, `edit "<CN>"`, `set private-key "<PEM>"`, and `set certificate "<PEM>"`. The same mechanism handles ordinary server identities and CA keypairs used for deep inspection. |
+| `FOS_PKI_CA_CERTS` | `refname:path`, with entries separated by `;` | Reads each PEM and configures `config vpn certificate ca`, `edit "<refname>"`, and `set ca "<PEM>"`. An empty refname falls back to the certificate CN. |
+| `FOS_PKI_LOCAL_CERTS` | `refname:key_path:cert_path` or `refname:cert_path`, with entries separated by `;` | Reads the referenced contents and configures `config vpn certificate local`, `edit "<refname>"`, `set private-key "<PEM>"` when present, and `set certificate "<PEM>"`. The same mechanism handles ordinary server identities and CA keypairs used for deep inspection. |
 | `FOS_PKI_LOCAL_CERT_PASS_FILES` | `path;path;...`, optional | Reads each companion file and supplies its content through `set password <contents>`. Entries correspond positionally to the encrypted-key entries, not to every entry, in `FOS_PKI_LOCAL_CERTS`. |
-| `FOS_PKI_REMOTE_CERTS` | `path;path;...` | Stages each file under `/tftpboot`, then runs `execute vpn certificate remote import tftp <file> <gateway>`. FortiOS creates a remote-certificate object named from the certificate CN. |
-| `FOS_PKI_CRLS` | `path;path;...` | Reads the PEM body, base64-encodes it, and sets `crl` on an object named from the CN or supplied name. The launcher selects `config vpn certificate crl` or the release-dependent `config certificate crl` after inspecting `get system status`. |
+| `FOS_PKI_REMOTE_CERTS` | `refname:path`, with entries separated by `;` | Reads each PEM and configures `config vpn certificate remote`, `edit "<refname>"`, and `set remote "<PEM>"`. An empty refname falls back to the certificate CN. |
+| `FOS_PKI_CRLS` | `refname:path`, with entries separated by `;` | Reads the PEM body, base64-encodes it, and sets `crl` on the explicitly named object. The launcher selects `config vpn certificate crl` or the release-dependent `config certificate crl` after inspecting `get system status`. |
 
 `path` always means an absolute in-container path projected below the node's PKI
-mount. A semicolon separates entries. Within a local-certificate keypair, the
-single colon separates the private-key path from the certificate path. PKI's
-controlled mount and artifact names therefore must not contain either delimiter.
+mount. A semicolon separates entries. Every entry begins with a mandatory
+refname and colon; further colons separate the private-key and certificate paths
+for a local keypair. PKI's controlled mount, artifact names, and refnames
+therefore must not contain either delimiter.
 The launcher reads file contents only after receiving these paths; environment
 values themselves remain paths-only.
 
+The injector always emits an explicit refname derived from the catalog role:
+authority name plus a non-default variant suffix, or the issued certificate
+declaration name. It rejects duplicate refnames within a category. It never
+emits the fallback empty-refname spelling, a colon-free path, or the ambiguous
+legacy `key_path:cert_path` spelling.
+
 The initial projection maps to the contract as follows:
 
-- `FOS_PKI_CA_CERTS` receives public effective authorities plus explicitly
-  requested certificate-only authorities, deduplicated by fingerprint in
-  canonical projection order.
+- `FOS_PKI_CA_CERTS` receives only the node-selected trusted authorities,
+  deduplicated by fingerprint in canonical projection order and encoded as
+  `refname:cert_path`.
 - `FOS_PKI_LOCAL_CERTS` receives each explicitly requested authority that has an
   authorized private-key path and every issued leaf identity, encoded as
-  `key_path:cert_path`. This is also how an authorized CA identity reaches the
-  launcher's deep-inspection mechanism.
+  `refname:key_path:cert_path`. A projected certificate-only local value is
+  encoded as `refname:cert_path`. This is also how an authorized CA identity
+  reaches the launcher's deep-inspection mechanism.
 - `FOS_PKI_LOCAL_CERT_PASS_FILES` is omitted because the initial PKI projection
   stages unencrypted PEM private keys. Supporting encrypted private keys later
   requires an explicit, node-authorized passphrase-file path in the typed API;
@@ -217,8 +225,8 @@ The initial projection maps to the contract as follows:
 For example, a node mounted at `/custom/pki` could receive:
 
 ```text
-FOS_PKI_CA_CERTS=/custom/pki/authorities/effective/root/default/certificate.pem;/custom/pki/authorities/effective/issuing/default/certificate.pem
-FOS_PKI_LOCAL_CERTS=/custom/pki/issued/fgt/tls/private-key.pem:/custom/pki/issued/fgt/tls/certificate.pem
+FOS_PKI_CA_CERTS=root:/custom/pki/authorities/effective/root/default/certificate.pem;issuing:/custom/pki/authorities/effective/issuing/default/certificate.pem
+FOS_PKI_LOCAL_CERTS=tls:/custom/pki/issued/fgt/local/tls/private-key.pem:/custom/pki/issued/fgt/local/tls/certificate.pem
 ```
 
 The translator omits an environment variable when its category is empty. It
@@ -302,14 +310,15 @@ rebuilds projections and injector output from the installed runtime contracts.
 
 Package-level and integration tests cover the following acceptance contract:
 
-- Every eligible FortiGate node receives every public effective trust anchor and
+- Every eligible FortiGate node receives every node-selected trusted authority and
   intermediate without receiving any CA private key by default.
 - A requested CA private key appears only in the projection and `FOS_*` input of
   the node that explicitly authorized it.
 - Each issued leaf certificate, key, and chain appears only for its requesting
   node.
 - Public CA paths use `FOS_PKI_CA_CERTS`, while authorized authority and leaf
-  keypairs use `FOS_PKI_LOCAL_CERTS` in exact `key_path:cert_path` form.
+  keypairs use `FOS_PKI_LOCAL_CERTS`; every entry has the mandatory leading
+  refname field and exact category-specific field count.
 - The initial injector omits `FOS_PKI_LOCAL_CERT_PASS_FILES`,
   `FOS_PKI_REMOTE_CERTS`, and `FOS_PKI_CRLS`; typed future artifacts populate
   them using the exact launcher grammar without certificate parsing.
