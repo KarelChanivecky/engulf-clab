@@ -21,7 +21,7 @@ execution pulls that source and retags it as
 the required image. `only_if_missing=True` lets execution first accept an
 existing local target; it defaults to false so provider mirror recipes continue
 to refresh from their selected source. The core package also discovers literal Dockerfile `FROM`
-dependencies. Providers are attributed by the dispatcher, not by values
+and external `COPY --from` dependencies. Providers are attributed by the dispatcher, not by values
 supplied by the provider itself.
 
 `DockerArchiveRecipe` names an absolute path to a `docker save` archive,

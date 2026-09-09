@@ -21,11 +21,14 @@ executing: an existing image satisfies the requirement, while a missing image
 is pulled. Preferred provider recipes keep their declared execution behavior.
 Provider responses are cached across execution retries.
 
-Dockerfile analysis follows literal `FROM` instructions, ignores prior-stage
+Dockerfile analysis follows literal `FROM` instructions and external
+`COPY --from=<image>` sources, ignores prior-stage
 aliases and `scratch`, and expands global `ARG` values when known. A dynamic base
 expression that cannot be resolved fails provisioning; provide its global build
 argument so the complete graph is known before execution. Explicit provision
-dependencies are combined with discovered bases.
+dependencies are combined with discovered bases and copy sources. Global
+Dockerfile `ARG` defaults and recipe build arguments are expanded; stage aliases
+are excluded and unresolved dynamic image sources fail before Docker runs.
 
 An archive recipe is executed with `docker load`, then retagged when the archive
 does not already carry the target reference. A recipe that names no source

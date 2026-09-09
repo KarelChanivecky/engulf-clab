@@ -16,7 +16,7 @@ _VARIABLE = re.compile(
 
 
 def dockerfile_requirements(recipe: DockerfileRecipe) -> tuple[ImageRequirement, ...]:
-    """Return statically discoverable external bases in stage order."""
+    """Return statically discoverable external FROM and COPY sources in file order."""
     try:
         source = recipe.dockerfile.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
@@ -43,6 +43,41 @@ def dockerfile_requirements(recipe: DockerfileRecipe) -> tuple[ImageRequirement,
             name = name.strip()
             if _ARG_NAME.fullmatch(name) is not None and name not in arguments:
                 arguments[name] = default if equals else None
+            continue
+        if instruction == "COPY":
+            try:
+                tokens = shlex.split(body, posix=True)
+            except ValueError as error:
+                raise DockerfileAnalysisError(
+                    f"invalid COPY instruction in {recipe.dockerfile}:{line_number}: {error}"
+                ) from error
+            copy_source: str | None = None
+            index = 0
+            while index < len(tokens) and tokens[index].startswith("--"):
+                option = tokens[index]
+                if option.startswith("--from="):
+                    copy_source = option.partition("=")[2]
+                elif option == "--from":
+                    index += 1
+                    if index >= len(tokens):
+                        raise DockerfileAnalysisError(
+                            f"missing COPY --from value at {recipe.dockerfile}:{line_number}"
+                        )
+                    copy_source = tokens[index]
+                index += 1
+            if copy_source is None:
+                continue
+            token = _expanded(copy_source, arguments)
+            if token is None:
+                raise DockerfileAnalysisError(
+                    f"cannot provision dynamic COPY --from image at "
+                    f"{recipe.dockerfile}:{line_number}"
+                )
+            if token.lower() not in aliases and token.lower() != "scratch" and token not in seen:
+                seen.add(token)
+                requirements.append(
+                    ImageRequirement(token, origin=f"{recipe.dockerfile}:{line_number}")
+                )
             continue
         if instruction != "FROM":
             continue

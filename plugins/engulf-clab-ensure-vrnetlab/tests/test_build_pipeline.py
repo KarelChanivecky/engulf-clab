@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import warnings
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -13,7 +14,7 @@ from engulf_executable_wrapper_api import CallOutcome, OutcomeKind
 from engulf_clab_ensure_vrnetlab import ENSURE_VRNETLAB_PLUGIN_ID
 
 
-def write_plugin_directory(directory: Path) -> Path:
+def write_plugin_directory(directory: Path, *, with_image_build: bool = False) -> Path:
     plugin_dir = directory / "plugins"
     plugin_dir.mkdir()
     (plugin_dir / "ensure.py").write_text(
@@ -28,6 +29,16 @@ def write_plugin_directory(directory: Path) -> Path:
         "from engulf_clab_vrnetlab_build.plugin import plugin\n",
         encoding="utf-8",
     )
+    # vrnetlab-build registers a Docker image provider and depends on
+    # image-build, the plugin that consumes that registry. Tests that only
+    # exercise wiring leave it out to stay hermetic -- it provisions real
+    # images -- and then knowingly run a pipeline with a producer but no
+    # consumer, which the framework reports as an unread context.
+    if with_image_build:
+        (plugin_dir / "image_build.py").write_text(
+            "from engulf_clab_image_build import plugin\n",
+            encoding="utf-8",
+        )
     (plugin_dir / "schema.py").write_text(
         "from engulf_clab_schema import plugin\n",
         encoding="utf-8",
@@ -41,7 +52,7 @@ class BuildPipelineIntegrationTest(unittest.TestCase):
             root = Path(directory)
             wrapper = ContainerlabApp(
                 "/bin/true",
-                plugin_dir=write_plugin_directory(root),
+                plugin_dir=write_plugin_directory(root, with_image_build=True),
                 discover_installed=False,
                 state_home_resolver=lambda _context: root / "state",
             )
@@ -92,9 +103,19 @@ topology:
                 patch("engulf_clab_ensure_vrnetlab.plugin.require_vrnetlab_dependencies"),
                 patch("engulf_clab_ensure_vrnetlab.plugin.update_vrnetlab"),
                 patch("engulf_clab_vrnetlab_build.plugin.ensure_images") as build,
+                warnings.catch_warnings(record=True) as caught,
             ):
+                warnings.simplefilter("always")
                 result = wrapper.run(("deploy", "-t", str(topology)))
 
+            # This fixture deliberately omits image-build, whose provisioning
+            # would reach the network, so vrnetlab-build's provider registry
+            # has no consumer here. The framework is right to say so; assert it
+            # rather than leaking the warning out of the suite.
+            self.assertEqual(
+                [str(item.message) for item in caught],
+                ["context written but never read: org.engulf.docker-image.providers"],
+            )
             self.assertEqual(result, 0)
             self.assertLess(
                 [item.plugin_id for item in wrapper.plugins].index("engulf_clab.lab_parser"),
