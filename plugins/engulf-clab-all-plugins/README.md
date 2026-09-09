@@ -26,7 +26,8 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-vrnetlab-build` | Pre-deploy vrnetlab image builds from qcow2/archive sources. |
 | `engulf-clab-containers-api` | Typed contract for independently packaged container collections. |
 | `engulf-clab-containers` | Active collection catalog and temporary topology injection. |
-| `engulf-clab-containers-core` | Maintained host-connector recipe. |
+| `engulf-clab-containers-core` | Maintained host-connector and WAN-access recipes. |
+| `engulf-clab-containers-pki` | PKI-enabled Debian 13 and Fedora 44 bases for direct use or inheritance. |
 | `engulf-clab-license-pool` | Leased shared license selection and lab-local copies. |
 | `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Sanitized portable and strict offline lab archives. |
@@ -34,8 +35,8 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-pki-linux-core`, `engulf-clab-pki-linux-debian`, and `engulf-clab-pki-linux-fedora` | Runtime plus Debian/Fedora installer asset images for automatic Linux trust and identity integration. |
 | `engulf-clab-vrnetlab-fortigate-pki-injector` | Automatic path-only installation of authorized PKI identities into FortiGate vrnetlab nodes. |
 
-Included feature packages are Dockerfile builds, the packaged-container manager
-and core collection, Containerlab and vrnetlab provisioning, vrnetlab image
+Included feature packages are Dockerfile builds, the packaged-container manager,
+core and PKI collections, Containerlab and vrnetlab provisioning, vrnetlab image
 builds, license pools, managed DHCP/NAT WAN bridges, frozen shareable archives,
 PKI catalogs, certificate mounts, FortiGate PKI injection, and the topology
 mutation/collector infrastructure. Review the individual package READMEs before

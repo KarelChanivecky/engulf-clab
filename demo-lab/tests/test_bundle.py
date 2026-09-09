@@ -103,7 +103,7 @@ def test_archive_image_installs_the_httpd_applet() -> None:
     assert 'CMD ["httpd", "-f", "-p", "8080", "-h", "/srv/www"]' in dockerfile
 
 
-def test_linux_pki_consumers_cover_families_mtls_and_external_copy() -> None:
+def test_linux_pki_consumers_cover_families_mtls_and_inherited_bases() -> None:
     topology = yaml.safe_load((BUNDLE / "lab.clab.yaml").read_text(encoding="utf-8"))
     nodes = topology["topology"]["nodes"]
     assert nodes["client-a"]["env"]["ECLAB_PKI_IDENTITY_CURL"] == "client-a-mtls"
@@ -113,9 +113,17 @@ def test_linux_pki_consumers_cover_families_mtls_and_external_copy() -> None:
     assert "ssl_client_certificate /mnt/eclab/pki/trust/ca-bundle.pem" in nginx
     assert "ssl_verify_client on" in nginx
     assert "$ssl_client_verify" in nginx
-    dockerfiles = [path.read_text(encoding="utf-8") for path in (BUNDLE / "images").glob("*/Dockerfile")]
-    assert any("COPY --from=engulf-clab.pki-linux-debian/installer:latest" in text for text in dockerfiles)
-    assert any("COPY --from=engulf-clab.pki-linux-fedora/installer:latest" in text for text in dockerfiles)
+    dockerfiles = {
+        path.parent.name: path.read_text(encoding="utf-8")
+        for path in (BUNDLE / "images").glob("*/Dockerfile")
+    }
+    for name in ("pki-client-debian", "dmz-server"):
+        assert dockerfiles[name].startswith("FROM eclab.containers.pki/debian:latest\n")
+    for name in ("pki-client-fedora", "dmz-fedora"):
+        assert dockerfiles[name].startswith("FROM eclab.containers.pki/fedora:latest\n")
+    for name in ("pki-client-debian", "pki-client-fedora", "dmz-server", "dmz-fedora"):
+        assert "COPY --from=engulf-clab.pki-linux-" not in dockerfiles[name]
+        assert "ENTRYPOINT" not in dockerfiles[name]
     client_commands = nodes["client-a"]["exec"]
     assert not any("printf" in command for command in client_commands)
     assert sum(" >> /etc/hosts" in command for command in client_commands) == 3

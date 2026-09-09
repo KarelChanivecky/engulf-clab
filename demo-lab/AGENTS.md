@@ -9,4 +9,6 @@
   pre-existing host bridge.
 - Keep the demo portable: it must not require a proprietary VM image, license,
   or local runtime-selection file.
+- Make Debian and Fedora PKI consumers inherit the matching
+  `eclab.containers.pki` base and its entrypoint.
 - Read `USAGE.md` and `CONTRIBUTING.md` before changing behavior.

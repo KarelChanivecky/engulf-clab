@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NoReturn
 
 BUNDLE_FORMAT = 2
-DISTRIBUTION_VERSION = "0.4.1"
+DISTRIBUTION_VERSION = "0.5.0"
 DEFAULT_DIRECTORY = "eclab-demo-lab"
 MARKER = ".eclab-demo-lab.json"
 REPLACEABLE_BUNDLE_FORMATS = frozenset({1, BUNDLE_FORMAT})

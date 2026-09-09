@@ -27,6 +27,7 @@ PACKAGES := \
 	engulf-clab-pki-linux-core \
 	engulf-clab-pki-linux-debian \
 	engulf-clab-pki-linux-fedora \
+	engulf-clab-containers-pki \
 	engulf-clab-vrnetlab-fortigate-pki-injector \
 	engulf-clab-all-plugins \
 	engulf-clab \
@@ -61,6 +62,7 @@ DIR_engulf-clab-pki := plugins/engulf-clab-pki
 DIR_engulf-clab-pki-linux-core := plugins/engulf-clab-pki-linux-core
 DIR_engulf-clab-pki-linux-debian := plugins/engulf-clab-pki-linux-debian
 DIR_engulf-clab-pki-linux-fedora := plugins/engulf-clab-pki-linux-fedora
+DIR_engulf-clab-containers-pki := plugins/engulf-clab-containers-pki
 DIR_engulf-clab-vrnetlab-fortigate-pki-injector := plugins/engulf-clab-vrnetlab-fortigate-pki-injector
 DIR_engulf-clab-all-plugins := plugins/engulf-clab-all-plugins
 DIR_engulf-clab := engulf-clab

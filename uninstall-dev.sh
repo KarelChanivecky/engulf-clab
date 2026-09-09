@@ -24,6 +24,7 @@ fi
     engulf-clab-health-gates \
     engulf-docker-image-core \
     engulf-docker-image-api \
+    engulf-clab-containers-pki \
     engulf-clab-containers-core \
     engulf-clab-containers \
     engulf-clab-containers-api \
@@ -32,6 +33,9 @@ fi
     engulf-clab-freeze \
     engulf-clab-freeze-api \
     engulf-clab-pki \
+    engulf-clab-pki-linux-fedora \
+    engulf-clab-pki-linux-debian \
+    engulf-clab-pki-linux-core \
     engulf-clab-vrnetlab-fortigate-pki-injector \
     engulf-clab-wan \
     engulf-clab-vrnetlab-build \

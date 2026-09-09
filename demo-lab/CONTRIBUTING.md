@@ -16,6 +16,11 @@ The router is intentionally simple: `eth1` is `10.10.10.1/24`, `eth2` is
 `192.0.2.1/24`, and `eth3` is the packaged WAN-access uplink. Keep direct
 client/DMZ forwarding independent of uplink availability.
 
+Keep all Debian and Fedora PKI application Dockerfiles based on
+`eclab.containers.pki/debian` or `eclab.containers.pki/fedora`. They must inherit
+the base PKI entrypoint instead of copying installer assets or declaring a
+replacement entrypoint.
+
 Install `busybox-extras` explicitly in the archive-built Alpine image; the base
 BusyBox build does not provide its `httpd` applet. Use one `echo` command per
 generated `/etc/hosts` line because Containerlab exec parsing consumes a

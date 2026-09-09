@@ -41,6 +41,11 @@ plugins:
       - ECLAB_CONNECT_HOST and ECLAB_CONNECT_HOST_7 IPv4/IPv6 mappings
       - ECLAB_DHCP_SUBNET, ECLAB_DHCP_GATEWAY, ECLAB_DHCP_POOL_START, and ECLAB_DHCP_POOL_END
       - ECLAB_DHCP_DNS, ECLAB_DHCP_LEASE_TIME, DHCP, and NAT
+  eclab.containers.pki:
+    distribution: engulf-clab-containers-pki
+    coverage:
+      - Debian 13 and Fedora 44 PKI bases inherited by client and nginx images
+      - inherited trust-bootstrap entrypoint and dependency-first base resolution
   engulf_clab.containers:
     distribution: engulf-clab-containers
     coverage:
@@ -50,7 +55,7 @@ plugins:
     distribution: engulf-clab-image-build
     coverage:
       - recursive literal FROM graph
-      - external COPY --from installer-image dependencies
+      - packaged PKI base dependencies discovered from literal FROM instructions
       - ECLAB_IMAGE_PARAM_ROLE
       - provider precedence, concurrency, local reuse, pull fallback, and Never policy
   engulf_clab.pki:
@@ -73,12 +78,12 @@ plugins:
   engulf_clab.pki_linux_debian:
     distribution: engulf-clab-pki-linux-debian
     coverage:
-      - Debian 13 client and nginx consumers copy and run the installer asset
+      - Debian 13 PKI base inherits and runs the installer asset
       - target applications are installed by the consumers
   engulf_clab.pki_linux_fedora:
     distribution: engulf-clab-pki-linux-fedora
     coverage:
-      - Fedora 44 client and nginx consumers copy and run the installer asset
+      - Fedora 44 PKI base inherits and runs the installer asset
       - runtime detection overrides build-time capability recording
   engulf_clab.freeze:
     distribution: engulf-clab-freeze

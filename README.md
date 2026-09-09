@@ -319,7 +319,8 @@ required host tools, and cleanup behavior.
 | `engulf-docker-image-core` | Library/goal | Recursive Dockerfile dependency resolution, provider backtracking, and dependency-first builds. |
 | `engulf-clab-containers-api` | Contract only | Typed contract for independently published container collections. |
 | `engulf-clab-containers` | `engulf_clab.containers` | Injects collection runtime fields and registers the collection image provider. |
-| `engulf-clab-containers-core` | `eclab.containers` | Core host-connector collection. |
+| `engulf-clab-containers-core` | `eclab.containers` | Core host-connector and WAN-access collection. |
+| `engulf-clab-containers-pki` | `eclab.containers.pki` | PKI-enabled Debian and Fedora base-container collection. |
 | `engulf-clab-ensure-checkout` | Library only | Shared safe Git checkout provisioning and update logic. |
 | `engulf-clab-ensure-containerlab` | `engulf_clab.ensure_containerlab` | Finds, builds, or provisions Containerlab. |
 | `engulf-clab-image-build` | `engulf_clab.image_build` | Maps topology images and node-env parameters into the neutral graph and dispatches builds. |
@@ -344,8 +345,21 @@ required host tools, and cleanup behavior.
 
 Active collection plugins provide reusable node images without copying their
 Dockerfiles into each lab. List them with `eclab --eclab-containers-help`. A
-collection owns the image namespace derived from its plugin ID; the core
-`eclab.containers` collection provides `host-connector`:
+collection owns the image namespace derived from its plugin ID. The core
+`eclab.containers` collection provides network helpers, while the PKI-scoped
+`eclab.containers.pki` collection provides `debian` and `fedora` bases that
+application images can inherit:
+
+```dockerfile
+FROM eclab.containers.pki/debian:latest
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]
+```
+
+The inherited PKI entrypoint applies the node's projected trust before running
+the final command. The core collection can map an external host with
+`host-connector`:
 
 ```yaml
 topology:

@@ -63,7 +63,9 @@ views; it does not promise production service initialization or enforcement.
 ```
 
 This builds ordinary Docker images, loads the generated archive, creates PKI
-material, and writes a temporary derived topology. The source remains unchanged.
+material, and writes a temporary derived topology. The Debian and Fedora client
+and nginx images inherit the matching `eclab.containers.pki` base, whose
+installer and portable runtime are resolved first. The source remains unchanged.
 
 ## 5. Verify
 

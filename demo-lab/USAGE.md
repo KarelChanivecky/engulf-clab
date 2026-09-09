@@ -39,12 +39,12 @@ two internal L2 networks are bridges inside the `segments` container namespace,
 so no pre-created host bridge is needed. A small Linux router forwards between
 the client and DMZ subnets and uses the packaged `wan-access` node as an uplink.
 
-The Debian and Fedora consumers copy the matching PKI installer asset without
-changing that asset's base image. Client A demonstrates multiple identities,
-curl selection, Chromium origin policy, Firefox NSS discovery, and a Playwright
-descriptor. Debian nginx requires a generated client certificate directly;
-Fedora nginx serves a cross-signed chain. See `RUNBOOK.md` for positive and
-negative checks.
+The Debian and Fedora consumers inherit the matching base from the PKI-scoped
+container collection and retain its trust-bootstrap entrypoint. Client A
+demonstrates multiple identities, curl selection, Chromium origin policy,
+Firefox NSS discovery, and a Playwright descriptor. Debian nginx requires a
+generated client certificate directly; Fedora nginx serves a cross-signed
+chain. See `RUNBOOK.md` for positive and negative checks.
 
 ## Security and cleanup
 
