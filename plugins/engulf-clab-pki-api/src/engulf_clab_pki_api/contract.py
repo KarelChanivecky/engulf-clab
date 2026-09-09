@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
-PKI_NODE_PROJECTIONS_CONTEXT = "engulf_clab.pki.node_projections.v1"
+PKI_NODE_PROJECTIONS_CONTEXT = "engulf_clab.pki.node_projections.v2"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
 
@@ -18,6 +18,17 @@ class AuthorityClassification(StrEnum):
 def _name(value: str, label: str) -> None:
     if not isinstance(value, str) or _NAME.fullmatch(value) is None:
         raise ValueError(f"{label} must be a nonempty PKI identifier")
+
+
+def _node_name(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value in {".", ".."}
+        or any(character in value for character in ("/", "\\", ":", ";", "\x00"))
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError("node name must be a nonempty path-safe Containerlab identifier")
 
 
 def _fingerprint(value: str) -> None:
@@ -75,6 +86,11 @@ class PublicAuthorityProjection:
             if not isinstance(value, ProjectedFile):
                 raise TypeError("authority artifact fields must be ProjectedFile values")
 
+    @property
+    def identity_id(self) -> str:
+        suffix = f"/{self.variant}" if self.variant != "default" else ""
+        return f"{self.scope}/{self.name}{suffix}"
+
 
 @dataclass(frozen=True, slots=True)
 class RequestedAuthorityProjection:
@@ -99,6 +115,11 @@ class RequestedAuthorityProjection:
         if self.private_key is not None and not isinstance(self.private_key, ProjectedFile):
             raise TypeError("authority private_key must be a ProjectedFile or None")
 
+    @property
+    def identity_id(self) -> str:
+        suffix = f"/{self.variant}" if self.variant != "default" else ""
+        return f"{self.scope}/{self.name}{suffix}"
+
 
 @dataclass(frozen=True, slots=True)
 class IssuedIdentityProjection:
@@ -110,11 +131,18 @@ class IssuedIdentityProjection:
     full_chain: ProjectedFile
 
     def __post_init__(self) -> None:
-        _name(self.request_name, "issued request name")
+        parts = self.request_name.split("/")
+        if len(parts) != 2 or parts[0] not in {"global", "local"}:
+            raise ValueError("issued request name must be a canonical global/name or local/name")
+        _name(parts[1], "issued request name")
         _fingerprint(self.fingerprint_sha256)
         for value in (self.certificate, self.private_key, self.chain, self.full_chain):
             if not isinstance(value, ProjectedFile):
                 raise TypeError("issued artifact fields must be ProjectedFile values")
+
+    @property
+    def identity_id(self) -> str:
+        return self.request_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,11 +152,12 @@ class NodePkiProjection:
     staged_view: Path
     mount_target: PurePosixPath
     public_authorities: tuple[PublicAuthorityProjection, ...] = ()
+    trusted_authorities: tuple[PublicAuthorityProjection, ...] = ()
     requested_authorities: tuple[RequestedAuthorityProjection, ...] = ()
     issued_identities: tuple[IssuedIdentityProjection, ...] = ()
 
     def __post_init__(self) -> None:
-        _name(self.node_name, "node name")
+        _node_name(self.node_name)
         if not isinstance(self.node_kind, str) or not self.node_kind:
             raise ValueError("node kind must be a nonempty string")
         if not isinstance(self.staged_view, Path) or not self.staged_view.is_absolute():
@@ -140,6 +169,7 @@ class NodePkiProjection:
         ):
             raise ValueError("mount_target must be an absolute non-root PurePosixPath")
         _tuple(self.public_authorities, PublicAuthorityProjection, "public_authorities")
+        _tuple(self.trusted_authorities, PublicAuthorityProjection, "trusted_authorities")
         _tuple(self.requested_authorities, RequestedAuthorityProjection, "requested_authorities")
         _tuple(self.issued_identities, IssuedIdentityProjection, "issued_identities")
         for artifact in self.files():
@@ -156,6 +186,10 @@ class NodePkiProjection:
         for public_authority in self.public_authorities:
             values.extend(
                 (public_authority.certificate, public_authority.chain, public_authority.full_chain)
+            )
+        for trusted_authority in self.trusted_authorities:
+            values.extend(
+                (trusted_authority.certificate, trusted_authority.chain, trusted_authority.full_chain)
             )
         for requested_authority in self.requested_authorities:
             values.extend(

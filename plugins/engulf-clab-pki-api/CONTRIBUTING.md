@@ -9,3 +9,7 @@ The context ID, enum values, field meanings, and host/container correspondence
 are stable public API. Add a new optional artifact category instead of weakening
 an existing field. Never put certificate bytes, key bytes, passwords, catalog
 objects, or mutable topology objects in a projection.
+
+Do not apply the narrower PKI catalog-name grammar to `node_name`. Containerlab
+names such as `client-net|segments` must round-trip, while values that could
+escape a single staged-view path component remain invalid.

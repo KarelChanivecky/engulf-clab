@@ -81,3 +81,15 @@ class ProjectionContractTest(unittest.TestCase):
             PkiNodeProjections((first, second))
         with self.assertRaisesRegex(ValueError, "unique"):
             PkiNodeProjections((first, first))
+
+    def test_accepts_namespaced_bridge_node_name_but_rejects_path_components(self) -> None:
+        projection = NodePkiProjection(
+            "client-net|segments",
+            "bridge",
+            Path("/state/client-net|segments"),
+            PurePosixPath("/mnt/pki"),
+        )
+        self.assertEqual(projection.node_name, "client-net|segments")
+        for invalid in ("", ".", "..", "parent/child", "bad:name", "bad;name"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "path-safe"):
+                NodePkiProjection(invalid, "linux", Path("/state/view"), PurePosixPath("/mnt/pki"))
