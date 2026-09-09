@@ -53,6 +53,10 @@ _BUILTIN_IGNORES = frozenset(
     }
 )
 _LICENSE_SUFFIXES = (".lic", ".license", ".licence")
+# A lab's `<name>.env` holds owner-private values the topology expands from.
+# A freeze archive is made to be handed to someone else, so these never travel
+# with it -- the recipient supplies their own.
+_PRIVATE_SUFFIXES = (".env",)
 _FREEZE_KEY = "x-engulf-clab-freeze"
 
 
@@ -424,6 +428,9 @@ def _copy_source(
             elif (base / name).is_file() and name.lower().endswith(_LICENSE_SUFFIXES):
                 ignored_names.add(name)
                 warnings.append(f"excluded possible license file: {relative}")
+            elif (base / name).is_file() and name.lower().endswith(_PRIVATE_SUFFIXES):
+                ignored_names.add(name)
+                warnings.append(f"excluded owner-private environment file: {relative}")
         return ignored_names
 
     shutil.copytree(root, destination, symlinks=True, ignore=ignore)

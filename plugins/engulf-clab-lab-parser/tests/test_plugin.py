@@ -193,14 +193,37 @@ class TopologyPluginTest(unittest.TestCase):
         assert contribution is not None
         self.assertEqual(contribution.additions[0].args, ("-t", str(topology)))
 
-    def test_lab_commands_keep_an_explicit_lab_selection(self) -> None:
+    def test_lab_commands_route_explicit_source_to_retained_topology(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+            retained = derived_topology_path(topology)
+            retained.write_text("topology: {}\n", encoding="utf-8")
+            plugin = TopologyPlugin()
+            api = Mock(spec=InvocationAPI)
+
+            for args in (
+                ("inspect", "-t", str(topology)),
+                ("inspect", f"--topo={topology}"),
+                ("graph", "--topology", str(topology), "--offline"),
+            ):
+                with self.subTest(args=args):
+                    contribution = plugin.analyze_call(
+                        BeforeCallEvent("containerlab", args, CallMode.NORMAL), api
+                    )
+
+                    assert contribution is not None
+                    self.assertEqual(
+                        contribution.additions[0].args, ("-t", str(retained))
+                    )
+                    self.assertTrue(contribution.removals)
+
+    def test_lab_commands_keep_non_source_lab_selection(self) -> None:
         plugin = TopologyPlugin()
         api = Mock(spec=InvocationAPI)
 
         for args in (
-            ("inspect", "-t", "lab.clab.yml"),
-            ("inspect", "--topo=lab.clab.yml"),
-            ("graph", "--topology", "lab.clab.yml"),
             ("inspect", "--name", "lab"),
             ("save", "--name=lab"),
             ("inspect", "-a"),
@@ -212,6 +235,22 @@ class TopologyPluginTest(unittest.TestCase):
                         BeforeCallEvent("containerlab", args, CallMode.NORMAL), api
                     )
                 )
+
+    def test_lab_commands_keep_explicit_source_without_retained_topology(self) -> None:
+        with TemporaryDirectory() as directory:
+            topology = Path(directory) / "lab.clab.yml"
+            topology.write_text("topology: {}\n", encoding="utf-8")
+
+            contribution = TopologyPlugin().analyze_call(
+                BeforeCallEvent(
+                    "containerlab",
+                    ("inspect", "-t", str(topology)),
+                    CallMode.NORMAL,
+                ),
+                Mock(spec=InvocationAPI),
+            )
+
+        self.assertIsNone(contribution)
 
     def test_lab_commands_preserve_native_diagnostics_without_one_source(self) -> None:
         plugin = TopologyPlugin()

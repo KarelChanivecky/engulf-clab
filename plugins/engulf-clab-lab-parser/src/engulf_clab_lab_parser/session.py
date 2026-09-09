@@ -12,7 +12,12 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 from engulf_api import InvocationAPI
 
-from .environment import EnvironmentExpansionError, expand_environment
+from .environment import (
+    EnvFileError,
+    EnvironmentExpansionError,
+    expand_environment,
+    topology_environment,
+)
 
 TOPOLOGY_CONTEXT = "engulf_clab.topology.session"
 PathPart = str | int
@@ -58,9 +63,13 @@ def load_topology(
     if not path.is_file(): raise TopologyError(f"topology file does not exist: {path}")
     try:
         source = path.read_text(encoding="utf-8")
-        rendered = expand_environment(source, os.environ if environment is None else environment)
+        # Resolved here rather than by each caller: every plugin reaches a
+        # topology through this function, and deriving the environment anywhere
+        # else would let them expand the same document differently.
+        effective = topology_environment(path, os.environ if environment is None else environment)
+        rendered = expand_environment(source, effective)
         data = yaml.safe_load(rendered)
-    except (OSError, EnvironmentExpansionError, yaml.YAMLError) as error: raise TopologyError(f"could not parse topology {path}: {error}") from error
+    except (OSError, EnvFileError, EnvironmentExpansionError, yaml.YAMLError) as error: raise TopologyError(f"could not parse topology {path}: {error}") from error
     if not isinstance(data, dict): raise TopologyError("topology file must contain a YAML mapping")
     return data
 

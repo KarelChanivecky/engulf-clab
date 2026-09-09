@@ -95,12 +95,12 @@ def _lab_topology_contribution(args: tuple[str, ...]) -> CallContribution | None
     ambiguous: the lab cannot be inspected, graphed, or saved from its own
     directory any more. Point these commands at the retained topology, which is
     also the file the running containers are labelled with. A command that
-    already selects its lab another way -- an explicit topology, --name, or
-    --all -- is left alone, as is a directory Containerlab would refuse for its
-    own reasons.
+    already selects its lab by name or --all is left alone. An explicit source
+    topology is replaced only when its retained deploy topology exists; an
+    explicit retained topology is therefore also left alone.
     """
     rest = tuple(args[1:])
-    if _has_option(rest, ("-t", "--topo", "--topology", "--name", "-a", "--all")):
+    if _has_option(rest, ("--name", "-a", "--all")):
         return None
     try:
         topology = topology_path_from_args(rest)
@@ -110,7 +110,11 @@ def _lab_topology_contribution(args: tuple[str, ...]) -> CallContribution | None
         return None
     retained = derived_topology_path(topology)
     target = retained if retained.is_file() else topology
+    explicit = _has_option(rest, ("-t", "--topo", "--topology"))
+    if explicit and target == topology:
+        return None
     return CallContribution(
+        removals=frozenset(_topology_indexes(args)) if explicit else frozenset(),
         additions=(
             ArgumentAddition(("-t", str(target)), AdditionPlacement.BEFORE_SEPARATOR),
         ),
@@ -217,6 +221,11 @@ PLUGIN_SCHEMA = (
     )
     .route(
         "select-topology", "USAGE.md", "Read topology selection and ambiguity rules."
+    )
+    .route(
+        "lab-env-file",
+        "USAGE.md",
+        "Read how a lab's private <name>.env resolves topology expressions.",
     )
     .refer("USAGE.md")
 )

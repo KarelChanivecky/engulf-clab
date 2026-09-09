@@ -1,8 +1,9 @@
 # engulf-clab-lab-parser
 
 Provides the local topology selection and shared mutation session used by
-topology-aware plugins. Lab authors configure no parser-specific YAML, labels,
-environment variables, or options.
+topology-aware plugins. Lab authors configure no parser-specific YAML or
+labels; the only author-facing inputs are the optional private env file
+described below and its `ECLAB_ENV_FILE` override.
 
 Install it through a topology-aware feature plugin, directly with `python -m pip
 install engulf-clab-lab-parser`, or through `engulf-clab-all-plugins`.
@@ -23,6 +24,38 @@ defaulted expression such as `${FGT_IMAGE:=fgt:8.0.1.0203}` becomes a literal
 before downstream processing. Expansion occurs in the raw YAML, so quote an
 expression when its rendered value must remain a YAML string rather than a
 boolean, number, or null.
+
+## Lab environment file
+
+A topology may sit beside a private env file that supplies the variables it
+expands from. The name comes from the topology filename with its suffix
+removed, so `all-features.clab.yml` pairs with `all-features.env`, and bare
+`clab.yml` or `topology.yaml` pair with `clab.env` or `topology.env`. The name
+is deliberately not the topology's `name:` field: the file has to be found
+before the document can be expanded, and the two often differ.
+
+These values are read only to expand the topology. Unlike Containerlab's
+`env-files:`, they never become node environment, so nothing in the file
+reaches a container unless the topology references it. Wherever the topology
+does reference one, the resolved value lands there like any other expansion.
+
+The process environment wins over the file, so `FGT_IMAGE=other eclab deploy`
+still overrides it. A missing file is not an error, because the pairing is a
+convention rather than a declaration. Set `ECLAB_ENV_FILE` to one or more
+paths, separated by the platform path separator, to replace the convention with
+an explicit list; files named that way must exist.
+
+Accepted syntax is the assignment subset of dotenv: blank lines and `#`
+comments are skipped, a leading `export ` is allowed, and values may be
+single-quoted (literal), double-quoted (with `\n`, `\t`, `\\` and `\"`
+unescaped), or bare with a trailing ` #` comment stripped. Values are never
+interpolated against each other or the environment; expansion belongs to the
+topology.
+
+`eclab freeze` excludes `*.env` from the archive it builds and records the
+omission in `FREEZE-WARNINGS.txt`. A frozen topology therefore keeps its
+unresolved references, and whoever defrosts it supplies their own file, the
+same way they supply their own licenses.
 
 ## Topology selection
 
@@ -57,11 +90,13 @@ retains control of the diagnostic.
 
 `inspect`, `graph`, and `save` are routed the same way, because the retained
 file otherwise makes Containerlab's own implicit search ambiguous and no lab
-can be reached from its own directory. They keep an explicit topology, a
-`--name`, or `--all` untouched. `exec` and `events` are not routed: without a
-topology they act on every lab on the host rather than searching for one.
-`redeploy` is not routed either, since the pipeline that derives the topology
-runs only for deploy.
+can be reached from its own directory. An explicit source topology is replaced
+with its retained deploy topology when that file exists, so inspection uses the
+actual deployed node set; an explicit retained topology, `--name`, and `--all`
+remain untouched. `exec` and `events` are not routed: without a topology they
+act on every lab on the host rather than searching for one. `redeploy` is not
+routed either, since the pipeline that derives the topology runs only for
+deploy.
 
 YAML is loaded safely and must have a top-level mapping. Containerlab remains
 responsible for the base schema and semantic validation; each feature plugin

@@ -564,3 +564,43 @@ class WheelhouseTestCase(unittest.TestCase):
 
             self.assertFalse((staging / "wheelhouse").exists())
             self.assertIn('if [[ -d "$wheelhouse" ]]; then', _launcher("lab.clab.yml"))
+
+
+class FreezePrivateEnvironmentTest(unittest.TestCase):
+    def test_freeze_resolves_the_env_file_but_leaves_it_out_of_the_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "lab"
+            root.mkdir()
+            topology = root / "lab.clab.yml"
+            topology.write_text(
+                "name: demo\n"
+                "topology:\n"
+                "  nodes:\n"
+                "    router:\n"
+                "      image: $ROUTER_IMAGE\n",
+                encoding="utf-8",
+            )
+            # Sibling env file: resolves the topology, must not travel with it.
+            (root / "lab.env").write_text(
+                "ROUTER_IMAGE=router:1.0\nAPI_TOKEN=hunter2\n", encoding="utf-8"
+            )
+            archive = Path(directory) / "share.tar.gz"
+
+            with patch("engulf_clab_freeze.command._download_wheels"):
+                freeze(topology, archive)
+
+            with tarfile.open(archive, "r:gz") as tar:
+                names = tar.getnames()
+                raw = tar.extractfile("share/lab.clab.yml").read().decode()
+                frozen = yaml.safe_load(raw)
+                notes = tar.extractfile("share/FREEZE-WARNINGS.txt").read().decode()
+
+            self.assertFalse(any(name.endswith("lab.env") for name in names))
+            self.assertNotIn("hunter2", raw)
+            # The reference stays unresolved on purpose: baking the value in
+            # would put private data in an archive meant to be handed on, so
+            # the recipient supplies their own env file -- as with licenses.
+            self.assertEqual(
+                frozen["topology"]["nodes"]["router"]["image"], "$ROUTER_IMAGE"
+            )
+            self.assertIn("owner-private environment file: lab.env", notes)

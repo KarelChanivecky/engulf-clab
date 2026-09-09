@@ -56,14 +56,16 @@ application, packages, tools, license policy, and offline mode.
 Every node license value becomes `__ECLAB_LICENSE_PROMPT__`, which asks the
 recipient for a file, pool directory, or `$VARIABLE` at deploy. Every
 `*_LIC_CLAMP` entry is removed. Possible license files are excluded by suffix
-(`.lic`, `.license`, `.licence`) and reported. Freeze fails if generated
+(`.lic`, `.license`, `.licence`) and reported. A lab's private `*.env` files
+are excluded and reported the same way: the topology keeps its unresolved
+expressions, and the recipient supplies their own file after defrost. Freeze fails if generated
 `.<state-prefix-lowercase>/licenses` copies exist in the lab, including the
 legacy `.engulf-clab/licenses` location; successfully destroy the licensed lab
 first or reconcile legacy state deliberately.
 
 Built-in exclusions cover the active application's managed lab state, virtual
-environments, caches, likely license files, and the current `clab-<lab>`
-runtime directory. Add Git-ignore-style patterns in
+environments, caches, likely license files, private `*.env` files, and the
+current `clab-<lab>` runtime directory. Add Git-ignore-style patterns in
 `.<state-prefix-lowercase>-freezeignore` (`.eclab-freezeignore` for base
 eclab). This state-directory prefix is derived from the active application's
 short product name, unlike the fixed `ECLAB` label prefix used for the license

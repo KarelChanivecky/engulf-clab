@@ -64,9 +64,11 @@ tests deterministic; omitting it uses the current process environment.
 the hidden same-directory path retained by the writer. Destroy analysis uses
 that path when it exists, replacing an explicit source topology option or
 supplying it for implicit selection. `_LAB_COMMANDS` names the read-only
-subcommands that supply it the same way; add a subcommand there only after
-confirming it searches the working directory for a topology rather than acting
-on every lab, and that the deploy pipeline it would bypass is not needed.
+subcommands that supply it the same way, including replacing an explicit source
+topology so Containerlab sees the deployed rather than build-time node set. Add
+a subcommand there only after confirming it searches the working directory for
+a topology rather than acting on every lab, and that the deploy pipeline it
+would bypass is not needed.
 
 `TopologySession.path` is the resolved source; `original` is a recursively
 frozen mapping/tuple view for immutable inspection; `original_document()`
