@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-pki-linux-core"
+version = "0.1.1"
+description = "Portable runtime PKI adapters for eclab Linux images"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+  "engulf-api>=1.2,<2",
+  "engulf-executable-wrapper-api>=1.2,<2",
+  "engulf-clab-schema-api>=2.0.0,<3",
+  "engulf-clab-schema>=0.2.0,<0.3",
+  "engulf-docker-image-api>=1.4.0,<2",
+  "engulf-docker-image-core>=1.4.0,<2",
+  "engulf-clab-image-build>=0.2.1,<0.3",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.pki_linux_core" = "engulf_clab_pki_linux_core:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.pki_linux_core" = "engulf_clab_pki_linux_core:plugin"
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_docker_image"]
+"engulf_clab.pki_linux_core.images" = "engulf_clab_pki_linux_core:image_plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_pki_linux_core"]
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_pki_linux_core"]
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_pki_linux_core/README.md"
+"AGENTS.md" = "engulf_clab_pki_linux_core/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_pki_linux_core/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_pki_linux_core/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100

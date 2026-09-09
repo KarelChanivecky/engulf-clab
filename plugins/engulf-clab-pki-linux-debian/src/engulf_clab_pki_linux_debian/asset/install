@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+command -v apt-get >/dev/null 2>&1 || { echo "eclab-pki: Debian-family apt-get is required" >&2; exit 1; }
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates openssl python3 libnss3-tools
+rm -rf /var/lib/apt/lists/*
+mkdir -p /opt/eclab-pki/state
+python3 - <<'PY'
+import json, shutil
+programs = ('curl','wget','git','node','java','lftp','smbclient','ldapsearch','nginx','slapd','smbd','squid','google-chrome','chromium','firefox','playwright')
+open('/opt/eclab-pki/state/build-capabilities.json','w').write(json.dumps({p: shutil.which(p) is not None for p in programs}, sort_keys=True, indent=2)+'\n')
+PY

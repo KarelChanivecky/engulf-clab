@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+/opt/eclab-pki/runtime.py
+if [ -f /opt/eclab-pki/state/environment ]; then
+  set -a
+  . /opt/eclab-pki/state/environment
+  set +a
+fi
+if [ "${1:-}" = "--" ]; then shift; fi
+exec "$@"
