@@ -1,6 +1,6 @@
 format: engulf-clab-demo-coverage
 version: 1
-topology: all-features.clab.yml
+topology: lab.clab.yaml
 
 excluded_distributions:
   engulf-clab-wan: real WAN uses the packaged wan-access container

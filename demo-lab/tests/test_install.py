@@ -29,6 +29,7 @@ def test_install_needs_no_external_input() -> None:
         assert not (target / "local").exists()
         assert not (target / "licenses").exists()
         assert not (target / "inputs").exists()
+        assert (target / "lab.clab.yaml").is_file()
         assert os.access(target / "run-eclab.sh", os.X_OK)
         assert invoke(str(target)) == 0
         assert invoke(str(target), "--check") == 0

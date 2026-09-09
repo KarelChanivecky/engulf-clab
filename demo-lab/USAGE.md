@@ -23,11 +23,11 @@ The installed `RUNBOOK.md` is the complete workflow. In outline:
 ```bash
 cd eclab-demo-lab
 ./prepare-archive.sh
-./run-eclab.sh pki effective -t all-features.clab.yml
-./run-eclab.sh deploy -t all-features.clab.yml
+./run-eclab.sh pki effective -t lab.clab.yaml
+./run-eclab.sh deploy -t lab.clab.yaml
 ./run-eclab.sh inspect --name eclab-all-features
-./run-eclab.sh destroy -t all-features.clab.yml
-./run-eclab.sh freeze -t all-features.clab.yml --offline --output demo.tar.gz
+./run-eclab.sh destroy -t lab.clab.yaml
+./run-eclab.sh freeze -t lab.clab.yaml --offline --output demo.tar.gz
 ```
 
 Inspect by lab name because the source contains build-only nodes that are

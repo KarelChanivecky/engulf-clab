@@ -9,6 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / "bundle"
 
 
+def test_bundle_has_one_canonical_topology() -> None:
+    topologies = sorted(
+        path.name
+        for pattern in ("*.clab.yml", "*.clab.yaml")
+        for path in BUNDLE.glob(pattern)
+    )
+    assert topologies == ["lab.clab.yaml"]
+
+
 def test_distribution_is_not_a_plugin_and_excludes_nonportable_packages() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     dependencies = tuple(project["dependencies"])
@@ -59,7 +68,7 @@ def test_coverage_names_every_topology_control() -> None:
 
 
 def test_topology_uses_linux_router_two_subnets_and_packaged_uplink() -> None:
-    topology = yaml.safe_load((BUNDLE / "all-features.clab.yml").read_text(encoding="utf-8"))
+    topology = yaml.safe_load((BUNDLE / "lab.clab.yaml").read_text(encoding="utf-8"))
     nodes = topology["topology"]["nodes"]
     assert "fgt" not in nodes and "fake-wan" not in nodes and "work-net|segments" not in nodes
     for name in ("client-net|segments", "dmz-net|segments"):
@@ -95,7 +104,7 @@ def test_archive_image_installs_the_httpd_applet() -> None:
 
 
 def test_linux_pki_consumers_cover_families_mtls_and_external_copy() -> None:
-    topology = yaml.safe_load((BUNDLE / "all-features.clab.yml").read_text(encoding="utf-8"))
+    topology = yaml.safe_load((BUNDLE / "lab.clab.yaml").read_text(encoding="utf-8"))
     nodes = topology["topology"]["nodes"]
     assert nodes["client-a"]["env"]["ECLAB_PKI_IDENTITY_CURL"] == "client-a-mtls"
     assert nodes["dmz-docker"]["env"]["ECLAB_PKI_IDENTITY_NGINX"] == "dmz-nginx-primary"
@@ -113,7 +122,7 @@ def test_linux_pki_consumers_cover_families_mtls_and_external_copy() -> None:
 
 
 def test_pki_named_identities_roles_trust_and_cross_signing() -> None:
-    topology = yaml.safe_load((BUNDLE / "all-features.clab.yml").read_text(encoding="utf-8"))
+    topology = yaml.safe_load((BUNDLE / "lab.clab.yaml").read_text(encoding="utf-8"))
     nodes = topology["topology"]["nodes"]
     manifest = yaml.safe_load((BUNDLE / "pki.yaml").read_text(encoding="utf-8"))
     assert manifest["version"] == 2
@@ -156,4 +165,4 @@ def test_bundle_contains_no_entitled_generated_or_fortigate_material() -> None:
 def test_runbook_inspects_by_lab_name_not_source_topology() -> None:
     runbook = (BUNDLE / "RUNBOOK.md").read_text(encoding="utf-8")
     assert "inspect --name eclab-all-features" in runbook
-    assert "inspect -t all-features.clab.yml" not in runbook
+    assert "inspect -t lab.clab.yaml" not in runbook

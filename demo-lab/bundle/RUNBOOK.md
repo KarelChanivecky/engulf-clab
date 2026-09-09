@@ -47,7 +47,7 @@ package tests perform this check. Inspect the effective PKI graph without
 generating material:
 
 ```bash
-./run-eclab.sh pki effective -t all-features.clab.yml
+./run-eclab.sh pki effective -t lab.clab.yaml
 ```
 
 The manifest declares roots, an intermediate and cross-signed variant, TLS
@@ -59,7 +59,7 @@ views; it does not promise production service initialization or enforcement.
 ## 4. Deploy
 
 ```bash
-./run-eclab.sh deploy -t all-features.clab.yml --eclab-image-build-jobs 2
+./run-eclab.sh deploy -t lab.clab.yaml --eclab-image-build-jobs 2
 ```
 
 This builds ordinary Docker images, loads the generated archive, creates PKI
@@ -135,7 +135,7 @@ docker exec clab-eclab-all-features-client-a /opt/eclab-pki/runtime.py --firefox
 ## 6. Destroy
 
 ```bash
-./run-eclab.sh destroy -t all-features.clab.yml
+./run-eclab.sh destroy -t lab.clab.yaml
 ```
 
 Destroy removes generated PKI views and the temporary topology. Built Docker
@@ -146,14 +146,14 @@ images and persistent PKI history remain.
 The portable lab can be shared with offline freeze without proprietary inputs:
 
 ```bash
-./run-eclab.sh freeze -t all-features.clab.yml --offline --output demo.tar.gz
+./run-eclab.sh freeze -t lab.clab.yaml --offline --output demo.tar.gz
 ./run-eclab.sh defrost demo.tar.gz --into restored-demo --no-license-prompt
 ```
 
 Optional private PKI export requires an owner-private passphrase file:
 
 ```bash
-./run-eclab.sh freeze -t all-features.clab.yml --offline \
+./run-eclab.sh freeze -t lab.clab.yaml --offline \
   --include-pki-secrets --pki-passphrase-file /private/passphrase-file \
   --output demo-with-pki.tar.gz
 ```

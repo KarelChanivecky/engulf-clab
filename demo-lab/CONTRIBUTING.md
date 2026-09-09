@@ -5,7 +5,7 @@ This distribution is a non-plugin resource installer. It must not publish any
 dependencies form the demo catalog; do not replace them with
 `engulf-clab-all-plugins`.
 
-Keep `bundle/all-features.clab.yml`, `bundle/coverage.yaml`, package metadata,
+Keep `bundle/lab.clab.yaml`, `bundle/coverage.yaml`, package metadata,
 and the documentation aligned. The lab must stay deployable without a
 proprietary VM image, a license, or operator-specific runtime input. Internal
 bridge nodes retain the `<bridge>|segments` name and matching
@@ -28,7 +28,7 @@ repository locations, or proprietary VM inputs.
 Validate with:
 
 ```bash
-.venv/bin/python -m pytest -q demo-lab/tests
+PYTHONPATH=demo-lab/src .venv/bin/python -m pytest -q demo-lab/tests
 .venv/bin/python -m build --no-isolation demo-lab
 .venv/bin/python -m twine check demo-lab/dist/*
 ```
