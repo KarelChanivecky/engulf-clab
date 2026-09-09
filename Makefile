@@ -24,6 +24,9 @@ PACKAGES := \
 	engulf-clab-license-pool \
 	engulf-clab-freeze \
 	engulf-clab-pki \
+	engulf-clab-pki-linux-core \
+	engulf-clab-pki-linux-debian \
+	engulf-clab-pki-linux-fedora \
 	engulf-clab-vrnetlab-fortigate-pki-injector \
 	engulf-clab-all-plugins \
 	engulf-clab \
@@ -55,6 +58,9 @@ DIR_engulf-clab-wan := plugins/engulf-clab-wan
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool
 DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
 DIR_engulf-clab-pki := plugins/engulf-clab-pki
+DIR_engulf-clab-pki-linux-core := plugins/engulf-clab-pki-linux-core
+DIR_engulf-clab-pki-linux-debian := plugins/engulf-clab-pki-linux-debian
+DIR_engulf-clab-pki-linux-fedora := plugins/engulf-clab-pki-linux-fedora
 DIR_engulf-clab-vrnetlab-fortigate-pki-injector := plugins/engulf-clab-vrnetlab-fortigate-pki-injector
 DIR_engulf-clab-all-plugins := plugins/engulf-clab-all-plugins
 DIR_engulf-clab := engulf-clab
@@ -63,10 +69,10 @@ DIR_engulf-clab-mcp := mcp-server
 
 dir_of = $(DIR_$1)
 
-.PHONY: all environment clean-dist build publish check-skill check-demo-lab
+.PHONY: all environment clean-dist build check-skill check-demo-lab
 
-# Default target: build everything, then upload whatever was not published yet.
-all: build publish
+# Default target: build and validate every distribution.
+all: build
 
 environment:
 	@if [ ! -d .venv ]; then \
@@ -85,8 +91,6 @@ clean-dist:
 
 build: $(PACKAGES:%=dist/%/.built)
 
-publish: $(PACKAGES:%=publish-%)
-
 check-skill:
 	@$(PYTHON) -m pytest -q \
 		plugins/engulf-clab-schema-api/tests \
@@ -96,20 +100,11 @@ check-skill:
 check-demo-lab:
 	@PYTHONPATH=demo-lab/src $(PYTHON) -m pytest -q demo-lab/tests
 
-# --- Per-package build / publish rules --------------------------------------
+# --- Per-package build rules ------------------------------------------------
 #
 # dist/<pkg>/.built stamps a successful build (rebuilt only when the package's
-# own files change); dist/<pkg>/.published stamps a successful upload of that
-# build and is wiped by every rebuild. Stamps can lie (switched
-# TWINE_REPOSITORY_URL, wiped/rebuilt server), so check-<pkg>-published — an
-# order-only phony prerequisite of .published — runs on every publish
-# invocation and re-validates the stamp against the live PEP 503 index,
-# deleting it when the server does not host the built files. Once the checker
-# has run, Make's mtime logic decides: stamp present and newer than .built →
-# skip the upload; stamp removed or wiped by a rebuild → upload. The upload
-# still passes --skip-existing as the final arbiter.
-# `make build-<pkg>` / `make publish-<pkg>` work on a single package;
-# `make build` / `make publish` cover all of them.
+# own files change). `make build-<pkg>` builds one package; `make build` covers
+# all of them.
 
 define package_rules
 
@@ -125,28 +120,6 @@ dist/$1/.built: $$($1_files) | environment
 	@touch $$@
 
 build-$1: dist/$1/.built
-
-# Order-only phony checker: re-validate the publish against what the server
-# actually hosts (simple-index anchors carry the exact file names, version
-# included, so this detects "server has 0.1, local has 0.2"; it never clears
-# the stamp for the wrong server because the URL is part of the query). An
-# unreachable server keeps the stamp — the upload's --skip-existing is the
-# final arbiter anyway.
-.PHONY: check-$1-published publish-$1
-
-check-$1-published:
-	@test -n "$$$${TWINE_REPOSITORY_URL:-}" || { echo "error: TWINE_REPOSITORY_URL is required" >&2; exit 1; }
-	@[ -d dist/$1 ] || exit 0
-	@$(PYTHON) check_published.py "$$$$TWINE_REPOSITORY_URL" $1 dist/$1 || \
-		if [ $$$$? -eq 1 ]; then rm -f dist/$1/.published; else exit 0; fi
-
-dist/$1/.published: dist/$1/.built | check-$1-published
-	@test -n "$$$${TWINE_USERNAME:-}" || { echo "error: TWINE_USERNAME and TWINE_PASSWORD are required (or run through publish.sh with the managed repository)" >&2; exit 1; }
-	@test -n "$$$${TWINE_PASSWORD:-}" || { echo "error: TWINE_USERNAME and TWINE_PASSWORD are required (or run through publish.sh with the managed repository)" >&2; exit 1; }
-	$(PYTHON) twine_upload.py upload --skip-existing --repository-url "$$$$TWINE_REPOSITORY_URL" dist/$1/*
-	@touch $$@
-
-publish-$1: dist/$1/.published
 
 endef
 

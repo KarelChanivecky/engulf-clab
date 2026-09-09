@@ -17,7 +17,6 @@ meta-package to enable the complete maintained set.
 - [Topology language and runtime discovery](#topology-language-and-runtime-discovery)
 - [Invocation lifecycle](#invocation-lifecycle)
 - [Reusable image providers](#reusable-image-providers)
-- [Publishing](#publishing)
 - [Local MCP control service](#local-mcp-control-service)
 - [Typical topology](#typical-topology)
 - [Packages](#packages)
@@ -32,7 +31,7 @@ meta-package to enable the complete maintained set.
 
 | Guide | Use it for |
 | --- | --- |
-| This README | Installation choices, package map, common topology patterns, workspace/state, editions, and releases |
+| This README | Installation choices, package map, common topology patterns, workspace/state, and editions |
 | `engulf-clab/README.md` | Wrapper behavior, argument forwarding, plugin discovery, diagnostics, and library use |
 | `plugins/*/USAGE.md` | Exact feature syntax, prerequisites, lifecycle, state, cleanup, and troubleshooting |
 | `plugins/*/CONTRIBUTING.md` | Per-package role, architecture, invariants, and validation commands |
@@ -206,27 +205,6 @@ containers register providers. The Dockerfile and container plugins import
 neither one another nor one another's IDs; both depend only on the neutral
 contract and `engulf_clab.image_build` dispatcher.
 
-## Publishing
-
-Publish every distribution in this monorepo to a PyPI-compatible repository by
-setting its explicit upload endpoint:
-
-```bash
-export TWINE_REPOSITORY_URL=https://packages.example.test/
-./publish.sh
-```
-
-The publisher removes and rebuilds the root `dist/` tree, validates every wheel
-and source distribution with Twine, and uploads only those fresh artifacts. If
-the URL matches the package repository managed by the neighboring Engulf
-checkout, it verifies that the managed container is active and loads its upload
-token and CA automatically. The publish target explicitly checks that wheel and
-source distributions for both `engulf-clab-develop-eclab-lab` and the static
-comparison skill are present before uploading.
-Set `ENGULF_DIR` when that checkout is not at
-`../engulf`; credentials for other repositories use Twine's normal environment
-variables or configuration.
-
 ## Local MCP control service
 
 `engulf-clab-mcp` is an optional local control plane for MCP agents that need to
@@ -354,6 +332,9 @@ required host tools, and cleanup behavior.
 | `engulf-clab-freeze-api` | Contract only | Typed extension hooks for optional freeze and defrost contributors. |
 | `engulf-clab-pki-api` | Contract only | Immutable authorized node-PKI projections for independent consumers. |
 | `engulf-clab-pki` | `engulf_clab.pki` | Generates PKI catalogs, identities, and least-privilege node views. |
+| `engulf-clab-pki-linux-core` | `engulf_clab.pki_linux_core` | Provides the portable Linux PKI runtime asset image. |
+| `engulf-clab-pki-linux-debian` | `engulf_clab.pki_linux_debian` | Provides the Debian 13 family installer asset image. |
+| `engulf-clab-pki-linux-fedora` | `engulf_clab.pki_linux_fedora` | Provides the Fedora 44 family installer asset image. |
 | `engulf-clab-vrnetlab-fortigate-pki-injector` | `engulf_clab.vrnetlab_fortigate_pki_injector` | Injects authorized PKI paths into FortiGate vrnetlab nodes. |
 | `engulf-clab-wan` | `engulf_clab.wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
 | `engulf-clab-lab-parser` | `engulf_clab.lab_parser` | Shared original-topology and deferred-mutation API. |

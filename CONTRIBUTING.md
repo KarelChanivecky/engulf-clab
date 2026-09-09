@@ -270,7 +270,7 @@ metadata validation. It recreates root `dist/`; do not commit build artifacts.
 Do not run real deploy/destroy, Docker builds, network mutation, Git clones, or
 privileged MCP installation unless the task explicitly requires them.
 
-## Commits and releases
+## Commits and release preparation
 
 Commits that change wrapper, plugin, MCP, schema, skill, or related documentation
 need exactly one review trailer:
@@ -284,8 +284,5 @@ generated skill contract changes. Use `none` only after reviewing the impact.
 
 Keep commits focused. Before releasing, update each changed distribution's
 version and compatible dependency range together, build all artifacts with
-`make build`, inspect the wheel contents, and publish only freshly built output.
-`TWINE_REPOSITORY_URL` selects the package index; `publish.sh` can obtain local
-managed-repository credentials from the neighboring Engulf checkout. The
-publish target also verifies that the `engulf-clab-develop-eclab-lab` wheel
-and sdist are included before any upload occurs.
+`make build`, and inspect the wheel contents. Artifact publication is handled by
+external release tooling rather than scripts in this repository.
