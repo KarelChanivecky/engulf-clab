@@ -1,4 +1,9 @@
-from .plugin import LicensePoolPlugin
+from .plugin import LICENSE_SELECTION_CONTEXT, LicensePoolPlugin, LicenseSelection
 
 plugin = LicensePoolPlugin()
-__all__ = ["LicensePoolPlugin", "plugin"]
+__all__ = [
+    "LICENSE_SELECTION_CONTEXT",
+    "LicensePoolPlugin",
+    "LicenseSelection",
+    "plugin",
+]

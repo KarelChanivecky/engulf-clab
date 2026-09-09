@@ -10,6 +10,12 @@ Install with `python -m pip install engulf-clab-license-pool`, or through
 
 Set a node's `license` to `$POOL_NAME`, then set that invocation environment
 variable to a directory containing license files directly at its top level.
+Only regular, non-empty files whose names do not begin with `.` are
+candidates: dotfiles and zero-byte placeholders are skipped, so editor
+swapfiles, `.DS_Store`, and sync metadata cannot be claimed and served as
+licenses. A dotfile is skipped by its name in the pool, even when it is a
+symlink to a real license; name the target instead. Clamping to a skipped
+entry fails as unavailable rather than selecting it.
 Any `license` naming a directory is a pool, so a literal path and the
 `${POOL_NAME:-/default}` forms Containerlab expands during parsing work the
 same way; a `license` naming a regular file stays Containerlab's own:
@@ -110,6 +116,41 @@ path, or contents. Basenames and node names are escaped in that diagnostic so
 unusual filesystem or topology characters cannot inject extra log lines.
 Logical use sequence numbers avoid any dependence on host clocks or file
 timestamps.
+
+## Published selection breadcrumb
+
+After a successful `deploy` preparation, the plugin publishes what each node
+actually received on the `engulf_clab.license_pool.selection` context, as a
+read-only mapping of node name to `LicenseSelection`. Both the context id and
+the dataclass are exported from `engulf_clab_license_pool`:
+
+```python
+from engulf_clab_license_pool import LICENSE_SELECTION_CONTEXT, LicenseSelection
+
+selection = api.get_context(LICENSE_SELECTION_CONTEXT) or {}
+for node, chosen in selection.items():
+    if chosen.from_pool and chosen.source_name.endswith(".example"):
+        ...
+```
+
+`LicenseSelection` carries `node`, `source_name` (the selected file's
+basename), `source_path`, and `pool`, which is the directory a pooled license
+came from and `None` when the license was named directly. Branch on
+`from_pool` rather than on the path, which is absolute and host-specific.
+
+This exists because neither fact is otherwise recoverable downstream: the
+allocation state is plugin-private, and by the time other plugins read the
+topology the node's `license` field holds the lab-local copy rather than the
+origin. It lets an edition-specific plugin apply rules this one has no opinion
+about, such as recognising a particular license suffix. Declare the context in
+the reading plugin's `context_reads`.
+
+The plugin reads the context back at the point of publication and logs the
+provenance it holds at debug level. Reading marks the context consumed, so an
+edition that ships no reader for this extension point does not trip the
+framework's warning that a context was written but never read. As with the
+selection log, only the basename and a pooled/direct flag are recorded; pool
+and source paths stay out of the logs.
 
 ## Frozen prompts and security
 

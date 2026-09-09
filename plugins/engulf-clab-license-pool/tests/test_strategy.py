@@ -14,9 +14,11 @@ from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_license_pool.plugin import (
     _STATE_VERSION,
     LICENSE_POOL_STRATEGY_ENVIRONMENT,
+    LICENSE_SELECTION_CONTEXT,
     PLUGIN_SCHEMA,
     LicensePoolError,
     LicensePoolPlugin,
+    LicenseSelection,
     LicenseStrategy,
     _claim,
     _license_strategy,
@@ -906,3 +908,180 @@ class LegacyUuidWarningTestCase(unittest.TestCase):
         )
 
         api.logger.warning.assert_not_called()
+
+
+class LicenseSelectionContextTestCase(unittest.TestCase):
+    def _prepare(self, root: Path) -> tuple[Mock, TopologySession]:
+        lab = root / "lab"
+        lab.mkdir()
+        pool = root / "pool"
+        pool.mkdir()
+        (pool / "pooled.lic").write_text("pool", encoding="utf-8")
+        direct_license = root / "direct.lic"
+        direct_license.write_text("direct", encoding="utf-8")
+        document = {
+            "topology": {
+                "nodes": {
+                    "pooled": {"license": "$ROUTER_POOL"},
+                    "direct": {"license": "__ECLAB_LICENSE_PROMPT__"},
+                }
+            }
+        }
+        session = TopologySession(lab / "lab.clab.yml", document)
+        api = Mock(spec=InvocationAPI)
+        api.application = ApplicationMetadata(
+            application_id="engulf-clab",
+            display_name="eclab",
+            vendor="Engulf",
+            product="eclab",
+            short_product_name="eclab",
+            version="1.0",
+        )
+        api.require_context.return_value = session
+        store: dict[str, object] = {}
+        api.set_context.side_effect = store.__setitem__
+        api.get_context.side_effect = lambda context_id: store.get(context_id)
+        workspace_state = SimpleNamespace(root=lab)
+        user_state = MemoryState()
+        api.state.side_effect = lambda scope: (
+            workspace_state if scope is StateScope.WORKSPACE else user_state
+        )
+        api.leases.return_value = nullcontext()
+        event = PreparedCallEvent(
+            "containerlab",
+            ("deploy",),
+            ("deploy", "-t", str(session.path)),
+            CallMode.NORMAL,
+            {"ROUTER_POOL": str(pool), "ECLAB_LICENSE_DIRECT": str(direct_license)},
+        )
+        LicensePoolPlugin().prepare_call(event, api)
+        return api, session
+
+    def _published(self, api: Mock) -> dict[str, LicenseSelection]:
+        for entry in api.set_context.call_args_list:
+            if entry.args[0] == LICENSE_SELECTION_CONTEXT:
+                return dict(entry.args[1])
+        raise AssertionError("selection context was never published")
+
+    def test_selection_distinguishes_pooled_from_directly_named_licenses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            api, _session = self._prepare(root)
+
+            published = self._published(api)
+
+            self.assertEqual(set(published), {"pooled", "direct"})
+            pooled = published["pooled"]
+            self.assertTrue(pooled.from_pool)
+            self.assertEqual(pooled.pool, str(root / "pool"))
+            self.assertEqual(pooled.source_name, "pooled.lic")
+            # A directly named license has no pool, which is the distinction an
+            # edition-specific plugin branches on.
+            direct = published["direct"]
+            self.assertFalse(direct.from_pool)
+            self.assertIsNone(direct.pool)
+            self.assertEqual(direct.source_name, "direct.lic")
+
+    def test_selection_survives_as_a_read_only_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            api, _session = self._prepare(Path(directory))
+            payload = next(
+                entry.args[1]
+                for entry in api.set_context.call_args_list
+                if entry.args[0] == LICENSE_SELECTION_CONTEXT
+            )
+            with self.assertRaises(TypeError):
+                payload["pooled"] = None  # type: ignore[index]
+
+    def test_publishing_reads_the_context_back_and_keeps_paths_out_of_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            api, _session = self._prepare(root)
+
+            # The read happens at the point of publication, so every path that
+            # publishes also consumes -- an edition shipping no reader for this
+            # extension point never trips the unread-context warning.
+            self.assertIn(
+                call(LICENSE_SELECTION_CONTEXT), api.get_context.call_args_list
+            )
+            rendered = repr(api.logger.debug.call_args_list)
+            self.assertIn("pooled.lic", rendered)
+            self.assertNotIn(str(root), rendered)
+
+
+class LicensePoolEntryFilterTestCase(unittest.TestCase):
+    def test_dotfiles_are_never_selected_from_a_pool(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            (pool / "real.lic").write_text("real", encoding="utf-8")
+            # The kind of debris a shared pool directory accumulates.
+            for name in (".hidden.lic", ".DS_Store", ".real.lic.swp"):
+                (pool / name).write_text("not a license", encoding="utf-8")
+            state = MemoryState()
+            workspace = "/labs/dotfiles"
+
+            assigned = _claim(
+                state,
+                [_request(pool, workspace)],
+                LicenseStrategy.LEAST_RECENTLY_USED,
+            )
+
+            self.assertEqual(_filename(assigned, workspace), "real.lic")
+
+    def test_pool_of_only_dotfiles_reports_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            (pool / ".hidden.lic").write_text("hidden", encoding="utf-8")
+            state = MemoryState()
+
+            with self.assertRaisesRegex(LicensePoolError, "license pool is empty"):
+                _claim(
+                    state,
+                    [_request(pool, "/labs/only-dotfiles")],
+                    LicenseStrategy.LEAST_RECENTLY_USED,
+                )
+
+    def test_dotfile_symlink_to_a_real_license_is_still_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pool = root / "pool"
+            pool.mkdir()
+            target = root / "elsewhere.lic"
+            target.write_text("real", encoding="utf-8")
+            # Filtering happens on the pool entry's name, before resolving.
+            (pool / ".link.lic").symlink_to(target)
+            state = MemoryState()
+
+            with self.assertRaisesRegex(LicensePoolError, "license pool is empty"):
+                _claim(
+                    state,
+                    [_request(pool, "/labs/symlink")],
+                    LicenseStrategy.LEAST_RECENTLY_USED,
+                )
+
+    def test_empty_files_remain_skipped_alongside_dotfiles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            (pool / "touched.tst").write_text("", encoding="utf-8")
+            (pool / "real.lic").write_text("real", encoding="utf-8")
+            state = MemoryState()
+            workspace = "/labs/empty"
+
+            assigned = _claim(
+                state,
+                [_request(pool, workspace)],
+                LicenseStrategy.LEAST_RECENTLY_USED,
+            )
+
+            self.assertEqual(_filename(assigned, workspace), "real.lic")
+
+    def test_clamping_to_a_dotfile_fails_rather_than_selecting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            (pool / "real.lic").write_text("real", encoding="utf-8")
+            (pool / ".hidden.lic").write_text("hidden", encoding="utf-8")
+            state = MemoryState()
+            request = ("router", str(pool.resolve()), ".hidden.lic", "/labs/clamp:router")
+
+            with self.assertRaisesRegex(LicensePoolError, "clamped license is unavailable"):
+                _claim(state, [request], LicenseStrategy.LEAST_RECENTLY_USED)

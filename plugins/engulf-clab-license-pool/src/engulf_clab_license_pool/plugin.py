@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, cast
 
 from engulf_api import (
@@ -44,6 +45,13 @@ from engulf_executable_wrapper_api import (
 _FILE = "license-pools.json"
 _STATE_VERSION = 2
 _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
+
+# Published for plugins outside this package -- typically an edition-specific
+# one that must reason about the license a node actually received, such as
+# recognizing a file suffix this plugin has no opinion about. It is the only
+# supported way to learn that: allocation state is plugin-private, and the
+# topology by this point holds the copied path rather than the pool origin.
+LICENSE_SELECTION_CONTEXT = "engulf_clab.license_pool.selection"
 _NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
 _LEGACY_STATE_DIRECTORY = ".engulf-clab"
 # Allocation identity rides on the node environment rather than a top-level
@@ -250,6 +258,40 @@ class _InvocationAllocation:
     copies: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class LicenseSelection:
+    """One node's resolved license, as published on LICENSE_SELECTION_CONTEXT.
+
+    `pool` is the directory a pooled license was allocated from, and is None
+    when the license was named directly. Reading plugins should branch on
+    `from_pool` rather than on the path, which is absolute and host-specific.
+    """
+
+    node: str
+    source_name: str
+    source_path: str
+    pool: str | None = None
+
+    @property
+    def from_pool(self) -> bool:
+        return self.pool is not None
+
+
+def _log_selection(api: InvocationAPI, selection: object) -> None:
+    if not isinstance(selection, Mapping):
+        return
+    for node, value in sorted(selection.items()):
+        if isinstance(value, LicenseSelection):
+            # Basename and a flag only: as with the selection log in
+            # prepare_call, pool and source paths stay out of the record.
+            api.logger.debug(
+                "license provenance node=%r basename=%r from_pool=%r",
+                node,
+                value.source_name,
+                value.from_pool,
+            )
+
+
 def license_contract(application: ApplicationMetadata) -> LicenseContract:
     short_name = getattr(application, "short_product_name", None)
     product = getattr(application, "product", None)
@@ -267,9 +309,19 @@ class LicensePoolPlugin(SchemaBackedPlugin):
     schema = PLUGIN_SCHEMA
     priority = 60
     context_reads = (
-        frozenset({TOPOLOGY_CONTEXT, _INVOCATION_ALLOCATION_CONTEXT}) | SCHEMA_CONTEXTS
+        frozenset(
+            {
+                TOPOLOGY_CONTEXT,
+                _INVOCATION_ALLOCATION_CONTEXT,
+                LICENSE_SELECTION_CONTEXT,
+            }
+        )
+        | SCHEMA_CONTEXTS
     )
-    context_writes = frozenset({_INVOCATION_ALLOCATION_CONTEXT}) | SCHEMA_CONTEXTS
+    context_writes = (
+        frozenset({_INVOCATION_ALLOCATION_CONTEXT, LICENSE_SELECTION_CONTEXT})
+        | SCHEMA_CONTEXTS
+    )
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
@@ -337,8 +389,19 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             selections.extend(
                 (node, claim) for node, (claim, _source) in direct.items()
             )
+            # Only `requests` carry a pool; `direct` entries name a file. Prompt
+            # answers that resolved to a pool were folded into `requests` above,
+            # so they are correctly reported as pooled.
+            pools = {node: pool for node, pool, _clamp, _claim in requests}
+            published: dict[str, LicenseSelection] = {}
             for node, claim in selections:
                 source = Path(assigned[claim])
+                published[node] = LicenseSelection(
+                    node=node,
+                    source_name=source.name,
+                    source_path=str(source),
+                    pool=pools.get(node),
+                )
                 target = _copy_path(session.path.parent, claim, source.name, contract)
                 if not target.exists():
                     allocation = _InvocationAllocation(
@@ -353,6 +416,12 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                     node,
                 )
                 mutation.modify(("topology", "nodes", node, "license"), str(copied))
+            api.set_context(LICENSE_SELECTION_CONTEXT, MappingProxyType(published))
+            # Read back at the point of publication, and log provenance from
+            # what the context actually holds. Reading marks the context
+            # consumed, so an edition that ships no reader for this extension
+            # point does not trip the framework's unread-context warning.
+            _log_selection(api, api.get_context(LICENSE_SELECTION_CONTEXT))
         except BaseException:
             # Engulf never sends prepare_failed to the plugin that raised, so this
             # attempt's claims and copies are released here. BaseException rather
@@ -569,8 +638,15 @@ def _claim_with_created(
             _validate_pool_entry(entry)
             allocations = entry["allocations"]
             history = entry["history"]
+            # An empty file cannot carry a license; stray markers such as a
+            # touched `.tst` would otherwise be claimed and served. Dotfiles are
+            # skipped for the same reason: a pool directory accumulates editor
+            # swapfiles, `.DS_Store`, and sync metadata that are not licenses.
+            # The name is tested before resolving, so a dotfile symlinked to a
+            # real license is still ignored -- name the target to use it.
             files = sorted(
-                str(p.resolve()) for p in Path(pool).iterdir() if p.is_file()
+                str(p.resolve()) for p in Path(pool).iterdir()
+                if p.is_file() and not p.name.startswith(".") and p.stat().st_size > 0
             )
             if not files:
                 raise LicensePoolError(f"license pool is empty: {pool}")
