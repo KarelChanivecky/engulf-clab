@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-develop-eclab-lab"
-version = "0.2.0"
+version = "0.2.1"
 description = "Runtime-generated develop-eclab-lab skill for engulf-clab editions"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -13,7 +13,7 @@ dependencies = [
     "engulf-api>=1.2,<2",
     "engulf-executable-wrapper-api>=1.2,<2",
     "engulf-clab-schema-api>=2.0.0,<3",
-    "engulf-clab-schema>=0.2.0,<0.3",
+    "engulf-clab-schema>=0.2.0,<1",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]

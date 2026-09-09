@@ -75,7 +75,7 @@ The dependency group name is the plugin ID with dots replaced by underscores.
 It is the only supported place to declare the manager ordering edge.
 
 The collection package depends on `engulf-clab-containers-api>=1.2.0,<2` and
-`engulf-clab-containers>=0.4.0,<0.5`. Its plugin ID owns the image namespace after
+`engulf-clab-containers>=0.4.0,<1`. Its plugin ID owns the image namespace after
 underscores are converted to hyphens, so the example exposes
 `vendor.containers/utility:latest`. Two active plugins cannot own the same
 namespace. Dockerfiles and everything they `COPY` must be included in the

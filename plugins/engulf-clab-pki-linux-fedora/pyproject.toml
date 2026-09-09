@@ -3,12 +3,12 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 [project]
 name = "engulf-clab-pki-linux-fedora"
-version = "0.1.1"
+version = "0.1.2"
 description = "Fedora-family eclab PKI integration asset"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
-dependencies = ["engulf-api>=1.2,<2", "engulf-executable-wrapper-api>=1.2,<2", "engulf-clab-schema-api>=2.0.0,<3", "engulf-clab-schema>=0.2.0,<0.3", "engulf-docker-image-api>=1.4.0,<2", "engulf-docker-image-core>=1.4.0,<2", "engulf-clab-image-build>=0.2.1,<0.3", "engulf-clab-pki-linux-core>=0.1.1,<0.2"]
+dependencies = ["engulf-api>=1.2,<2", "engulf-executable-wrapper-api>=1.2,<2", "engulf-clab-schema-api>=2.0.0,<3", "engulf-clab-schema>=0.2.0,<1", "engulf-docker-image-api>=1.4.0,<2", "engulf-docker-image-core>=1.4.0,<2", "engulf-clab-image-build>=0.2.1,<1", "engulf-clab-pki-linux-core>=0.1.1,<1"]
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
 "engulf_clab.pki_linux_fedora" = "engulf_clab_pki_linux_fedora:plugin"
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]

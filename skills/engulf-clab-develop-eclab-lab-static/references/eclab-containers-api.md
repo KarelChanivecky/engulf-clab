@@ -67,7 +67,7 @@ as the entry-point name:
 ```
 
 The collection package depends on `engulf-clab-containers-api>=1.0,<2` and
-`engulf-clab-containers>=0.1,<0.2`. Its plugin ID owns the image namespace after
+`engulf-clab-containers>=0.1,<1`. Its plugin ID owns the image namespace after
 underscores are converted to hyphens, so the example exposes
 `vendor.containers/utility:latest`. Two active plugins cannot own the same
 namespace. Dockerfiles and everything they `COPY` must be included in the
