@@ -73,7 +73,8 @@ values.
 ## Lifecycle, security, and diagnosis
 
 The entrypoint parses mappings once at startup, then waits for at least one lab
-interface and re-checks the interface set every second, rebuilding its owned
+interface and its kernel sysctl paths to become ready. It re-checks the
+interface set every second, rebuilding its owned
 translation, proxy-neighbor, policy-rule, and route state when interfaces
 change. Changing a mapping therefore requires a redeploy, not a restart. After
 a successful configuration it creates `/run/eclab-host-connector.ready`; Docker

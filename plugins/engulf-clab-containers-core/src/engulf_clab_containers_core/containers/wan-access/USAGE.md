@@ -92,6 +92,10 @@ volumes, or after-destroy cleanup: all rules, addresses, and processes remain
 inside the container namespace, destroy removes them, and the local image
 remains cached.
 
+During attachment, Containerlab can briefly expose a temporary veth name before
+renaming it to the requested endpoint. The runtime retries that disappearing-name
+race, but an activation failure on an interface that still exists remains fatal.
+
 The container forwards any traffic received on its lab interface. Apply lab or
 host firewall policy and do not use it to bypass an authorization boundary.
 

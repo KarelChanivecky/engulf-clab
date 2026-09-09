@@ -25,9 +25,15 @@ image namespace.
 - Keep `wan-access` NAT independent from DHCP: forwarding and masquerade are
   unconditional, while gateway address assignment and `dnsmasq` require at
   least one supported `ECLAB_DHCP_*` variable.
+- Containerlab may expose a temporary `clab-*` veth name before renaming it to
+  the requested endpoint. The WAN runtime retries activation only when the
+  selected name disappeared; persistent failures on an existing interface fail.
 - In `host-connector`, record ingress identity directly on the connection. Do
   not leave the corresponding mark on request packets: only restored reply
   marks may select a lab-interface policy table.
+- Containerlab may create a veth in sysfs before its per-interface sysctls
+  exist. The host connector must wait for both surfaces before configuring a
+  newly attached lab interface.
 - Keep images generic. Addressing, routes, credentials, seeds, certificates,
   browser policy, proxy parents, and product-specific behavior belong in the
   consuming lab unless a documented safe development default is essential.

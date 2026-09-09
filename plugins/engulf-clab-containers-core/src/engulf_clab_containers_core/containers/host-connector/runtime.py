@@ -64,12 +64,27 @@ def parse_mappings(environment: dict[str, str]) -> tuple[Mapping, ...]:
     return tuple(result)
 
 
-def data_interfaces(root: Path = Path("/sys/class/net")) -> tuple[str, ...]:
+def data_interfaces(
+    root: Path = Path("/sys/class/net"),
+    sysctl_root: Path = Path("/proc/sys/net"),
+) -> tuple[str, ...]:
     try:
         names = (item.name for item in root.iterdir())
     except OSError as error:
         raise ConnectorError(f"cannot enumerate network interfaces: {error}") from error
-    return tuple(sorted(name for name in names if name not in {"lo", "eth0"}))
+    candidates = sorted(name for name in names if name not in {"lo", "eth0"})
+    return tuple(
+        name
+        for name in candidates
+        if all(
+            (sysctl_root / family / "conf" / name / setting).is_file()
+            for family, setting in (
+                ("ipv4", "proxy_arp"),
+                ("ipv4", "rp_filter"),
+                ("ipv6", "proxy_ndp"),
+            )
+        )
+    )
 
 
 def _run(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:

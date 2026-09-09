@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -19,10 +20,32 @@ _RUNTIME_SPEC.loader.exec_module(runtime)
 
 ConnectorError = runtime.ConnectorError
 configure = runtime.configure
+data_interfaces = runtime.data_interfaces
 parse_mappings = runtime.parse_mappings
 
 
 class RuntimeTest(unittest.TestCase):
+    def test_data_interface_waits_for_kernel_sysctl_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            network = root / "sys/class/net"
+            sysctl = root / "proc/sys/net"
+            for name in ("lo", "eth0", "eth1"):
+                (network / name).mkdir(parents=True)
+
+            self.assertEqual(data_interfaces(network, sysctl), ())
+
+            for family, setting in (
+                ("ipv4", "proxy_arp"),
+                ("ipv4", "rp_filter"),
+                ("ipv6", "proxy_ndp"),
+            ):
+                target = sysctl / family / "conf/eth1" / setting
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+
+            self.assertEqual(data_interfaces(network, sysctl), ("eth1",))
+
     def test_sparse_dual_stack_mappings(self) -> None:
         mappings = parse_mappings(
             {

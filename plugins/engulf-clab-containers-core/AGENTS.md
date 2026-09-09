@@ -24,6 +24,10 @@ collapse adapters for unrelated goals back onto one ID.
 - Keep `wan-access` NAT independent from DHCP: forwarding and masquerade are
   unconditional, while gateway address assignment and `dnsmasq` require at
   least one supported `ECLAB_DHCP_*` variable.
+- Make `wan-access` tolerate Containerlab's temporary veth name by retrying
+  activation only when the selected interface disappears during the rename.
+- Make `host-connector` tolerate Containerlab's veth/sysctl creation race by
+  waiting until every required per-interface sysctl exists.
 - Keep images generic. Addressing, routes, credentials, seeds, certificates,
   browser policy, proxy parents, and product-specific behavior belong in the
   consuming lab unless a documented safe development default is essential.

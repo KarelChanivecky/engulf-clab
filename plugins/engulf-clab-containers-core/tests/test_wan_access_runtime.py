@@ -4,7 +4,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import patch
 
 _RUNTIME_PATH = (
@@ -18,6 +18,7 @@ sys.modules[_RUNTIME_SPEC.name] = runtime
 _RUNTIME_SPEC.loader.exec_module(runtime)
 
 WanAccessError = runtime.WanAccessError
+activate_lab_interface = runtime.activate_lab_interface
 configure_dhcp_addressing = runtime.configure_dhcp_addressing
 configure_interface = runtime.configure_interface
 configure_nat = runtime.configure_nat
@@ -82,6 +83,38 @@ class ParseDhcpConfigTest(unittest.TestCase):
 
 
 class ConfigureTest(unittest.TestCase):
+    @patch.object(runtime, "lab_interfaces", return_value=("eth1",))
+    @patch.object(runtime, "configure_interface")
+    @patch.object(runtime, "wait_for_lab_interface", side_effect=("clab-deadbeef", "eth1"))
+    def test_transient_containerlab_interface_rename_is_retried(
+        self, wait, configure, interfaces
+    ) -> None:
+        configure.side_effect = (
+            CalledProcessError(1, ("ip", "link", "set", "clab-deadbeef", "up")),
+            None,
+        )
+
+        self.assertEqual(activate_lab_interface(), "eth1")
+
+        self.assertEqual(wait.call_count, 2)
+        interfaces.assert_called_once_with()
+
+    @patch.object(runtime, "lab_interfaces", return_value=("eth1",))
+    @patch.object(runtime, "configure_interface")
+    @patch.object(runtime, "wait_for_lab_interface", return_value="eth1")
+    def test_failure_on_existing_interface_is_not_retried(
+        self, wait, configure, interfaces
+    ) -> None:
+        configure.side_effect = CalledProcessError(
+            1, ("ip", "link", "set", "eth1", "up")
+        )
+
+        with self.assertRaises(CalledProcessError):
+            activate_lab_interface()
+
+        wait.assert_called_once_with()
+        interfaces.assert_called_once_with()
+
     @patch.object(runtime, "_run")
     def test_interface_is_brought_up_without_dhcp(self, run) -> None:
         run.side_effect = lambda *args, **kwargs: CompletedProcess(args, 0, b"", b"")

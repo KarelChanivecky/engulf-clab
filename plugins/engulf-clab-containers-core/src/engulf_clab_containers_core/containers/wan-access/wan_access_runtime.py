@@ -194,11 +194,26 @@ def wait_for_lab_interface() -> str:
         time.sleep(1)
 
 
+def activate_lab_interface() -> str:
+    while True:
+        interface = wait_for_lab_interface()
+        try:
+            configure_interface(interface)
+        except subprocess.CalledProcessError:
+            # Containerlab first moves a veth into the namespace under a
+            # temporary clab-* name, then renames it to the requested endpoint.
+            # Retry only when that selected name disappeared; a persistent
+            # failure on an existing interface is a real configuration error.
+            if interface not in lab_interfaces():
+                continue
+            raise
+        return interface
+
+
 def main() -> int:
     try:
         dhcp = parse_dhcp_config(dict(os.environ))
-        interface = wait_for_lab_interface()
-        configure_interface(interface)
+        interface = activate_lab_interface()
         configure_nat(interface)
         if dhcp is not None:
             configure_dhcp_addressing(dhcp, interface)
