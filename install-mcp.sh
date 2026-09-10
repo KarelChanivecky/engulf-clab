@@ -112,6 +112,7 @@ source_packages=(
     "$repository_root/plugins/engulf-clab-wan"
     "$repository_root/plugins/engulf-clab-license-pool"
     "$repository_root/plugins/engulf-clab-freeze"
+    "$repository_root/plugins/engulf-clab-consumption"
     "$repository_root/plugins/engulf-clab-pki"
     "$repository_root/plugins/engulf-clab-pki-linux-core"
     "$repository_root/plugins/engulf-clab-pki-linux-debian"

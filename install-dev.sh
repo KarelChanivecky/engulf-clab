@@ -75,6 +75,7 @@ local_packages=(
     "plugins/engulf-clab-wan"
     "plugins/engulf-clab-license-pool"
     "plugins/engulf-clab-freeze"
+    "plugins/engulf-clab-consumption"
     "plugins/engulf-clab-pki"
     "plugins/engulf-clab-pki-linux-core"
     "plugins/engulf-clab-pki-linux-debian"

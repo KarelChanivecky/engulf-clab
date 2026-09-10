@@ -38,6 +38,7 @@ meta-package to enable the complete maintained set.
 | `mcp-server/README.md` | Privileged local MCP architecture, configuration, tools, security boundary, and operations |
 | `CONTRIBUTING.md` | Development setup, Engulf contracts, documentation standards, validation, commits, and releases |
 | `skills/README.md` | Runtime-generated lab-skill architecture, installation, and contributor contract |
+| [Planned features](planned-features/) | Proposed capabilities and acceptance criteria for future implementation |
 
 The nearest `AGENTS.md` adds non-user-facing invariants for agents changing a
 specific package. Package source and tests remain the precise specification for
@@ -330,6 +331,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
 | `engulf-clab-license-pool` | `engulf_clab.license_pool` | Shares license files safely across labs. |
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
+| `engulf-clab-consumption` | `engulf_clab.consumption` | Reports CPU, RAM, lab-directory, and unique/shared Docker image storage. |
 | `engulf-clab-freeze-api` | Contract only | Typed extension hooks for optional freeze and defrost contributors. |
 | `engulf-clab-pki-api` | Contract only | Immutable authorized node-PKI projections for independent consumers. |
 | `engulf-clab-pki` | `engulf_clab.pki` | Generates PKI catalogs, identities, and least-privilege node views. |

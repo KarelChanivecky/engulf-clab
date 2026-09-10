@@ -31,6 +31,7 @@ fi
     engulf-clab-plugins \
     engulf-clab-license-pool \
     engulf-clab-freeze \
+    engulf-clab-consumption \
     engulf-clab-freeze-api \
     engulf-clab-pki \
     engulf-clab-pki-linux-fedora \

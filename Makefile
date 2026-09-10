@@ -23,6 +23,7 @@ PACKAGES := \
 	engulf-clab-wan \
 	engulf-clab-license-pool \
 	engulf-clab-freeze \
+	engulf-clab-consumption \
 	engulf-clab-pki \
 	engulf-clab-pki-linux-core \
 	engulf-clab-pki-linux-debian \
@@ -58,6 +59,7 @@ DIR_engulf-clab-vrnetlab-build := plugins/engulf-clab-vrnetlab-build
 DIR_engulf-clab-wan := plugins/engulf-clab-wan
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool
 DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
+DIR_engulf-clab-consumption := plugins/engulf-clab-consumption
 DIR_engulf-clab-pki := plugins/engulf-clab-pki
 DIR_engulf-clab-pki-linux-core := plugins/engulf-clab-pki-linux-core
 DIR_engulf-clab-pki-linux-debian := plugins/engulf-clab-pki-linux-debian
