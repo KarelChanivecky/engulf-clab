@@ -95,7 +95,7 @@ def sample(
         selected_lab(_required(topology), containers, docker, environment),
     )
     try:
-        image_usage = docker.image_usage()
+        image_usage = docker.image_usage(containers)
     except DockerError:
         image_usage = {}
     universe = _merge_labs((*discovered, *labs))

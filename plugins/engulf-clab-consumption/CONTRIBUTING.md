@@ -16,7 +16,8 @@ Preserve these accounting invariants:
 - count allocated directory bytes without following symlinks or duplicating
   hard links;
 - deduplicate image IDs within a lab and across the total;
-- keep Docker's image-level shared and unique definitions visible;
+- classify complete image sizes as shared only across distinct lab owners;
+- use retained container root-filesystem size only when an image record is gone;
 - propagate unavailable measurements as `N/A` instead of zero or a partial sum;
 - do no host mutation and hold no state transaction or resource lease.
 

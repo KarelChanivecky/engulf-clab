@@ -53,7 +53,10 @@ class DockerClient:
         ).split()
         if not identifiers:
             return ()
-        payload = _json(self._run(("container", "inspect", *identifiers)), "container inspect")
+        payload = _json(
+            self._run(("container", "inspect", "--size", *identifiers)),
+            "container inspect",
+        )
         if not isinstance(payload, list):
             raise DockerError("docker container inspect returned invalid JSON")
         result: list[Container] = []
@@ -76,6 +79,13 @@ class DockerClient:
                 continue
             if not isinstance(image_id, str) or not image_id:
                 continue
+            rootfs_size = _nonnegative_int(item.get("SizeRootFs"))
+            writable_size = _nonnegative_int(item.get("SizeRw"))
+            retained_image_bytes = (
+                max(0, rootfs_size - writable_size)
+                if rootfs_size is not None and writable_size is not None
+                else None
+            )
             result.append(
                 Container(
                     container_id,
@@ -84,6 +94,7 @@ class DockerClient:
                     image_id,
                     image_ref if isinstance(image_ref, str) else "",
                     bool(state.get("Running")) if isinstance(state, dict) else False,
+                    retained_image_bytes,
                 )
             )
         return tuple(result)
@@ -101,7 +112,7 @@ class DockerClient:
                     result[reference] = image_id
         return result
 
-    def image_usage(self) -> dict[str, ImageUsage]:
+    def image_usage(self, containers: Sequence[Container] = ()) -> dict[str, ImageUsage]:
         output = self._run(("system", "df", "--verbose", "--format", "json"))
         records = _records(output)
         result: dict[str, ImageUsage] = {}
@@ -118,6 +129,20 @@ class DockerClient:
                 continue
             result[image_id] = ImageUsage(image_id, size, shared, unique)
             result[image_id.removeprefix("sha256:")] = result[image_id]
+        retained: dict[str, int] = {}
+        for container in containers:
+            if container.retained_image_bytes is None:
+                continue
+            normalized = container.image_id.removeprefix("sha256:")
+            retained[normalized] = max(
+                retained.get(normalized, 0), container.retained_image_bytes
+            )
+        for normalized, size in retained.items():
+            if _usage_for_id(normalized, result) is not None:
+                continue
+            fallback = ImageUsage(f"sha256:{normalized}", size, None, None)
+            result[fallback.image_id] = fallback
+            result[normalized] = fallback
         return result
 
     def stats(self, container_ids: Sequence[str]) -> dict[str, RuntimeStats]:
@@ -189,3 +214,21 @@ def _percent(value: object) -> float | None:
         return float(value.strip().removesuffix("%"))
     except ValueError:
         return None
+
+
+def _nonnegative_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _usage_for_id(image_id: str, usage: dict[str, ImageUsage]) -> ImageUsage | None:
+    normalized = image_id.removeprefix("sha256:")
+    direct = usage.get(image_id) or usage.get(normalized)
+    if direct is not None:
+        return direct
+    matches = {
+        id(item): item
+        for key, item in usage.items()
+        if key.removeprefix("sha256:").startswith(normalized)
+        or normalized.startswith(key.removeprefix("sha256:"))
+    }
+    return next(iter(matches.values())) if len(matches) == 1 else None

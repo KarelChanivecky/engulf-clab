@@ -130,7 +130,7 @@ def collect(
 def classify_image_usage(
     usage: Mapping[str, ImageUsage], labs: Sequence[Lab]
 ) -> dict[str, ImageUsage]:
-    """Classify an image's full size as shared when distinct labs use its ID."""
+    """Classify complete image sizes by ownership across distinct labs."""
     owners: dict[str, set[tuple[str, Path | None]]] = defaultdict(set)
     for lab in labs:
         identity = (lab.name, lab.directory)
@@ -140,15 +140,17 @@ def classify_image_usage(
                 owners[item.image_id].add(identity)
     result = dict(usage)
     for image_id, identities in owners.items():
-        if len(identities) < 2:
-            continue
         item = _usage_for(image_id, usage)
         if item is None:
             continue
-        shared = ImageUsage(item.image_id, item.size, item.size, 0)
+        classified = (
+            ImageUsage(item.image_id, item.size, item.size, 0)
+            if len(identities) >= 2
+            else ImageUsage(item.image_id, item.size, 0, item.size)
+        )
         for key, candidate in tuple(result.items()):
             if candidate.image_id == item.image_id:
-                result[key] = shared
+                result[key] = classified
     return result
 
 

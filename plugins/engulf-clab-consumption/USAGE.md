@@ -24,25 +24,32 @@ does not follow symlinks and counts a hard-linked inode once. An unreadable path
 is `N/A`. This intentionally includes generated files, captures, logs, and other
 lab-owned content stored beneath that directory.
 
-Image rows come from Docker's detailed disk-usage report. Docker defines an
-image's virtual size as its unique size plus bytes shared with another image.
-The plugin resolves deployed container image IDs and topology image references
-(including inherited defaults and kind images) and counts an image ID once per
-lab. When distinct running or explicitly selected labs use the same image ID,
-its complete size is shared. Otherwise the report uses Docker's `UniqueSize` and
-`SharedSize`, which also capture common layers between different images in the
-daemon's image store. `STORAGE` is lab-directory bytes plus image virtual sizes.
-The `TOTAL` row counts an identical image ID once across displayed labs; it does
-not claim reclaimable bytes, and Docker may share layers with images outside the
-displayed labs. A daemon that does not provide the detailed split produces `N/A`
-rather than a guessed value.
+Image rows come from Docker's detailed disk-usage report. The plugin resolves
+deployed container image IDs and topology image references (including inherited
+defaults and kind images) and counts an image ID once per lab. An image's full
+size is `IMAGES SHARED` when distinct running or explicitly selected labs use
+the same image ID; otherwise its full size is `IMAGES UNIQUE`. Docker's
+daemon-wide shared-layer values are deliberately not used because layers shared
+with unrelated images do not represent storage shared between the reported
+labs. `STORAGE` is lab-directory bytes plus image sizes. The `TOTAL` row counts
+an identical image ID once across displayed labs and does not claim reclaimable
+bytes.
+
+An image can be removed or retagged while a container created from it remains
+running. Docker then omits the old image ID from its image disk-usage report.
+For that case the plugin asks container inspection for the retained root
+filesystem size, subtracts its writable layer, and uses the result as the old
+image's size. This is Docker's best remaining estimate and keeps the running
+lab accountable after image cleanup. If neither measurement is available, the
+affected image and storage values are `N/A` rather than a partial sum.
 
 `-p`/`--poll` takes a new sample every two seconds until Ctrl-C. It rediscovers
 containers and labs each time. On a terminal it redraws the table; redirected
 output receives successive tables separated by a blank line. Polls never overlap.
 
 The command needs Docker CLI access equivalent to viewing container metadata,
-statistics, image metadata, and system disk usage. It does not deploy, destroy,
+statistics, retained root-filesystem sizes, image metadata, and system disk
+usage. It does not deploy, destroy,
 pull, build, prune, or edit anything. Docker-access errors are fatal. Missing
 image accounting or unreadable directories appear as `N/A`, and the note below
 the table distinguishes unavailable values from zero use.

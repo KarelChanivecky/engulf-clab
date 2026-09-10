@@ -27,7 +27,8 @@ class FakeDocker:
     def containers(self) -> tuple[Container, ...]:
         return self.container_values
 
-    def image_usage(self) -> dict[str, ImageUsage]:
+    def image_usage(self, containers: tuple[Container, ...] = ()) -> dict[str, ImageUsage]:
+        del containers
         return self.images
 
     def stats(self, identifiers: tuple[str, ...]) -> dict[str, RuntimeStats]:
@@ -79,6 +80,15 @@ class AccountingTest(unittest.TestCase):
         self.assertEqual(rows[1].shared_image_bytes, 1000)
         self.assertEqual(total.shared_image_bytes, 1000)
         self.assertIsNone(total.storage_bytes)
+
+    def test_single_lab_owns_complete_image_despite_daemon_layer_sharing(self) -> None:
+        usage = {"image": ImageUsage("image", 1000, 900, 100)}
+        labs = (Lab("only", None, frozenset({"image"}), ()),)
+
+        classified = classify_image_usage(usage, labs)
+
+        self.assertEqual(classified["image"].unique, 1000)
+        self.assertEqual(classified["image"].shared, 0)
 
     def test_unavailable_image_split_is_not_reported_as_zero(self) -> None:
         docker = FakeDocker()

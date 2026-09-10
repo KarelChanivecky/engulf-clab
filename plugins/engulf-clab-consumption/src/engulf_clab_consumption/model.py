@@ -12,6 +12,7 @@ class Container:
     image_id: str
     image_ref: str
     running: bool
+    retained_image_bytes: int | None = None
 
 
 @dataclass(frozen=True)

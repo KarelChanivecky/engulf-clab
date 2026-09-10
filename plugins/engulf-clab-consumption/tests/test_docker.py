@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from engulf_clab_consumption.docker import DockerClient, parse_size
+from engulf_clab_consumption.model import Container
 
 
 class StubDocker(DockerClient):
@@ -33,6 +34,45 @@ class ParseTest(unittest.TestCase):
 
         self.assertEqual(usage["sha256:abc"].size, 10_000_000)
         self.assertEqual(usage["abc"].shared, 4_000_000)
+
+    def test_image_usage_falls_back_to_retained_container_rootfs(self) -> None:
+        docker = StubDocker(
+            {("system", "df", "--verbose", "--format", "json"): '{"Images":[]}'}
+        )
+        container = Container(
+            "container", "demo", None, "sha256:gone", "example:old", True, 1234
+        )
+
+        usage = docker.image_usage((container,))
+
+        self.assertEqual(usage["gone"].size, 1234)
+        self.assertIsNone(usage["gone"].shared)
+
+    def test_containers_capture_retained_image_size(self) -> None:
+        docker = StubDocker(
+            {
+                (
+                    "container",
+                    "ls",
+                    "--all",
+                    "--filter",
+                    "label=containerlab",
+                    "--quiet",
+                    "--no-trunc",
+                ): "container\n",
+                ("container", "inspect", "--size", "container"): (
+                    '[{"Id":"container","Image":"sha256:gone",'
+                    '"SizeRootFs":1200,"SizeRw":200,'
+                    '"Config":{"Image":"example:old",'
+                    '"Labels":{"containerlab":"demo"}},'
+                    '"State":{"Running":true}}]'
+                ),
+            }
+        )
+
+        containers = docker.containers()
+
+        self.assertEqual(containers[0].retained_image_bytes, 1000)
 
     def test_stats_parse_json_lines(self) -> None:
         docker = StubDocker(

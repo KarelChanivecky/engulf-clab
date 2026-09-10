@@ -48,27 +48,32 @@ within the lab's row.
 
 The storage split is required in every report, including single-lab queries,
 `--all`, and each `-p` polling refresh. An image's complete size is shared when
-distinct running labs use the same image ID. Otherwise it uses Docker's
-image-level definition of bytes shared with another image on the daemon:
+distinct running labs use the same image ID. Otherwise its complete size is
+unique to its lab. Docker's daemon-wide shared-layer split is not used because
+unrelated images on the daemon are outside the lab ownership comparison:
 
 - `LAB DIR`: the lab directory's storage size.
-- `IMAGES UNIQUE`: image bytes exclusive to the lab's image IDs.
-- `IMAGES SHARED`: complete images used by multiple labs plus Docker-reported
-  shared layers in the lab's other images.
+- `IMAGES UNIQUE`: complete images used by only this lab.
+- `IMAGES SHARED`: complete images used by multiple distinct labs.
 - `STORAGE`: `LAB DIR + IMAGES UNIQUE + IMAGES SHARED` for that lab.
 
-Docker calculates the split across its complete local image store, so filtering
-the report does not change an image's classification. Include an explicitly
-selected stopped lab's image references when available. Multiple containers or
+Classification uses every running lab, so filtering the displayed report does
+not change an image's classification. Include an explicitly selected stopped
+lab's image references when available. Multiple containers or
 tags resolving to one image ID must not duplicate it within a lab. These
 categories describe image footprints, not reclaimable disk space; retained
-images and non-lab workloads may also reference the shared data.
+images and non-lab workloads may also reference the underlying layers.
+
+If Docker no longer lists an image ID used by a retained container, estimate
+that image's complete size from the container root filesystem minus its
+writable layer. Use this only as a fallback for the missing image record. If
+neither source supplies a size, propagate `N/A` rather than a partial result.
 
 The `TOTAL` row counts each identical image ID once across the displayed labs.
-Consequently, the total can be lower than the sum of the per-lab values. Docker
-does not expose layer ownership between arbitrary selected images, so shared
+Consequently, the total can be lower than the sum of the per-lab values. Shared
 layers belonging to different image IDs may still contribute to more than one
-image footprint. For example, if two labs use the same 4 GiB image ID:
+image footprint because the report classifies complete image IDs, not layers.
+For example, if two labs use the same 4 GiB image ID:
 
 | LAB | LAB DIR | IMAGES UNIQUE | IMAGES SHARED | STORAGE |
 | --- | --- | --- | --- | --- |
@@ -79,9 +84,9 @@ image footprint. For example, if two labs use the same 4 GiB image ID:
 This example omits CPU and RAM to illustrate storage accounting.
 
 Docker's [`docker system df -v` documentation](https://docs.docker.com/reference/cli/docker/system/df/)
-defines and supplies these shared and unique sizes per image. If the daemon does
-not return the split, show `N/A` for the affected breakdown rather than treating
-unavailable measurements as zero.
+defines the complete image sizes used for this classification. If Docker does
+not return an image size and no retained-container fallback is available, show
+`N/A` for the affected breakdown rather than treating it as zero.
 
 The implementation uses these accounting choices:
 
