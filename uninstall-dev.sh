@@ -31,6 +31,8 @@ fi
     engulf-clab-plugins \
     engulf-clab-license-pool \
     engulf-clab-freeze \
+    engulf-clab-lab-registry \
+    engulf-clab-lab-registry-api \
     engulf-clab-consumption \
     engulf-clab-freeze-api \
     engulf-clab-pki \

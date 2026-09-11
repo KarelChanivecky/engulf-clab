@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-lab-registry-api"
+version = "1.0.0"
+description = "Typed lab inventory contract for engulf-clab plugins"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = ["engulf-api>=1.2,<2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_lab_registry_api"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/AGENTS.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/USAGE.md",
+    "/build.sh",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_lab_registry_api"]

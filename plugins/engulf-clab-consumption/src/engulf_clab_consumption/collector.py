@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from engulf_clab_lab_parser import load_topology
+from engulf_clab_lab_registry_api import LabRecord
 
 from .docker import DockerClient, DockerError
-from .model import Consumption, Container, ImageUsage, Lab
+from .model import Consumption, Container, ImageUsage, Lab, LabState
 
 
 class ConsumptionError(RuntimeError):
@@ -21,6 +22,7 @@ def selected_lab(
     containers: Sequence[Container],
     docker: DockerClient,
     environment: Mapping[str, str],
+    record: LabRecord | None = None,
 ) -> Lab:
     try:
         document = load_topology(topology, environment)
@@ -37,21 +39,24 @@ def selected_lab(
     )
     image_ids = {item.image_id for item in matching}
     if not image_ids:
-        references = _topology_images(document)
-        image_ids.update(docker.resolve_images(references).values())
+        if record is not None and record.ever_deployed:
+            image_ids.update(record.image_ids)
+        else:
+            references = _topology_images(document)
+            image_ids.update(docker.resolve_images(references).values())
     return Lab(
         name,
         topology.parent,
         frozenset(image_ids),
         tuple(item.container_id for item in matching if item.running),
+        LabState.DEPLOYED if matching else LabState.UNDEPLOYED,
+        topology,
     )
 
 
-def running_labs(containers: Sequence[Container]) -> tuple[Lab, ...]:
+def deployed_labs(containers: Sequence[Container]) -> tuple[Lab, ...]:
     groups: dict[tuple[str, Path | None], list[Container]] = {}
     for item in containers:
-        if not item.running:
-            continue
         directory = item.topology.parent if item.topology is not None else None
         groups.setdefault((item.lab, directory), []).append(item)
     labs = (
@@ -59,7 +64,11 @@ def running_labs(containers: Sequence[Container]) -> tuple[Lab, ...]:
             name,
             directory,
             frozenset(item.image_id for item in members),
-            tuple(item.container_id for item in members),
+            tuple(item.container_id for item in members if item.running),
+            LabState.DEPLOYED,
+            next(
+                (item.topology for item in members if item.topology is not None), None
+            ),
         )
         for (name, directory), members in groups.items()
     )
@@ -71,27 +80,44 @@ def collect(
     docker: DockerClient,
     *,
     image_usage: Mapping[str, ImageUsage] | None = None,
+    image_usage_available: bool = True,
 ) -> tuple[Consumption, ...]:
-    stats = docker.stats(tuple(identifier for lab in labs for identifier in lab.running_container_ids))
+    stats = docker.stats(
+        tuple(identifier for lab in labs for identifier in lab.running_container_ids)
+    )
     usage = image_usage
     if usage is None:
         try:
             usage = docker.image_usage()
         except DockerError:
             usage = {}
+            image_usage_available = False
     rows: list[Consumption] = []
     for lab in labs:
         runtime = [stats.get(identifier) for identifier in lab.running_container_ids]
         complete_runtime = all(item is not None for item in runtime)
-        cpu = sum(item.cpu_percent for item in runtime if item is not None) if complete_runtime else None
-        memory = sum(item.memory_bytes for item in runtime if item is not None) if complete_runtime else None
+        cpu = (
+            sum(item.cpu_percent for item in runtime if item is not None)
+            if complete_runtime
+            else None
+        )
+        memory = (
+            sum(item.memory_bytes for item in runtime if item is not None)
+            if complete_runtime
+            else None
+        )
         if not lab.running_container_ids:
             cpu, memory = 0.0, 0
         directory = directory_size(lab.directory) if lab.directory is not None else None
         images = [_usage_for(image_id, usage) for image_id in lab.image_ids]
-        complete_images = all(item is not None for item in images)
+        missing_images_are_absent = (
+            image_usage_available and lab.state is LabState.UNDEPLOYED
+        )
+        complete_images = image_usage_available and (
+            missing_images_are_absent or all(item is not None for item in images)
+        )
         split_available = complete_images and all(
-            item is not None and item.unique is not None and item.shared is not None
+            item is None or item.unique is not None and item.shared is not None
             for item in images
         )
         unique = (
@@ -122,6 +148,7 @@ def collect(
                 shared,
                 storage,
                 lab.image_ids,
+                lab.state,
             )
         )
     return tuple(rows)
@@ -155,17 +182,40 @@ def classify_image_usage(
 
 
 def totals(
-    rows: Sequence[Consumption], image_usage: Mapping[str, ImageUsage]
+    rows: Sequence[Consumption],
+    image_usage: Mapping[str, ImageUsage],
+    *,
+    image_usage_available: bool = True,
 ) -> Consumption:
     image_ids = frozenset(identifier for row in rows for identifier in row.image_ids)
     images = [_usage_for(identifier, image_usage) for identifier in image_ids]
-    complete_images = all(item is not None for item in images)
+    absent_images = {
+        identifier
+        for identifier, image in zip(image_ids, images, strict=True)
+        if image is None
+    }
+    safely_absent = all(
+        row.state is LabState.UNDEPLOYED
+        for identifier in absent_images
+        for row in rows
+        if identifier in row.image_ids
+    )
+    complete_images = image_usage_available and (not absent_images or safely_absent)
     split_available = complete_images and all(
-        item is not None and item.unique is not None and item.shared is not None for item in images
+        item is None or item.unique is not None and item.shared is not None
+        for item in images
     )
     directory = _sum_optional(row.directory_bytes for row in rows)
-    unique = sum(item.unique or 0 for item in images if item is not None) if split_available else None
-    shared = sum(item.shared or 0 for item in images if item is not None) if split_available else None
+    unique = (
+        sum(item.unique or 0 for item in images if item is not None)
+        if split_available
+        else None
+    )
+    shared = (
+        sum(item.shared or 0 for item in images if item is not None)
+        if split_available
+        else None
+    )
     if not image_ids:
         unique, shared, complete_images = 0, 0, True
     storage = (
@@ -182,6 +232,7 @@ def totals(
         shared,
         storage,
         image_ids,
+        None,
     )
 
 
@@ -189,6 +240,12 @@ def directory_size(root: Path) -> int | None:
     """Return allocated bytes without following symlinks or counting hard links twice."""
     seen: set[tuple[int, int]] = set()
     total = 0
+    try:
+        root.lstat()
+    except FileNotFoundError:
+        return 0
+    except OSError:
+        return None
     try:
         entries: Iterable[Path] = (root, *root.rglob("*"))
         for path in entries:
@@ -205,18 +262,46 @@ def directory_size(root: Path) -> int | None:
     return total
 
 
+def has_retained_resources(
+    lab: Lab,
+    image_usage: Mapping[str, ImageUsage],
+    *,
+    image_usage_available: bool,
+) -> bool:
+    if lab.state is LabState.DEPLOYED or lab.directory is None:
+        return True
+    try:
+        lab.directory.lstat()
+    except FileNotFoundError:
+        return not image_usage_available or any(
+            _usage_for(image_id, image_usage) is not None for image_id in lab.image_ids
+        )
+    except OSError:
+        return True
+    return True
+
+
 def _usage_for(image_id: str, usage: Mapping[str, ImageUsage]) -> ImageUsage | None:
     normalized = image_id.removeprefix("sha256:")
     direct = usage.get(image_id) or usage.get(normalized)
     if direct is not None:
         return direct
-    matches = {id(item): item for key, item in usage.items() if key.removeprefix("sha256:").startswith(normalized) or normalized.startswith(key.removeprefix("sha256:"))}
+    matches = {
+        id(item): item
+        for key, item in usage.items()
+        if key.removeprefix("sha256:").startswith(normalized)
+        or normalized.startswith(key.removeprefix("sha256:"))
+    }
     return next(iter(matches.values())) if len(matches) == 1 else None
 
 
 def _sum_optional(values: Iterable[int | float | None]) -> Any:
     materialized = tuple(values)
-    return sum(value for value in materialized if value is not None) if all(value is not None for value in materialized) else None
+    return (
+        sum(value for value in materialized if value is not None)
+        if all(value is not None for value in materialized)
+        else None
+    )
 
 
 def _topology_images(document: Mapping[str, Any]) -> tuple[str, ...]:

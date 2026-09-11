@@ -31,7 +31,8 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-license-pool` | Leased shared license selection and lab-local copies. |
 | `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Sanitized portable and strict offline lab archives. |
-| `engulf-clab-consumption` | CPU, RAM, lab-directory, and unique/shared image-storage reports. |
+| `engulf-clab-lab-registry-api` and `engulf-clab-lab-registry` | Typed shared inventory plus persistent deploy/redeploy tracking. |
+| `engulf-clab-consumption` | State, CPU, RAM, lab-directory, and unique/shared image-storage reports. |
 | `engulf-clab-freeze-api`, `engulf-clab-pki-api`, and `engulf-clab-pki` | Format-2 extension contract plus typed opt-in PKI generation and private node views. |
 | `engulf-clab-pki-linux-core`, `engulf-clab-pki-linux-debian`, and `engulf-clab-pki-linux-fedora` | Runtime plus Debian/Fedora installer asset images for automatic Linux trust and identity integration. |
 | `engulf-clab-vrnetlab-fortigate-pki-injector` | Automatic path-only installation of authorized PKI identities into FortiGate vrnetlab nodes. |
@@ -71,10 +72,10 @@ Python environment's package manager to remove individual features.
 
 ## Compatibility and releases
 
-The meta-package pins every maintained feature to its declared compatible
-release line and the stable image, container, and schema APIs to their `1.x`
-lines through dependencies. When a maintained plugin is added, removed, or moves to an
-incompatible series, update this dependency set and this table in the same
-release. Stable image, container, schema, freeze, and PKI projection APIs remain
-on compatible major lines. The package contains no runtime configuration,
-source topology fields, state, entry points, or cleanup behavior of its own.
+The meta-package pins every maintained feature and stable API to its declared
+compatible release line. When a maintained plugin is added, removed, or moves
+to an incompatible series, update this dependency set and this table in the
+same release. Stable image, container, lab-registry, schema, freeze, and PKI
+projection APIs remain on compatible major lines. The package contains no
+runtime configuration, source topology fields, state, entry points, or cleanup
+behavior of its own.

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-lab-registry"
+version = "0.1.0"
+description = "Persistent shared lab inventory for engulf-clab"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.2,<2",
+    "engulf-executable-wrapper-api>=1.2,<2",
+    "engulf-clab-schema-api>=2.0.0,<3",
+    "engulf-clab-schema>=0.2.0,<1",
+    "engulf-clab-lab-parser>=0.2.0,<1",
+    "engulf-clab-lab-registry-api>=1,<2",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.lab_registry" = "engulf_clab_lab_registry:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.lab_registry" = "engulf_clab_lab_registry:plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_lab_registry"]
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_lab_registry"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_lab_registry/README.md"
+"AGENTS.md" = "engulf_clab_lab_registry/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_lab_registry/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_lab_registry/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/AGENTS.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/USAGE.md",
+    "/build.sh",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src/engulf_clab_lab_registry"]

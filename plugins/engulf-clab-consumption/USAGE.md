@@ -9,15 +9,24 @@ eclab consumption [-t TOPOLOGY | --all] [-p]
 
 With no selector, eclab discovers exactly one topology in the current directory.
 `-t`/`--topology` selects a topology relative to the invocation directory and
-uses its parent as the canonical lab directory. `--all` reports every running
-Containerlab lab visible to the current Docker daemon. The topology selector and
-`--all` conflict.
+uses its parent as the canonical lab directory. `--all` reports every deployed
+Containerlab lab visible to Docker plus every lab remembered in the shared lab
+registry. The topology selector and `--all` conflict.
 
-The table contains `LAB`, `CPU`, `RAM`, `LAB DIR`, `IMAGES UNIQUE`,
+The registry plugin records successful deploys and redeploys. Consumption
+contributes explicit queries and `--all` discovery of existing containers. A lab
+destroyed before this feature was installed must be queried once with `-t`
+before it can appear in `--all`; the plugin does not recursively scan the
+filesystem.
+
+The table contains `LAB`, `STATE`, `CPU`, `RAM`, `LAB DIR`, `IMAGES UNIQUE`,
 `IMAGES SHARED`, and `STORAGE`, followed by `TOTAL`. CPU is the sum of Docker's
 instantaneous container percentages, so a multi-core lab may exceed 100%. RAM is
 Docker's current memory-usage value. Stopped selected labs report zero CPU and
-RAM. The total is complete only when every contributing measurement is available.
+RAM. `STATE` is `DEPLOYED` whenever at least one container exists, including a
+stopped container, and `UNDEPLOYED` when none exists. The total row displays
+`—` for state. The total is complete only when every contributing measurement
+is available.
 
 `LAB DIR` is allocated filesystem space beneath the topology directory. The walk
 does not follow symlinks and counts a hard-linked inode once. An unreadable path
@@ -35,6 +44,12 @@ labs. `STORAGE` is lab-directory bytes plus image sizes. The `TOTAL` row counts
 an identical image ID once across displayed labs and does not claim reclaimable
 bytes.
 
+An undeployed lab uses the exact image IDs saved from its last successful deploy
+or redeploy, so later tag movement does not change its ownership. A
+never-deployed lab records the image IDs resolved by its explicit query. If
+Docker confirms that a recorded undeployed image ID is gone, it contributes
+zero image bytes; a Docker measurement failure remains `N/A`.
+
 An image can be removed or retagged while a container created from it remains
 running. Docker then omits the old image ID from its image disk-usage report.
 For that case the plugin asks container inspection for the retained root
@@ -44,19 +59,23 @@ lab accountable after image cleanup. If neither measurement is available, the
 affected image and storage values are `N/A` rather than a partial sum.
 
 `-p`/`--poll` takes a new sample every two seconds until Ctrl-C. It rediscovers
-containers and labs each time. On a terminal it redraws the table; redirected
-output receives successive tables separated by a blank line. Polls never overlap.
+containers and reloads the lab index each time. On a terminal it redraws the
+table; redirected output receives successive tables separated by a blank line.
+Polls never overlap.
 
 The command needs Docker CLI access equivalent to viewing container metadata,
 statistics, retained root-filesystem sizes, image metadata, and system disk
 usage. It does not deploy, destroy,
-pull, build, prune, or edit anything. Docker-access errors are fatal. Missing
-image accounting or unreadable directories appear as `N/A`, and the note below
-the table distinguishes unavailable values from zero use.
+pull, build, prune, or edit anything. Container-discovery errors are fatal.
+Missing image accounting, container statistics, or unreadable directories
+appear as `N/A`, and the note below the table distinguishes unavailable values
+from zero use.
 
-The plugin creates no files, persistent state, leases, or cleanup obligations.
-It defines no topology extensions or edition-specific prefixes; the topology
-remains ordinary [Containerlab YAML](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json),
+The consumption plugin creates no persistent state or leases. It accesses the
+inventory only through `engulf-clab-lab-registry-api`; the registry plugin owns
+transactional persistence and deploy/redeploy observation. Neither plugin
+defines topology extensions or edition-specific prefixes; the topology remains
+ordinary [Containerlab YAML](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json),
 and operators use the selected edition's launcher name in place of `eclab`.
 
 Useful checks are:

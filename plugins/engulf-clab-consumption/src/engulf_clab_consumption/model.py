@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
+
+
+class LabState(StrEnum):
+    DEPLOYED = "DEPLOYED"
+    UNDEPLOYED = "UNDEPLOYED"
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,8 @@ class Lab:
     directory: Path | None
     image_ids: frozenset[str]
     running_container_ids: tuple[str, ...]
+    state: LabState = LabState.DEPLOYED
+    topology: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -47,3 +55,4 @@ class Consumption:
     shared_image_bytes: int | None
     storage_bytes: int | None
     image_ids: frozenset[str]
+    state: LabState | None = None

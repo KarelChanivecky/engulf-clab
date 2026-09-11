@@ -10,8 +10,23 @@ from typing import Any
 from .model import Container, ImageUsage, RuntimeStats
 
 _SIZE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kmgtpe]?i?b)\s*$", re.IGNORECASE)
-_DECIMAL = {"b": 1, "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4, "pb": 1000**5, "eb": 1000**6}
-_BINARY = {"kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4, "pib": 1024**5, "eib": 1024**6}
+_DECIMAL = {
+    "b": 1,
+    "kb": 1000,
+    "mb": 1000**2,
+    "gb": 1000**3,
+    "tb": 1000**4,
+    "pb": 1000**5,
+    "eb": 1000**6,
+}
+_BINARY = {
+    "kib": 1024,
+    "mib": 1024**2,
+    "gib": 1024**3,
+    "tib": 1024**4,
+    "pib": 1024**5,
+    "eib": 1024**6,
+}
 
 
 class DockerError(RuntimeError):
@@ -43,13 +58,25 @@ class DockerClient:
         except OSError as error:
             raise DockerError(f"could not run docker: {error}") from error
         if result.returncode:
-            detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+            detail = (
+                result.stderr.strip()
+                or result.stdout.strip()
+                or f"exit {result.returncode}"
+            )
             raise DockerError(f"docker {' '.join(arguments[:2])} failed: {detail}")
         return result.stdout
 
     def containers(self) -> tuple[Container, ...]:
         identifiers = self._run(
-            ("container", "ls", "--all", "--filter", "label=containerlab", "--quiet", "--no-trunc")
+            (
+                "container",
+                "ls",
+                "--all",
+                "--filter",
+                "label=containerlab",
+                "--quiet",
+                "--no-trunc",
+            )
         ).split()
         if not identifiers:
             return ()
@@ -71,7 +98,11 @@ class DockerClient:
             if not isinstance(lab, str) or not lab:
                 continue
             topology_value = labels.get("clab-topo-file")
-            topology = Path(topology_value).resolve() if isinstance(topology_value, str) and topology_value else None
+            topology = (
+                Path(topology_value).resolve()
+                if isinstance(topology_value, str) and topology_value
+                else None
+            )
             image_id = item.get("Image")
             image_ref = config.get("Image") if isinstance(config, dict) else ""
             container_id = item.get("Id")
@@ -103,7 +134,9 @@ class DockerClient:
         result: dict[str, str] = {}
         for reference in dict.fromkeys(references):
             try:
-                payload = _json(self._run(("image", "inspect", reference)), "image inspect")
+                payload = _json(
+                    self._run(("image", "inspect", reference)), "image inspect"
+                )
             except DockerError:
                 continue
             if isinstance(payload, list) and payload and isinstance(payload[0], dict):
@@ -112,7 +145,9 @@ class DockerClient:
                     result[reference] = image_id
         return result
 
-    def image_usage(self, containers: Sequence[Container] = ()) -> dict[str, ImageUsage]:
+    def image_usage(
+        self, containers: Sequence[Container] = ()
+    ) -> dict[str, ImageUsage]:
         output = self._run(("system", "df", "--verbose", "--format", "json"))
         records = _records(output)
         result: dict[str, ImageUsage] = {}
@@ -121,8 +156,12 @@ class DockerClient:
             if not isinstance(image_id, str) or not image_id:
                 continue
             size = parse_size(_first(item, "Size", "SIZE"))
-            shared = parse_size(_first(item, "SharedSize", "Shared Size", "SHARED SIZE"))
-            unique = parse_size(_first(item, "UniqueSize", "Unique Size", "UNIQUE SIZE"))
+            shared = parse_size(
+                _first(item, "SharedSize", "Shared Size", "SHARED SIZE")
+            )
+            unique = parse_size(
+                _first(item, "UniqueSize", "Unique Size", "UNIQUE SIZE")
+            )
             if size is None and shared is not None and unique is not None:
                 size = shared + unique
             if size is None:
@@ -150,7 +189,14 @@ class DockerClient:
             return {}
         try:
             output = self._run(
-                ("stats", "--no-stream", "--no-trunc", "--format", "json", *container_ids)
+                (
+                    "stats",
+                    "--no-stream",
+                    "--no-trunc",
+                    "--format",
+                    "json",
+                    *container_ids,
+                )
             )
         except DockerError:
             # A container may stop between discovery and stats. Let this sample
@@ -161,7 +207,11 @@ class DockerClient:
             container_id = _first(item, "ID", "Container")
             cpu = _percent(_first(item, "CPUPerc", "CPU %"))
             memory_usage = _first(item, "MemUsage", "Mem Usage")
-            memory = parse_size(memory_usage.partition("/")[0]) if isinstance(memory_usage, str) else None
+            memory = (
+                parse_size(memory_usage.partition("/")[0])
+                if isinstance(memory_usage, str)
+                else None
+            )
             if isinstance(container_id, str) and cpu is not None and memory is not None:
                 result[container_id] = RuntimeStats(cpu, memory)
         return result
@@ -196,7 +246,9 @@ def _records(output: str) -> tuple[dict[str, Any], ...]:
             try:
                 values.append(json.loads(line))
             except json.JSONDecodeError as error:
-                raise DockerError(f"docker returned invalid JSON output: {error}") from error
+                raise DockerError(
+                    f"docker returned invalid JSON output: {error}"
+                ) from error
     return tuple(item for item in values if isinstance(item, dict))
 
 
@@ -217,7 +269,11 @@ def _percent(value: object) -> float | None:
 
 
 def _nonnegative_int(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )
 
 
 def _usage_for_id(image_id: str, usage: dict[str, ImageUsage]) -> ImageUsage | None:

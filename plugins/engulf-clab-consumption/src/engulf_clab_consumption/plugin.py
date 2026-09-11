@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from engulf_api import BeforeGoalAPI, GoalResult, Invocation
+from engulf_clab_lab_registry_api import LAB_REGISTRY_CONTEXT, lab_registry
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -17,7 +18,9 @@ from .command import main as run_consumption
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.consumption", package="engulf_clab_consumption")
-    .add_command("consumption", "Report CPU, RAM, lab-directory, and image consumption.")
+    .add_command(
+        "consumption", "Report CPU, RAM, lab-directory, and image consumption."
+    )
     .add_cli_flag(
         ("-t", "--topology"),
         "Select one lab topology instead of discovering it in the current directory.",
@@ -26,7 +29,7 @@ PLUGIN_SCHEMA = (
     )
     .add_cli_flag(
         "--all",
-        "Report every running Containerlab lab visible to Docker.",
+        "Report every deployed or indexed Containerlab lab.",
         command="consumption",
     )
     .add_cli_flag(
@@ -37,7 +40,10 @@ PLUGIN_SCHEMA = (
     .annotate(
         "consumption",
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
-        implies=("normal Containerlab execution is preempted",),
+        implies=(
+            "normal Containerlab execution is preempted",
+            "explicit queries contribute observations to the shared lab registry",
+        ),
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
         examples=("eclab consumption --all -p",),
@@ -63,7 +69,7 @@ PLUGIN_SCHEMA = (
         "Docker supplies lab discovery, container statistics, and image storage accounting.",
         commands=("consumption",),
     )
-    .use_case("Measure one lab or compare all running labs in one table.")
+    .use_case("Measure one lab or compare deployed and undeployed labs in one table.")
     .route(
         "inspect-resource-consumption",
         "USAGE.md",
@@ -74,12 +80,12 @@ PLUGIN_SCHEMA = (
 
 
 class ConsumptionPlugin(SchemaBackedPlugin):
-    """Own the read-only consumption command before Containerlab runs."""
+    """Own consumption measurement and reporting."""
 
     plugin_id = "engulf_clab.consumption"
     schema = PLUGIN_SCHEMA
     priority = 200
-    context_reads = SCHEMA_CONTEXTS
+    context_reads = SCHEMA_CONTEXTS | frozenset({LAB_REGISTRY_CONTEXT})
     context_writes = SCHEMA_CONTEXTS
 
     def before_goal(
@@ -95,6 +101,7 @@ class ConsumptionPlugin(SchemaBackedPlugin):
             environment=invocation.environment,
             program=f"{application_name} consumption",
             logger=api.logger,
+            registry=lab_registry(api),
         )
         return GoalResult.completed(exit_code=exit_code)
 
@@ -102,5 +109,5 @@ class ConsumptionPlugin(SchemaBackedPlugin):
         del api
         return (
             "  consumption [-t TOPOLOGY | --all] [-p]  "
-            "Report CPU, RAM, lab-directory, and unique/shared image storage"
+            "Report state, CPU, RAM, lab-directory, and unique/shared image storage"
         )

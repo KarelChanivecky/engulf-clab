@@ -54,6 +54,7 @@ fi
 
 local_packages=(
     "plugins/engulf-clab-schema-api"
+    "plugins/engulf-clab-lab-registry-api"
     "plugins/engulf-clab-freeze-api"
     "plugins/engulf-clab-pki-api"
     "plugins/engulf-clab-schema"
@@ -75,6 +76,7 @@ local_packages=(
     "plugins/engulf-clab-wan"
     "plugins/engulf-clab-license-pool"
     "plugins/engulf-clab-freeze"
+    "plugins/engulf-clab-lab-registry"
     "plugins/engulf-clab-consumption"
     "plugins/engulf-clab-pki"
     "plugins/engulf-clab-pki-linux-core"

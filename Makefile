@@ -1,6 +1,7 @@
 PYTHON := .venv/bin/python
 PACKAGES := \
 	engulf-clab-schema-api \
+	engulf-clab-lab-registry-api \
 	engulf-clab-freeze-api \
 	engulf-clab-pki-api \
 	engulf-clab-schema \
@@ -23,6 +24,7 @@ PACKAGES := \
 	engulf-clab-wan \
 	engulf-clab-license-pool \
 	engulf-clab-freeze \
+	engulf-clab-lab-registry \
 	engulf-clab-consumption \
 	engulf-clab-pki \
 	engulf-clab-pki-linux-core \
@@ -37,6 +39,7 @@ PACKAGES := \
 
 # Package name -> source directory
 DIR_engulf-clab-schema-api := plugins/engulf-clab-schema-api
+DIR_engulf-clab-lab-registry-api := plugins/engulf-clab-lab-registry-api
 DIR_engulf-clab-freeze-api := plugins/engulf-clab-freeze-api
 DIR_engulf-clab-pki-api := plugins/engulf-clab-pki-api
 DIR_engulf-clab-schema := plugins/engulf-clab-schema
@@ -59,6 +62,7 @@ DIR_engulf-clab-vrnetlab-build := plugins/engulf-clab-vrnetlab-build
 DIR_engulf-clab-wan := plugins/engulf-clab-wan
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool
 DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
+DIR_engulf-clab-lab-registry := plugins/engulf-clab-lab-registry
 DIR_engulf-clab-consumption := plugins/engulf-clab-consumption
 DIR_engulf-clab-pki := plugins/engulf-clab-pki
 DIR_engulf-clab-pki-linux-core := plugins/engulf-clab-pki-linux-core

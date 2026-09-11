@@ -4,30 +4,43 @@ import argparse
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
 from engulf_api import PluginLogger
 from engulf_clab_lab_parser import topology_path_from_args
+from engulf_clab_lab_registry_api import LabRecord, LabRegistry, LabRegistryError
 
 from .collector import (
     ConsumptionError,
     classify_image_usage,
     collect,
-    running_labs,
+    deployed_labs,
+    has_retained_resources,
     selected_lab,
     totals,
 )
 from .docker import DockerClient, DockerError
-from .model import Consumption, Lab
+from .model import Consumption, Lab, LabState
+
+
+@dataclass(frozen=True)
+class Sample:
+    rendered: str
+    observations: tuple[LabRecord, ...]
 
 
 def parser(program: str) -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog=program, description="Report resource consumption for eclab labs.")
+    result = argparse.ArgumentParser(
+        prog=program, description="Report resource consumption for eclab labs."
+    )
     selection = result.add_mutually_exclusive_group()
     selection.add_argument("-t", "--topology", metavar="TOPOLOGY")
-    selection.add_argument("--all", action="store_true", help="report every running lab")
-    result.add_argument("-p", "--poll", action="store_true", help="refresh every two seconds")
+    selection.add_argument("--all", action="store_true", help="report every known lab")
+    result.add_argument(
+        "-p", "--poll", action="store_true", help="refresh every two seconds"
+    )
     return result
 
 
@@ -42,6 +55,7 @@ def main(
     error: TextIO | None = None,
     sleep: Callable[[float], None] = time.sleep,
     logger: PluginLogger | None = None,
+    registry: LabRegistry | None = None,
 ) -> int:
     destination = output or sys.stdout
     errors = error or sys.stderr
@@ -60,20 +74,36 @@ def main(
     try:
         while True:
             try:
-                rendered = sample(
+                sampled = sample(
                     client,
                     topology=topology,
                     all_labs=options.all,
                     environment=environment,
+                    records=registry.records() if registry is not None else (),
                 )
-            except (ConsumptionError, DockerError) as problem:
+            except (
+                ConsumptionError,
+                DockerError,
+                OSError,
+                LabRegistryError,
+            ) as problem:
                 _error(logger, errors, program, problem)
                 return 1
+            if registry is not None and sampled.observations:
+                try:
+                    registry.upsert(sampled.observations)
+                except (OSError, RuntimeError) as problem:
+                    _warning(
+                        logger,
+                        errors,
+                        program,
+                        f"could not update lab registry: {problem}",
+                    )
             if options.poll and destination.isatty():
                 print("\x1b[2J\x1b[H", end="", file=destination)
             elif options.poll and not first:
                 print(file=destination)
-            print(rendered, file=destination, flush=True)
+            print(sampled.rendered, file=destination, flush=True)
             first = False
             if not options.poll:
                 return 0
@@ -88,44 +118,138 @@ def sample(
     topology: Path | None,
     all_labs: bool,
     environment: Mapping[str, str],
-) -> str:
+    records: Sequence[LabRecord] = (),
+) -> Sample:
     containers = docker.containers()
-    discovered = running_labs(containers)
-    labs = discovered if all_labs else (
-        selected_lab(_required(topology), containers, docker, environment),
-    )
+    discovered = deployed_labs(containers)
+    indexed = tuple(_lab_from_record(record) for record in records)
+    base_universe = _overlay_labs((*indexed, *discovered))
+    if all_labs:
+        labs = base_universe
+        observations = tuple(
+            _record_for_lab(lab, _find_record(records, lab))
+            for lab in discovered
+            if lab.directory is not None
+        )
+    else:
+        required = _required(topology)
+        document_lab = selected_lab(required, containers, docker, environment)
+        record = _find_record(records, document_lab)
+        selected = (
+            selected_lab(
+                required,
+                containers,
+                docker,
+                environment,
+                record=record,
+            )
+            if record is not None and record.ever_deployed
+            else document_lab
+        )
+        labs = (selected,)
+        observations = (_record_for_lab(selected, record, topology=required),)
+    universe = _overlay_labs((*base_universe, *labs))
     try:
         image_usage = docker.image_usage(containers)
+        image_usage_available = True
     except DockerError:
         image_usage = {}
-    universe = _merge_labs((*discovered, *labs))
+        image_usage_available = False
     image_usage = classify_image_usage(image_usage, universe)
-    rows = collect(labs, docker, image_usage=image_usage)
-    return render((*rows, totals(rows, image_usage)))
+    if all_labs:
+        labs = tuple(
+            lab
+            for lab in labs
+            if has_retained_resources(
+                lab,
+                image_usage,
+                image_usage_available=image_usage_available,
+            )
+        )
+    rows = collect(
+        labs,
+        docker,
+        image_usage=image_usage,
+        image_usage_available=image_usage_available,
+    )
+    total = totals(
+        rows,
+        image_usage,
+        image_usage_available=image_usage_available,
+    )
+    return Sample(render((*rows, total)), observations)
 
 
-def _merge_labs(labs: Sequence[Lab]) -> tuple[Lab, ...]:
+def _overlay_labs(labs: Sequence[Lab]) -> tuple[Lab, ...]:
     merged: dict[tuple[str, Path | None], Lab] = {}
     for lab in labs:
         key = (lab.name, lab.directory)
-        previous = merged.get(key)
-        if previous is None:
-            merged[key] = lab
-            continue
-        merged[key] = Lab(
-            lab.name,
-            lab.directory,
-            previous.image_ids | lab.image_ids,
-            tuple(dict.fromkeys((*previous.running_container_ids, *lab.running_container_ids))),
+        merged[key] = lab
+    return tuple(
+        sorted(merged.values(), key=lambda item: (item.name, str(item.directory or "")))
+    )
+
+
+def _lab_from_record(record: LabRecord) -> Lab:
+    return Lab(
+        record.name,
+        record.directory,
+        record.image_ids,
+        (),
+        LabState.UNDEPLOYED,
+        record.topology,
+    )
+
+
+def _find_record(records: Sequence[LabRecord], lab: Lab) -> LabRecord | None:
+    return next(
+        (
+            record
+            for record in records
+            if record.name == lab.name and record.directory == lab.directory
+        ),
+        None,
+    )
+
+
+def _record_for_lab(
+    lab: Lab,
+    previous: LabRecord | None,
+    *,
+    topology: Path | None = None,
+) -> LabRecord:
+    if lab.directory is None:
+        raise ConsumptionError(
+            f"cannot index lab without a topology directory: {lab.name}"
         )
-    return tuple(merged.values())
+    return LabRecord(
+        lab.name,
+        lab.directory,
+        topology
+        or (previous.topology if previous is not None else None)
+        or lab.topology,
+        lab.image_ids,
+        lab.state is LabState.DEPLOYED
+        or previous is not None
+        and previous.ever_deployed,
+    )
 
 
 def render(rows: Sequence[Consumption]) -> str:
-    headings = ("LAB", "CPU", "RAM", "LAB DIR", "IMAGES UNIQUE", "IMAGES SHARED", "STORAGE")
+    headings = (
+        "LAB",
+        "STATE",
+        "CPU",
+        "RAM",
+        "LAB DIR",
+        "IMAGES UNIQUE",
+        "IMAGES SHARED",
+        "STORAGE",
+    )
     values = [
         (
             row.name,
+            row.state.value if row.state is not None else "—",
             _cpu(row.cpu_percent),
             _bytes(row.memory_bytes),
             _bytes(row.directory_bytes),
@@ -135,18 +259,41 @@ def render(rows: Sequence[Consumption]) -> str:
         )
         for row in rows
     ]
-    widths = [max(len(headings[index]), *(len(row[index]) for row in values)) for index in range(len(headings))]
+    widths = [
+        max(len(headings[index]), *(len(row[index]) for row in values))
+        for index in range(len(headings))
+    ]
+
     def line(row: Sequence[str]) -> str:
-        return "  ".join(value.ljust(widths[index]) if index == 0 else value.rjust(widths[index]) for index, value in enumerate(row)).rstrip()
+        return "  ".join(
+            value.ljust(widths[index]) if index == 0 else value.rjust(widths[index])
+            for index, value in enumerate(row)
+        ).rstrip()
+
     result = [line(headings), line(tuple("-" * width for width in widths))]
     for index, row in enumerate(values):
         if index == len(values) - 1:
             result.append(line(tuple("-" * width for width in widths)))
         result.append(line(row))
     if any(row.shared_image_bytes not in (None, 0) for row in rows):
-        result.append("Shared image bytes are deduplicated by image ID in TOTAL; totals may be smaller than row sums.")
-    if any(None in (row.cpu_percent, row.memory_bytes, row.directory_bytes, row.unique_image_bytes, row.shared_image_bytes, row.storage_bytes) for row in rows):
-        result.append("N/A means Docker or the filesystem did not provide a complete measurement.")
+        result.append(
+            "Shared image bytes are deduplicated by image ID in TOTAL; totals may be smaller than row sums."
+        )
+    if any(
+        None
+        in (
+            row.cpu_percent,
+            row.memory_bytes,
+            row.directory_bytes,
+            row.unique_image_bytes,
+            row.shared_image_bytes,
+            row.storage_bytes,
+        )
+        for row in rows
+    ):
+        result.append(
+            "N/A means Docker or the filesystem did not provide a complete measurement."
+        )
     return "\n".join(result)
 
 
@@ -166,6 +313,18 @@ def _error(
         print(f"{program}: {problem}", file=destination)
     else:
         logger.error("%s: %s", program, problem)
+
+
+def _warning(
+    logger: PluginLogger | None,
+    destination: TextIO,
+    program: str,
+    message: str,
+) -> None:
+    if logger is None:
+        print(f"{program}: warning: {message}", file=destination)
+    else:
+        logger.warning("%s: %s", program, message)
 
 
 def _cpu(value: float | None) -> str:

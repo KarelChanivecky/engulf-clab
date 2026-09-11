@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from engulf_api import ApplicationMetadata, BeforeGoalAPI, GoalResultStatus, Invocation
+from engulf_api import (
+    ApplicationMetadata,
+    BeforeGoalAPI,
+    GoalResultStatus,
+    Invocation,
+)
+from engulf_clab_schema_api import LifecycleStage
 
 from engulf_clab_consumption.plugin import PLUGIN_SCHEMA, ConsumptionPlugin
 
@@ -13,12 +19,20 @@ from engulf_clab_consumption.plugin import PLUGIN_SCHEMA, ConsumptionPlugin
 class PluginTest(unittest.TestCase):
     def test_package_declares_schema_ordering(self) -> None:
         project = tomllib.loads(
-            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+                encoding="utf-8"
+            )
         )["project"]
         group = project["entry-points"][
             "engulf.plugins.v1.dependency.engulf_clab_consumption"
         ]
-        self.assertEqual(group, {"engulf_clab.schema": "preprocess=after; postprocess=none"})
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+                "engulf_clab.lab_registry": "preprocess=before; postprocess=none",
+            },
+        )
         self.assertNotIn("plugin_dependencies", ConsumptionPlugin.__dict__)
 
     def test_schema_declares_command_and_flags(self) -> None:
@@ -32,6 +46,14 @@ class PluginTest(unittest.TestCase):
         )
         names = {option.name for option in PLUGIN_SCHEMA.options(application)}
         self.assertTrue({"consumption", "-t", "--all", "-p"}.issubset(names))
+        annotations = {
+            annotation.subject: annotation
+            for annotation in PLUGIN_SCHEMA.annotations(application)
+        }
+        self.assertEqual(
+            annotations["consumption"].lifecycle,
+            (LifecycleStage.BEFORE_GOAL,),
+        )
 
     def test_consumption_preempts_containerlab(self) -> None:
         api = MagicMock(spec=BeforeGoalAPI)
@@ -39,8 +61,14 @@ class PluginTest(unittest.TestCase):
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "eclab"
         invocation = Invocation(("consumption", "--all"), Path("/labs"), {})
+        registry = MagicMock()
 
-        with patch("engulf_clab_consumption.plugin.run_consumption", return_value=7) as command:
+        with (
+            patch(
+                "engulf_clab_consumption.plugin.run_consumption", return_value=7
+            ) as command,
+            patch("engulf_clab_consumption.plugin.lab_registry", return_value=registry),
+        ):
             result = ConsumptionPlugin().before_goal(invocation, api)
 
         assert result is not None
@@ -52,6 +80,7 @@ class PluginTest(unittest.TestCase):
             environment={},
             program="eclab consumption",
             logger=api.logger,
+            registry=registry,
         )
 
     def test_other_commands_continue(self) -> None:

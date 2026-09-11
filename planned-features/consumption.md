@@ -18,20 +18,28 @@ eclab consumption [-t topology] [--all] [-p]
 | --- | --- |
 | `eclab consumption` | The lab in the current working directory. |
 | `eclab consumption -t path/to/lab.clab.yml` | The lab identified by the selected topology. |
-| `eclab consumption --all` | Every running lab visible through the configured local container runtime. |
+| `eclab consumption --all` | Every deployed lab visible through Docker plus every lab in the shared lab registry. |
 
 Selection uses the existing topology-discovery convention for
 the current directory, require `-t` when selection is ambiguous, and reject
 `-t` together with `--all`. An explicit topology uses its containing directory
 as the canonical lab workspace, regardless of the invocation directory.
-`--all` discovers running labs independently of the current directory.
+`--all` discovers labs independently of the current directory. The separate
+`engulf-clab-lab-registry` plugin remembers successful deploys/redeploys and
+observations contributed through `engulf-clab-lab-registry-api`, so destroyed
+labs remain discoverable. Labs destroyed before this feature must be queried
+once with `-t` to seed the registry; no plugin recursively scans the filesystem.
 
 ## Consumption and output
 
-Report consumption as a table with `LAB`, `CPU`, `RAM`, `LAB DIR`,
+Report consumption as a table with `LAB`, `STATE`, `CPU`, `RAM`, `LAB DIR`,
 `IMAGES UNIQUE`, `IMAGES SHARED`, and `STORAGE` columns, one row per selected
 lab, and a `TOTAL` row at the bottom. Include units in the output. A single-lab
 query also includes the totals row.
+
+`STATE` is `DEPLOYED` when at least one Docker container exists for the lab,
+including when all its containers are stopped, and `UNDEPLOYED` otherwise.
+The total row uses `—`. Stopped and undeployed labs report zero CPU and RAM.
 
 - CPU: current aggregate CPU usage of the lab's running containers.
 - RAM: current aggregate memory usage of the lab's running containers.
@@ -48,7 +56,7 @@ within the lab's row.
 
 The storage split is required in every report, including single-lab queries,
 `--all`, and each `-p` polling refresh. An image's complete size is shared when
-distinct running labs use the same image ID. Otherwise its complete size is
+distinct known labs use the same image ID. Otherwise its complete size is
 unique to its lab. Docker's daemon-wide shared-layer split is not used because
 unrelated images on the daemon are outside the lab ownership comparison:
 
@@ -57,9 +65,9 @@ unrelated images on the daemon are outside the lab ownership comparison:
 - `IMAGES SHARED`: complete images used by multiple distinct labs.
 - `STORAGE`: `LAB DIR + IMAGES UNIQUE + IMAGES SHARED` for that lab.
 
-Classification uses every running lab, so filtering the displayed report does
-not change an image's classification. Include an explicitly selected stopped
-lab's image references when available. Multiple containers or
+Classification uses every deployed and indexed lab, so filtering the displayed
+report does not change an image's classification. Include an explicitly
+selected stopped lab's image references when available. Multiple containers or
 tags resolving to one image ID must not duplicate it within a lab. These
 categories describe image footprints, not reclaimable disk space; retained
 images and non-lab workloads may also reference the underlying layers.
@@ -68,6 +76,11 @@ If Docker no longer lists an image ID used by a retained container, estimate
 that image's complete size from the container root filesystem minus its
 writable layer. Use this only as a fallback for the missing image record. If
 neither source supplies a size, propagate `N/A` rather than a partial result.
+For an undeployed lab, the index retains the image IDs from its last successful
+deploy or redeploy. An indexed ID that Docker confirms is absent contributes
+zero because neither an image nor a container retains its storage. Docker
+measurement failure remains `N/A` and must not be mistaken for confirmed
+absence.
 
 The `TOTAL` row counts each identical image ID once across the displayed labs.
 Consequently, the total can be lower than the sum of the per-lab values. Shared
@@ -94,8 +107,8 @@ The implementation uses these accounting choices:
 - RAM is Docker's current memory-usage value, summed across running lab containers.
 - Directory sizing uses allocated bytes, does not follow symlinks, and counts a
   hard-linked inode once.
-- Stopped labs resolve explicit node image references when those images remain
-  available in Docker.
+- Stopped deployed labs use their retained container image IDs. Never-deployed
+  labs resolve explicit node image references when first queried.
 
 ## Polling
 
@@ -110,21 +123,27 @@ eclab consumption --all -p
 Without `-p`, print one consumption table and exit. With `-p`, display the first
 sample as soon as it is available and refresh the measurements and totals every
 two seconds until interrupted with Ctrl-C. In `--all` mode, rediscover running
-labs on each poll so newly started and stopped labs are reflected. Avoid
-overlapping polls and restore terminal state when polling stops.
+labs and reload the shared registry on each poll so deploy and destroy
+transitions are reflected. Avoid overlapping polls and restore terminal state
+when polling stops.
 
 ## Implementation and acceptance
 
-Implement this as an independently publishable Engulf plugin following the
-repository's package, lifecycle, documentation, and schema contracts. Declare
-the command and options in `PluginSchema` and expose them through runtime help
-when the plugin is installed and active. Resource collection is read-only and
-must not deploy labs, provision images, or modify topology files.
+Implement consumption as an independently publishable Engulf plugin and put
+inventory ownership in independently publishable lab-registry and API packages.
+Follow the repository's package, lifecycle, documentation, and schema contracts.
+Declare the command and options in `PluginSchema` and expose them through runtime
+help when the plugin is installed and active. Resource collection must not deploy
+labs, provision images, or modify topology files. Consumption accesses inventory
+only through the typed API. The registry plugin owns transactional user-state
+persistence and successful deploy/redeploy observation; consumers may contribute
+explicit queries and discovery of deployed labs.
 
 Acceptance coverage includes selection, selector conflicts, multiple containers
 or labs referencing the same image ID, separate unique/shared columns,
 image-ID-deduplicated totals, unavailable Docker measurements, and two-second
 polling with clean interruption. It also covers stopped-lab topology image
-resolution and directory hard-link/symlink handling. Unavailable measurements
+resolution, successful/failed deploy registry observation, destroyed labs,
+corrupt state, and directory hard-link/symlink handling. Unavailable measurements
 remain distinct from zero use and prevent a partial value from appearing as a
 complete total.
