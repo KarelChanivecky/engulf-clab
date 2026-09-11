@@ -69,7 +69,7 @@ PLUGIN_SCHEMA = (
         "Docker supplies lab discovery, container statistics, and image storage accounting.",
         commands=("consumption",),
     )
-    .use_case("Measure one lab or compare deployed and undeployed labs in one table.")
+    .use_case("Compare deployed, stopped, and sleeping labs.")
     .route(
         "inspect-resource-consumption",
         "USAGE.md",

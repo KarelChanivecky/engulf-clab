@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "engulf-clab-consumption"
-version = "0.2.0"
-description = "Report CPU, memory, lab-directory, and Docker image consumption for eclab labs"
+name = "engulf-clab-sleep"
+version = "0.1.0"
+description = "Reclaim lab-owned Docker storage while preserving eclab workspaces"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
@@ -20,26 +20,36 @@ dependencies = [
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
-"engulf_clab.consumption" = "engulf_clab_consumption:plugin"
+"engulf_clab.sleep" = "engulf_clab_sleep:plugin"
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
-"engulf_clab.consumption" = "engulf_clab_consumption:plugin"
+"engulf_clab.sleep" = "engulf_clab_sleep:plugin"
 
-[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_consumption"]
-"engulf_clab.schema" = "preprocess=after; postprocess=none"
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_sleep"]
 "engulf_clab.lab_registry" = "preprocess=before; postprocess=none"
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/engulf_clab_consumption"]
+packages = ["src/engulf_clab_sleep"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"README.md" = "engulf_clab_consumption/README.md"
-"AGENTS.md" = "engulf_clab_consumption/AGENTS.md"
-"CONTRIBUTING.md" = "engulf_clab_consumption/CONTRIBUTING.md"
-"USAGE.md" = "engulf_clab_consumption/USAGE.md"
+"README.md" = "engulf_clab_sleep/README.md"
+"AGENTS.md" = "engulf_clab_sleep/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_sleep/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_sleep/USAGE.md"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
+include = [
+    "/src",
+    "/tests",
+    "/AGENTS.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/USAGE.md",
+    "/build.sh",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 target-version = "py314"
@@ -47,4 +57,4 @@ target-version = "py314"
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src/engulf_clab_consumption"]
+files = ["src/engulf_clab_sleep"]

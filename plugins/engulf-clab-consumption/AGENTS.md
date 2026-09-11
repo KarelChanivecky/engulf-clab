@@ -5,8 +5,8 @@
   `consumption` in `before_goal`.
 - Keep Docker interaction behind the client boundary and mock it in tests.
 - Preserve `N/A` propagation, inode and image-ID deduplication, retained-image
-  fallback, indexed undeployed labs, lab-owner sharing semantics, and two-second
-  polling.
+  fallback, `DEPLOYED`/`STOPPED`/`SLEEPING` state, lab-owner sharing semantics,
+  and two-second polling.
 - Consume and contribute inventory only through `engulf-clab-lab-registry-api`;
   do not read registry state or observe deploy lifecycle here.
 - Declare ordering in `pyproject.toml`; never set `plugin_dependencies` in code.

@@ -196,7 +196,7 @@ def _lab_from_record(record: LabRecord) -> Lab:
         record.directory,
         record.image_ids,
         (),
-        LabState.UNDEPLOYED,
+        LabState.SLEEPING,
         record.topology,
     )
 
@@ -230,6 +230,7 @@ def _record_for_lab(
         or lab.topology,
         lab.image_ids,
         lab.state is LabState.DEPLOYED
+        or lab.state is LabState.STOPPED
         or previous is not None
         and previous.ever_deployed,
     )

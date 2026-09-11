@@ -21,9 +21,10 @@ Preserve these accounting invariants:
 - deduplicate image IDs within a lab and across the total;
 - classify complete image sizes as shared only across distinct lab owners;
 - use retained container root-filesystem size only when an image record is gone;
-- distinguish Docker-confirmed absence for undeployed images from measurement
+- distinguish Docker-confirmed absence for no-container images from measurement
   failure;
-- keep stopped labs deployed and indexed labs without containers undeployed;
+- distinguish running `DEPLOYED`, unique-image-consuming `STOPPED`, and
+  zero-unique-image or never-deployed `SLEEPING` state;
 - propagate unavailable measurements as `N/A` instead of zero or a partial sum;
 - hold no state transaction or resource lease.
 

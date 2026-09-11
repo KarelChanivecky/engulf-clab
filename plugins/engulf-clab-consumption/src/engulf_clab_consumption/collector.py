@@ -49,7 +49,13 @@ def selected_lab(
         topology.parent,
         frozenset(image_ids),
         tuple(item.container_id for item in matching if item.running),
-        LabState.DEPLOYED if matching else LabState.UNDEPLOYED,
+        (
+            LabState.DEPLOYED
+            if any(item.running for item in matching)
+            else LabState.STOPPED
+            if matching
+            else LabState.SLEEPING
+        ),
         topology,
     )
 
@@ -65,7 +71,11 @@ def deployed_labs(containers: Sequence[Container]) -> tuple[Lab, ...]:
             directory,
             frozenset(item.image_id for item in members),
             tuple(item.container_id for item in members if item.running),
-            LabState.DEPLOYED,
+            (
+                LabState.DEPLOYED
+                if any(item.running for item in members)
+                else LabState.STOPPED
+            ),
             next(
                 (item.topology for item in members if item.topology is not None), None
             ),
@@ -111,7 +121,7 @@ def collect(
         directory = directory_size(lab.directory) if lab.directory is not None else None
         images = [_usage_for(image_id, usage) for image_id in lab.image_ids]
         missing_images_are_absent = (
-            image_usage_available and lab.state is LabState.UNDEPLOYED
+            image_usage_available and lab.state is LabState.SLEEPING
         )
         complete_images = image_usage_available and (
             missing_images_are_absent or all(item is not None for item in images)
@@ -138,6 +148,13 @@ def collect(
             if directory is not None and complete_images
             else None
         )
+        state = (
+            LabState.DEPLOYED
+            if lab.running_container_ids
+            else LabState.SLEEPING
+            if unique == 0
+            else LabState.STOPPED
+        )
         rows.append(
             Consumption(
                 lab.name,
@@ -148,7 +165,7 @@ def collect(
                 shared,
                 storage,
                 lab.image_ids,
-                lab.state,
+                state,
             )
         )
     return tuple(rows)
@@ -195,7 +212,7 @@ def totals(
         if image is None
     }
     safely_absent = all(
-        row.state is LabState.UNDEPLOYED
+        row.state is LabState.SLEEPING
         for identifier in absent_images
         for row in rows
         if identifier in row.image_ids
@@ -268,7 +285,9 @@ def has_retained_resources(
     *,
     image_usage_available: bool,
 ) -> bool:
-    if lab.state is LabState.DEPLOYED or lab.directory is None:
+    if lab.state in {LabState.DEPLOYED, LabState.STOPPED}:
+        return True
+    if lab.directory is None:
         return True
     try:
         lab.directory.lstat()

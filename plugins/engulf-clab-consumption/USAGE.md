@@ -23,10 +23,12 @@ The table contains `LAB`, `STATE`, `CPU`, `RAM`, `LAB DIR`, `IMAGES UNIQUE`,
 `IMAGES SHARED`, and `STORAGE`, followed by `TOTAL`. CPU is the sum of Docker's
 instantaneous container percentages, so a multi-core lab may exceed 100%. RAM is
 Docker's current memory-usage value. Stopped selected labs report zero CPU and
-RAM. `STATE` is `DEPLOYED` whenever at least one container exists, including a
-stopped container, and `UNDEPLOYED` when none exists. The total row displays
-`—` for state. The total is complete only when every contributing measurement
-is available.
+RAM. `STATE` is `DEPLOYED` when at least one lab container is running. Any
+non-running lab that consumes unique image storage is `STOPPED`, whether its
+containers still exist or it has no containers. Docker measurement uncertainty
+also remains `STOPPED` rather than claiming that storage is zero. A lab becomes
+`SLEEPING` when its unique image storage is zero. Shared image storage does not
+prevent `SLEEPING`. The total row displays `—` for state.
 
 `LAB DIR` is allocated filesystem space beneath the topology directory. The walk
 does not follow symlinks and counts a hard-linked inode once. An unreadable path
@@ -44,11 +46,11 @@ labs. `STORAGE` is lab-directory bytes plus image sizes. The `TOTAL` row counts
 an identical image ID once across displayed labs and does not claim reclaimable
 bytes.
 
-An undeployed lab uses the exact image IDs saved from its last successful deploy
-or redeploy, so later tag movement does not change its ownership. A
-never-deployed lab records the image IDs resolved by its explicit query. If
-Docker confirms that a recorded undeployed image ID is gone, it contributes
-zero image bytes; a Docker measurement failure remains `N/A`.
+A no-container lab uses the exact image IDs saved from its last
+successful deploy or redeploy, so later tag movement does not change its
+ownership. A never-deployed lab records the image IDs resolved by its explicit
+query. If Docker confirms that a recorded no-container image ID is gone, it
+contributes zero image bytes; a Docker measurement failure remains `N/A`.
 
 An image can be removed or retagged while a container created from it remains
 running. Docker then omits the old image ID from its image disk-usage report.
