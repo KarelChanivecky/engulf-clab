@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from engulf_api import (
     AfterGoalAPI,
@@ -25,25 +25,41 @@ from engulf_clab_lab_registry_api import (
 
 from engulf_clab_lab_registry.observe import observe_deployed_lab
 from engulf_clab_lab_registry.plugin import LabRegistryPlugin
-from engulf_clab_lab_registry.storage import StateLabRegistry
+from engulf_clab_lab_registry.storage import SessionLabRegistry, StateLabRegistry
 
 
 class MemoryState:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
+        self.fail = False
+
+    def _check(self) -> None:
+        if self.fail:
+            raise AssertionError("state accessed outside its owning callback")
 
     def exists(self, filename: str) -> bool:
+        self._check()
         return filename in self.values
 
     def read_text(self, filename: str, **_kwargs: object) -> str:
+        self._check()
         return self.values[filename]
 
     def write_text(self, filename: str, data: str, **_kwargs: object) -> None:
+        self._check()
         self.values[filename] = data
 
     @contextmanager
     def transaction(self, **_kwargs: object) -> Iterator[MemoryState]:
+        self._check()
         yield self
+
+
+def _record() -> LabRecord:
+    root = Path("/labs/demo")
+    return LabRecord(
+        "demo", root, root / "lab.clab.yml", frozenset({"sha256:image"}), True
+    )
 
 
 def state(value: MemoryState) -> StateStore:
@@ -139,9 +155,12 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(goal, application)
         self.assertEqual(tuple(goal), ("engulf_clab.lab_registry",))
 
-    def test_before_goal_publishes_registry_handle(self) -> None:
+    def test_before_goal_publishes_snapshot_without_a_state_handle(self) -> None:
+        memory = MemoryState()
+        StateLabRegistry(state(memory)).upsert((_record(),))
         api = MagicMock(spec=BeforeGoalAPI)
         api.get_context.return_value = None
+        api.state.return_value = state(memory)
         invocation = Invocation(("inspect",), Path("/labs"), {})
 
         result = LabRegistryPlugin().before_goal(invocation, api)
@@ -149,13 +168,80 @@ class PluginTest(unittest.TestCase):
         self.assertIsNone(result)
         context, registry = api.set_context.call_args.args
         self.assertEqual(context, LAB_REGISTRY_CONTEXT)
-        self.assertIsInstance(registry, StateLabRegistry)
+        self.assertIsInstance(registry, SessionLabRegistry)
+        self.assertEqual(registry.records(), (_record(),))
         registry_reads = [
             call
             for call in api.get_context.call_args_list
             if call.args == (LAB_REGISTRY_CONTEXT,)
         ]
         self.assertEqual(len(registry_reads), 2)
+
+    def test_published_registry_survives_the_publisher_deactivation(self) -> None:
+        """A reader in a later callback must not touch the publisher's store."""
+        memory = MemoryState()
+        StateLabRegistry(state(memory)).upsert((_record(),))
+        store = state(memory)
+        api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = None
+        api.state.return_value = store
+        invocation = Invocation(("consumption", "--all"), Path("/labs"), {})
+
+        LabRegistryPlugin().before_goal(invocation, api)
+        registry = api.set_context.call_args.args[1]
+        # Simulate deactivation: any further store access would raise.
+        memory.fail = True
+
+        self.assertEqual(registry.records(), (_record(),))
+        registry.upsert(
+            (LabRecord("other", Path("/labs/other"), None, frozenset(), False),)
+        )
+        self.assertEqual(len(registry.records()), 2)
+
+    def test_unreadable_registry_serves_empty_and_refuses_to_persist(self) -> None:
+        memory = MemoryState()
+        memory.values["labs.json"] = '{"version":1,"labs":"bad"}'
+        api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = None
+        api.state.return_value = state(memory)
+        invocation = Invocation(("consumption",), Path("/labs"), {})
+
+        result = LabRegistryPlugin().before_goal(invocation, api)
+
+        self.assertIsNone(result)
+        registry = api.set_context.call_args.args[1]
+        self.assertEqual(registry.records(), ())
+        self.assertFalse(registry.persistent)
+        api.logger.warning.assert_any_call("could not read lab registry: %s", ANY)
+
+    def test_reader_updates_are_persisted_after_the_goal(self) -> None:
+        memory = MemoryState()
+        session = SessionLabRegistry()
+        session.upsert((_record(),))
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = session
+        api.state.return_value = state(memory)
+        invocation = Invocation(("consumption", "--all"), Path("/labs"), {})
+
+        result = GoalResult.completed()
+        returned = LabRegistryPlugin().after_goal(invocation, result, api)
+
+        self.assertIs(returned, result)
+        self.assertEqual(StateLabRegistry(state(memory)).records(), (_record(),))
+
+    def test_unpersistable_registry_is_not_written_back(self) -> None:
+        memory = MemoryState()
+        memory.values["labs.json"] = '{"version":1,"labs":"bad"}'
+        session = SessionLabRegistry(persistent=False)
+        session.upsert((_record(),))
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = session
+        api.state.return_value = state(memory)
+        invocation = Invocation(("consumption",), Path("/labs"), {})
+
+        LabRegistryPlugin().after_goal(invocation, GoalResult.completed(), api)
+
+        self.assertEqual(memory.values["labs.json"], '{"version":1,"labs":"bad"}')
 
     def test_successful_redeploy_updates_registry(self) -> None:
         api = MagicMock(spec=AfterGoalAPI)
@@ -176,6 +262,7 @@ class PluginTest(unittest.TestCase):
             ),
             patch("engulf_clab_lab_registry.plugin.StateLabRegistry") as registry,
         ):
+            api.get_context.return_value = SessionLabRegistry()
             result = GoalResult.completed()
             returned = LabRegistryPlugin().after_goal(invocation, result, api)
 
@@ -184,6 +271,7 @@ class PluginTest(unittest.TestCase):
 
     def test_failed_deploy_does_not_update_registry(self) -> None:
         api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = SessionLabRegistry()
         invocation = Invocation(("deploy",), Path("/labs"), {})
 
         with patch("engulf_clab_lab_registry.plugin.observe_deployed_lab") as observe:
@@ -195,6 +283,7 @@ class PluginTest(unittest.TestCase):
 
     def test_tracking_failure_does_not_change_successful_deploy(self) -> None:
         api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = SessionLabRegistry()
         invocation = Invocation(("deploy",), Path("/labs"), {})
 
         with patch(

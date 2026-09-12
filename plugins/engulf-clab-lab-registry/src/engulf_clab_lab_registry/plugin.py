@@ -9,7 +9,11 @@ from engulf_api import (
     StateScope,
 )
 from engulf_clab_lab_parser import topology_path_from_args
-from engulf_clab_lab_registry_api import LAB_REGISTRY_CONTEXT
+from engulf_clab_lab_registry_api import (
+    LAB_REGISTRY_CONTEXT,
+    LabRecord,
+    LabRegistryError,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -21,15 +25,15 @@ from engulf_clab_schema_api import (
 from engulf_executable_wrapper_api import HelpAPI
 
 from .observe import observe_deployed_lab
-from .storage import StateLabRegistry
+from .storage import SessionLabRegistry, StateLabRegistry
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.lab_registry", package="engulf_clab_lab_registry")
     .use_case("Maintain a shared inventory of deployed and explicitly discovered labs.")
     .order(
         LifecycleStage.BEFORE_GOAL,
-        "The registry handle is published before inventory consumers run.",
-        before=("engulf_clab.consumption",),
+        "The registry snapshot is published before inventory consumers run.",
+        before=("engulf_clab.consumption", "engulf_clab.sleep"),
     )
     .require_host_tool(
         "docker",
@@ -66,10 +70,19 @@ class LabRegistryPlugin(SchemaBackedPlugin):
         record_plugin_schema(api, PLUGIN_SCHEMA)
         if api.get_context(LAB_REGISTRY_CONTEXT) is not None:
             raise RuntimeError("lab registry context is already published")
-        api.set_context(
-            LAB_REGISTRY_CONTEXT,
-            StateLabRegistry(api.state(StateScope.USER)),
-        )
+        # Load inside this plugin's own activation and publish the records, not
+        # the store: readers run in their own callbacks, where a state handle
+        # published here would already be deactivated.
+        try:
+            snapshot = StateLabRegistry(api.state(StateScope.USER)).records()
+            session = SessionLabRegistry(snapshot)
+        except (LabRegistryError, OSError) as problem:
+            # An unreadable registry must not fail every command. Serve an empty
+            # inventory and refuse to persist, so the unparsed file survives for
+            # inspection instead of being overwritten.
+            api.logger.warning("could not read lab registry: %s", problem)
+            session = SessionLabRegistry(persistent=False)
+        api.set_context(LAB_REGISTRY_CONTEXT, session)
         # The provider also consumes its publication so invocations with no
         # inventory reader do not report an unused-context diagnostic.
         api.get_context(LAB_REGISTRY_CONTEXT)
@@ -81,26 +94,45 @@ class LabRegistryPlugin(SchemaBackedPlugin):
         result: GoalResult[object],
         api: AfterGoalAPI,
     ) -> GoalResult[object]:
+        session = api.get_context(LAB_REGISTRY_CONTEXT)
+        if not isinstance(session, SessionLabRegistry):
+            return result
+        try:
+            observed = self._observe(invocation, result)
+            if observed is not None:
+                session.upsert((observed,))
+        except Exception as problem:  # noqa: BLE001 - inventory must not change the goal.
+            api.logger.warning(
+                "could not update lab registry after %s: %s",
+                invocation.arguments[0] if invocation.arguments else "invocation",
+                problem,
+            )
+        # Writes from every reader land here, in the one callback whose state
+        # handle is live and owned by this plugin.
+        try:
+            pending = session.pending()
+            if pending and session.persistent:
+                StateLabRegistry(api.state(StateScope.USER)).upsert(pending)
+        except Exception as problem:  # noqa: BLE001 - inventory must not change the goal.
+            api.logger.warning("could not persist lab registry: %s", problem)
+        return result
+
+    @staticmethod
+    def _observe(
+        invocation: Invocation, result: GoalResult[object]
+    ) -> LabRecord | None:
+        """Return the record for a lab this invocation successfully deployed."""
         if (
             result.status is not GoalResultStatus.COMPLETED
             or result.exit_code != 0
             or not invocation.arguments
             or invocation.arguments[0] not in {"deploy", "redeploy"}
         ):
-            return result
-        try:
-            topology = topology_path_from_args(
-                tuple(invocation.arguments[1:]), invocation.cwd
-            )
-            record = observe_deployed_lab(topology, invocation.environment)
-            StateLabRegistry(api.state(StateScope.USER)).upsert((record,))
-        except Exception as problem:  # noqa: BLE001 - inventory must not change the goal.
-            api.logger.warning(
-                "could not update lab registry after %s: %s",
-                invocation.arguments[0],
-                problem,
-            )
-        return result
+            return None
+        topology = topology_path_from_args(
+            tuple(invocation.arguments[1:]), invocation.cwd
+        )
+        return observe_deployed_lab(topology, invocation.environment)
 
     def help(self, api: HelpAPI) -> str:
         del api

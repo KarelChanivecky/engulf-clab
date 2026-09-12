@@ -1,8 +1,8 @@
 # Lab registry
 
 Install `engulf-clab-lab-registry` beside `engulf-clab`. The plugin publishes a
-shared invocation-bound inventory through `engulf-clab-lab-registry-api`; it has
-no operator command or topology extension.
+shared inventory snapshot through `engulf-clab-lab-registry-api`; it has no
+operator command or topology extension.
 
 The registry automatically records the canonical lab name, topology directory,
 topology path, and exact deployed Docker image IDs after successful `deploy` and
@@ -16,8 +16,13 @@ path and deployment history. Destroy does not remove a record because lab files
 and images can remain on disk. Consumers decide whether a retained record still
 owns resources; the registry does not recursively scan or delete lab files.
 
-The versioned registry is stored in Engulf-managed user state and updated with
-short transactions. It contains paths and Docker image IDs but no credentials,
+The versioned registry is stored in Engulf-managed user state. This plugin owns
+every read and write: it loads the snapshot before consumers run and applies
+their observations in one short transaction after the goal completes, so an
+interrupted command discards that run's consumer observations rather than
+recording them. An unreadable registry is reported as a warning, serves an empty
+inventory for that invocation, and is left on disk unmodified instead of being
+overwritten. It contains paths and Docker image IDs but no credentials,
 topology contents, resource measurements, or container output. A tracking error
 is logged and never changes the result of a successful deployment. Docker access
 is used only to observe completed deployments; no container or image is changed.

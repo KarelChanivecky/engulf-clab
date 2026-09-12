@@ -47,7 +47,14 @@ class LabRecord:
 
 @runtime_checkable
 class LabRegistry(Protocol):
-    """Invocation-bound access to the persistent lab inventory."""
+    """Capability-free view of the lab inventory for one invocation.
+
+    Implementations must hold records, never an Engulf state handle: the value
+    behind ``LAB_REGISTRY_CONTEXT`` is read by plugins in their own callbacks,
+    where a handle captured by ``engulf_clab.lab_registry`` is no longer active.
+    ``upsert`` therefore records intent in memory; ``engulf_clab.lab_registry``
+    persists it from its own ``after_goal``.
+    """
 
     def records(self) -> tuple[LabRecord, ...]: ...
 

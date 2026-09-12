@@ -2,9 +2,15 @@
 
 This plugin owns registry persistence and successful deploy/redeploy observation.
 Consumers access it only through `engulf-clab-lab-registry-api`; they must never
-read this plugin's state files directly. Publish the invocation-bound handle in
-`before_goal` before consumers run, read the publication back to acknowledge
-invocations without a consumer, and keep the API package's context name stable.
+read this plugin's state files directly. Publish records in `before_goal` before
+consumers run, read the publication back to acknowledge invocations without a
+consumer, and keep the API package's context name stable.
+
+Never publish an Engulf capability. State handles are bound to the activation of
+the callback that produced them, so a store placed in shared context is already
+dead when a consumer reads it in its own callback. Load the snapshot and persist
+pending updates from this plugin's own callbacks, exactly as Docker image
+providers keep capability-free objects in shared context.
 
 Keep registry transactions short and replace image IDs only with a complete
 observation. Preserve prior topology and `ever_deployed` information on weaker
