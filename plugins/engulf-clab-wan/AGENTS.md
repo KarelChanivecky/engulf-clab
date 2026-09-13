@@ -10,7 +10,7 @@ edition.
 
 It watches Containerlab calls for:
 
-- `deploy`: before Containerlab runs, create/configure `ECLAB_DHCP_WAN` bridge
+- `deploy` and single-source `redeploy`: before Containerlab runs, create/configure `ECLAB_DHCP_WAN` bridge
   nodes, start the packaged DHCP server, enable forwarding, and install NAT.
 - `destroy`: after Containerlab exits successfully, stop DHCP, remove managed
   NAT rules, and delete bridges that the plugin created.

@@ -1,7 +1,7 @@
 # Contributing
 
 `plugin.py` owns the complete adapter. Keep `analyze_call()` side-effect free and
-perform translation only in deploy `prepare_call()`. Consume immutable values
+perform translation only in deploy or single-source redeploy `prepare_call()`. Consume immutable values
 from `PKI_NODE_PROJECTIONS_CONTEXT`; never import the PKI implementation, inspect
 its state directories, read `inventory.json`, or parse certificate content.
 

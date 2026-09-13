@@ -5,7 +5,7 @@ This directory contains the `engulf-clab-vrnetlab-build` plugin distribution.
 ## Purpose
 
 The plugin finds nodes with `ECLAB_VRNETLAB_TYPE` in their Containerlab
-node environment and ensures their Docker images are built before deploy.
+node environment and ensures their Docker images are built before deploy or single-source redeploy.
 The builder is selected by the vendor/type path beneath a prepared vrnetlab
 checkout.
 
@@ -35,7 +35,7 @@ not on the Python class.
   exact argument indexes, and re-parse the immutable original arguments during
   preparation. Node `ECLAB_VRNETLAB_TYPE` and topology image-source values
   remain node `env` controls.
-- Require image selectors to follow the `deploy` command. Other topology-aware
+- Require image selectors to follow a deploy or single-source redeploy command. Other topology-aware
   plugins receive the same original argument tuple, so treating this option as
   a pre-command global would bypass their command detection.
 - Treat `default` as the reserved CLI fallback selector. Preserve exact-selector

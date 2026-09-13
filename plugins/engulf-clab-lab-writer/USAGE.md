@@ -1,7 +1,8 @@
 # engulf-clab-lab-writer
 
-Renders feature-plugin mutations into a retained derived topology for deploy. It has
-no lab-facing YAML, environment variables, or options.
+Renders feature-plugin mutations into a retained derived topology for deploy
+and single-source redeploy. It has no lab-facing YAML, environment variables,
+or options.
 
 Install it whenever a plugin uses `engulf-clab-lab-parser` to mutate YAML:
 through that feature plugin, directly with `python -m pip install
@@ -15,7 +16,7 @@ redeploy atomically replaces the same file, while different source topologies
 use different paths. Shared resource leases remain the responsibility of the
 feature plugins that need them.
 
-During side-effect-free deploy analysis the writer locates every token it will
+During side-effect-free deployment analysis the writer locates every token it will
 need; publication itself is atomic. YAML is first written to a unique staged
 file in the same directory and renamed only after serialization succeeds. A
 failure removes the staged file and prevents Containerlab from running. If a

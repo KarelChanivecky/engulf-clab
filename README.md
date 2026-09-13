@@ -345,6 +345,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-wan` | `engulf_clab.wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
 | `engulf-clab-lab-parser` | `engulf_clab.lab_parser` | Shared original-topology and deferred-mutation API. |
 | `engulf-clab-lab-writer` | `engulf_clab.lab_writer` | Renders deferred mutations into a temporary topology. |
+| `engulf-clab-sticky-ip` | `engulf_clab.sticky_ip` | Assigns stable private management subnets and fixed node IPs after topology parsing. |
 
 ## Packaged containers
 

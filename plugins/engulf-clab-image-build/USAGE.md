@@ -1,7 +1,7 @@
 # engulf-clab-image-build
 
 This plugin is the eclab dispatcher for Docker image requests. It scans the
-materialized deploy topology's ordinary node `image` fields, merges graph
+materialized deploy or single-source redeploy topology's ordinary node `image` fields, merges graph
 fragments contributed by installed adapters, asks every registered provider,
 and invokes the application-neutral resolver and scheduler. It does not define
 a new Containerlab YAML field.
@@ -52,7 +52,7 @@ defaults to `2`. `ECLAB_IMAGE_BUILD_JOBS` is its persistent environment default.
 The former `--eclab-docker-build-jobs` spelling remains an alias, and
 `ECLAB_DOCKER_BUILD_JOBS` remains a fallback for compatibility.
 
-Every selected provision is executed on every deploy, dependencies first.
+Every selected provision is executed on every deploy or single-source redeploy, dependencies first.
 Docker's layer and pull caches decide whether work can be reused. Build output
 tags and mirror pull sources are leased for the invocation. After successful
 provisioning, the derived topology sets every literal root's
@@ -66,7 +66,7 @@ eager Containerlab-compatible environment expansion. Source expressions such
 as `${FGT_IMAGE:=fgt:8.0.1.0203}` are supported; an expression left unresolved
 after parsing still fails so the plugin can own the complete provisioning
 graph. Dockerfile `FROM` values must likewise be statically resolvable. The host
-`docker` command and daemon authorization are required for every deploy that
+`docker` command and daemon authorization are required for every deployment that
 has an image root.
 
 ## Troubleshooting

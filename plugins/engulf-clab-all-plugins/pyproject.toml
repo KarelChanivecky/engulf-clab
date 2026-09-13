@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-all-plugins"
-version = "0.8.3"
+version = "0.8.4"
 description = "Meta-package that installs all engulf-clab plugins (requires Python 3.14+)"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -15,13 +15,13 @@ dependencies = [
     "engulf-clab-develop-eclab-lab>=0.2.0,<1",
     "engulf-docker-image-api>=1.4.0,<2",
     "engulf-docker-image-core>=1.4.0,<2",
-    "engulf-clab-image-build>=0.2.1,<1",
-    "engulf-clab-image-archive>=0.3.0,<1",
+    "engulf-clab-image-build>=0.2.3,<1",
+    "engulf-clab-image-archive>=0.3.2,<1",
     "engulf-clab-containers-api>=1.2.0,<2",
-    "engulf-clab-containers>=0.4.0,<1",
-    "engulf-clab-containers-core>=0.3.0,<1",
+    "engulf-clab-containers>=0.4.2,<1",
+    "engulf-clab-containers-core>=0.3.2,<1",
     "engulf-clab-containers-pki>=0.1.0,<1",
-    "engulf-clab-license-pool>=0.3.0,<1",
+    "engulf-clab-license-pool>=0.3.2,<1",
     "engulf-clab-freeze>=0.4.0,<1",
     "engulf-clab-lab-registry-api>=1,<2",
     "engulf-clab-lab-registry>=0.1.1,<1",
@@ -29,18 +29,19 @@ dependencies = [
     "engulf-clab-consumption>=0.2.0,<1",
     "engulf-clab-freeze-api>=1,<2",
     "engulf-clab-pki-api>=2,<3",
-    "engulf-clab-pki>=0.3.0,<1",
+    "engulf-clab-pki>=0.3.2,<1",
     "engulf-clab-pki-linux-core>=0.1.1,<1",
     "engulf-clab-pki-linux-debian>=0.1.1,<1",
     "engulf-clab-pki-linux-fedora>=0.1.1,<1",
-    "engulf-clab-vrnetlab-fortigate-pki-injector>=0.2.0,<1",
-    "engulf-clab-lab-parser>=0.2.0,<1",
-    "engulf-clab-lab-writer>=0.2.0,<1",
-    "engulf-clab-dockerfile-build>=0.3.0,<1",
+    "engulf-clab-vrnetlab-fortigate-pki-injector>=0.2.2,<1",
+    "engulf-clab-lab-parser>=0.2.2,<1",
+    "engulf-clab-lab-writer>=0.2.2,<1",
+    "engulf-clab-sticky-ip>=0.1.0,<1",
+    "engulf-clab-dockerfile-build>=0.3.2,<1",
     "engulf-clab-ensure-containerlab>=0.3.0,<1",
-    "engulf-clab-ensure-vrnetlab>=0.2.0,<1",
-    "engulf-clab-vrnetlab-build>=0.4.0,<1",
-    "engulf-clab-wan>=0.3.0,<1",
+    "engulf-clab-ensure-vrnetlab>=0.2.2,<1",
+    "engulf-clab-vrnetlab-build>=0.4.2,<1",
+    "engulf-clab-wan>=0.3.2,<1",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -6,7 +6,11 @@ from engulf_api import (
     Invocation,
     InvocationAPI,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -68,7 +72,7 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_DOCKERFILE",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=("ECLAB_DOCKER_CTX", "node.image is the literal output tag"),
         path_base=PathBase.TOPOLOGY_DIRECTORY,
@@ -77,26 +81,26 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_DOCKER_CTX",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("ECLAB_DOCKERFILE",),
         path_base=PathBase.TOPOLOGY_DIRECTORY,
         examples=("api",),
     )
     .annotate(
         "ECLAB_DOCKER_VAR_*",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("ECLAB_DOCKERFILE", "ECLAB_DOCKER_CTX"),
         examples=("ECLAB_DOCKER_VAR_VERSION=1.2.3",),
     )
     .annotate(
         "ECLAB_DOCKER_ARGS",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("ECLAB_DOCKERFILE", "ECLAB_DOCKER_CTX"),
         conflicts_with=("Docker flags --file and --tag",),
     )
     .annotate(
         BASE_NODE_ENV,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=("ECLAB_DOCKERFILE", "ECLAB_DOCKER_CTX", "node.image"),
         implies=(
@@ -105,12 +109,12 @@ PLUGIN_SCHEMA = (
         examples=(f'{BASE_NODE_ENV}: "true"',),
     )
     .require_host_tool(
-        "docker", "Build node images before Containerlab deploys them.", commands=("deploy",)
+        "docker", "Build node images before Containerlab deploys them.", commands=("deploy", "redeploy")
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
         "The caller must be authorized to use the configured Docker daemon.",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
     )
     .use_case("Build a node image from a topology-relative Dockerfile and context before deploy.")
     .route(
@@ -161,8 +165,8 @@ class DockerfilePlugin(SchemaBackedPlugin):
     ) -> CallContribution | None:
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return None
-        command, *rest = event.wrapper_args
-        if command != "deploy":
+        _command, *rest = event.wrapper_args
+        if not is_topology_mutation_command(event.wrapper_args):
             return None
         try:
             topology_path = topology_path_from_args(tuple(rest))
@@ -176,8 +180,7 @@ class DockerfilePlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *_ = event.wrapper_args
-        if command != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         try:
             session = api.require_context(TOPOLOGY_CONTEXT)

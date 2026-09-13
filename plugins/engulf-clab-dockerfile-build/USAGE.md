@@ -1,8 +1,8 @@
 # engulf-clab-dockerfile-build
 
 Contributes node-owned Dockerfile recipes to the shared image graph before
-`eclab deploy`. The image dispatcher resolves recursive `FROM` dependencies
-through installed providers and runs Docker. Help, non-deploy commands, and
+`eclab deploy` and single-source `eclab redeploy`. The image dispatcher resolves recursive `FROM` dependencies
+through installed providers and runs Docker. Help, other commands, and
 topologies without a Dockerfile declaration do not add recipes.
 
 Install with `python -m pip install engulf-clab-dockerfile-build`; it is also

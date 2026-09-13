@@ -8,7 +8,11 @@ from engulf_api import (
     InvocationAPI,
     StateScope,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     SCHEMA_VRNETLAB_SOURCE_CONTEXT,
@@ -99,58 +103,58 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_VRNETLAB_TYPE",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         shared_with=("engulf_clab.vrnetlab_build",),
         implies=("a vrnetlab checkout is required before image construction",),
         examples=("vendor/router",),
     )
-    .annotate("VRNETLAB_DIR", commands=("deploy",), path_base=PathBase.INVOCATION_DIRECTORY)
-    .annotate("VRNETLAB_REPO", commands=("deploy",))
+    .annotate("VRNETLAB_DIR", commands=("deploy", "redeploy"), path_base=PathBase.INVOCATION_DIRECTORY)
+    .annotate("VRNETLAB_REPO", commands=("deploy", "redeploy"))
     .annotate(
         "VRNETLAB_UPDATE",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         implies=("perform at most one update check per day",),
     )
     .annotate(
         "VRNETLAB_VERSION",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         implies=("enable revision checking and clamp the checkout",),
     )
     .annotate(
         "--eclab-vrnetlab-dir",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         path_base=PathBase.INVOCATION_DIRECTORY,
     )
-    .annotate("--eclab-vrnetlab-repo", commands=("deploy",))
+    .annotate("--eclab-vrnetlab-repo", commands=("deploy", "redeploy"))
     .annotate(
         "--eclab-vrnetlab-update",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         implies=("perform at most one update check per day",),
     )
     .annotate(
         "--eclab-vrnetlab-version",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         implies=("enable revision checking and clamp the checkout",),
     )
     .require_host_tool(
-        "git", "Managed vrnetlab checkout resolution uses Git.", commands=("deploy",)
+        "git", "Managed vrnetlab checkout resolution uses Git.", commands=("deploy", "redeploy")
     )
     .require_host_tool(
-        "docker", "vrnetlab builders construct container images.", commands=("deploy",)
+        "docker", "vrnetlab builders construct container images.", commands=("deploy", "redeploy")
     )
     .require_host_tool(
-        "qemu-img", "Image preparation validates and converts virtual disks.", commands=("deploy",)
+        "qemu-img", "Image preparation validates and converts virtual disks.", commands=("deploy", "redeploy")
     )
     .require_host_tool(
         "qemu-system-x86_64",
         "vrnetlab image construction boots the virtual appliance.",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
         "The caller must be authorized to use Docker.",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
     )
     .use_case("Provision vrnetlab only when a deploy contains an opted-in node.")
     .reject("Do not provision vrnetlab for a topology without ECLAB_VRNETLAB_TYPE.")
@@ -212,7 +216,7 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
             "  --eclab-vrnetlab-version REV  Clamp to a Git tag, commit, or revision\n"
             "  VRNETLAB_{DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
             "matching CLI options override them.\n"
-            "  Provisioning runs only for opted-in deploys and requires Docker, qemu-img, "
+            "  Provisioning runs only for opted-in deploys or redeploys and requires Docker, qemu-img, "
             "and qemu-system-x86_64."
         )
 
@@ -224,8 +228,8 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return None
 
-        command, *rest = event.wrapper_args
-        if command != "deploy":
+        _command, *rest = event.wrapper_args
+        if not is_topology_mutation_command(event.wrapper_args):
             return None
 
         try:
@@ -244,8 +248,7 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *_ = event.wrapper_args
-        if command != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
 
         try:

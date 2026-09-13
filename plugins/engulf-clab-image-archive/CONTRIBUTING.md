@@ -16,7 +16,7 @@ build time.
 
 It also depends directly on `engulf-clab-image-build>=0.2`: the packaging-level
 ordering edge names that plugin as a hard dependency, and the adapter supplies
-the dispatcher that consumes this provider during deploy.
+the dispatcher that consumes this provider during deploy and single-source redeploy.
 
 ## Invariants
 

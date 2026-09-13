@@ -1,9 +1,9 @@
 # engulf-clab-image-archive
 
 Registers a Docker image provider that creates a node's image by loading a saved
-Docker image archive before `eclab deploy`. A node opts in with
+Docker image archive before `eclab deploy` or single-source `eclab redeploy`. A node opts in with
 `ECLAB_IMAGE_ARCHIVE`, which names the archive file; the node `image` tag is the
-reference the archive is loaded as. Help, non-deploy commands, and topologies
+reference the archive is loaded as. Help, other commands, and topologies
 without an archive declaration register no requests.
 
 Install with `python -m pip install engulf-clab-image-archive`; it is also

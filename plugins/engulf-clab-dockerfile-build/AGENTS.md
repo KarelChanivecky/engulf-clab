@@ -5,7 +5,7 @@ This directory contains the `engulf-clab-dockerfile-build` plugin distribution.
 ## Purpose
 
 The plugin converts node Dockerfile controls into a neutral image graph
-fragment before `engulf-clab deploy`. The shared resolver and dispatcher own
+fragment before `engulf-clab deploy` or single-source `redeploy`. The shared resolver and dispatcher own
 provider recursion and Docker execution.
 
 ## Compatibility

@@ -16,7 +16,7 @@ must not reacquire an already-held lease; later-plugin rollback may acquire its
 own lease if necessary. Never delete historical persistent state or recipient
 global state.
 
-Once the wrapped deploy process starts, a nonzero exit may leave partial
+Once the wrapped deploy or redeploy process starts, a nonzero exit may leave partial
 containers consuming staged paths. Retain that attempt's views and provisioning
 journal until successful `destroy`; only a pre-call/spawn failure can unwind them
 immediately.

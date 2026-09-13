@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-ensure-vrnetlab"
-version = "0.2.1"
+version = "0.2.2"
 description = "Provision a vrnetlab checkout for engulf-clab build plugins"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -15,7 +15,7 @@ dependencies = [
     "engulf-clab-schema-api>=2.0.0,<3",
     "engulf-clab-schema>=0.2.0,<1",
     "engulf-clab-ensure-checkout>=0.2.0,<1",
-    "engulf-clab-lab-parser>=0.2.0,<1",
+    "engulf-clab-lab-parser>=0.2.2,<1",
     "PyYAML>=6.0",
 ]
 

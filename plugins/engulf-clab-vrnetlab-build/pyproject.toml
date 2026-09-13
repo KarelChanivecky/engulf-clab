@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-vrnetlab-build"
-version = "0.4.1"
+version = "0.4.2"
 description = "Build node images with vrnetlab before engulf-clab deploys"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -14,9 +14,9 @@ dependencies = [
     "engulf-executable-wrapper-api>=1.2,<2",
     "engulf-clab-schema-api>=2.0.0,<3",
     "engulf-clab-schema>=0.2.0,<1",
-    "engulf-clab-ensure-vrnetlab>=0.2.0,<1",
-    "engulf-clab-lab-parser>=0.2.0,<1",
-    "engulf-clab-image-build>=0.2.0,<1",
+    "engulf-clab-ensure-vrnetlab>=0.2.2,<1",
+    "engulf-clab-lab-parser>=0.2.2,<1",
+    "engulf-clab-image-build>=0.2.3,<1",
     "engulf-docker-image-api>=1.4.0,<2",
     "PyYAML>=6.0",
 ]

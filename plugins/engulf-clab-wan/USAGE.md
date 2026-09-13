@@ -64,7 +64,7 @@ bridges; defaults are not made unique automatically.
 
 ## Host changes and cleanup
 
-Before deploy, the plugin:
+Before deploy or single-source redeploy, the plugin:
 
 - reuses or creates the bridge, assigns the gateway when absent, and brings it
   up;
@@ -77,7 +77,7 @@ an identically configured bridge; incompatible settings for the same name fail.
 Host work is serialized, and an interrupted provisioning journal is rolled back
 before the bridge is claimed again.
 
-If a later plugin cannot prepare the deploy, Containerlab never runs and the
+If a later plugin cannot prepare the deployment, Containerlab never runs and the
 plugin releases the bridges that same invocation just claimed, restoring the
 workspace to the claims it held beforehand. Bridges an earlier successful deploy
 still owns are left in place, so a failed redeploy does not disconnect a running

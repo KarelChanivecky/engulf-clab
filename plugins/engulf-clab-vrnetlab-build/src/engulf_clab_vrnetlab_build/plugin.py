@@ -16,7 +16,11 @@ from engulf_clab_ensure_vrnetlab import (
     vrnetlab_image_path_env,
     vrnetlab_type_env,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -111,13 +115,13 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "image",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         examples=("vrnetlab/my-lab-router:1.0.0",),
     )
     .annotate(
         "ECLAB_VRNETLAB_TYPE",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=("the selected builder exists below the resolved vrnetlab checkout",),
         shared_with=("engulf_clab.ensure_vrnetlab",),
@@ -125,22 +129,22 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_VRNETLAB_IMG_PATH",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("ECLAB_VRNETLAB_TYPE",),
         path_base=PathBase.TOPOLOGY_DIRECTORY,
     )
     .annotate(
         "ECLAB_VM_IMG",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         implies=("compatibility fallback for ECLAB_VRNETLAB_IMG_PATH",),
     )
-    .annotate("ECLAB_VM_SRC", commands=("deploy",), implies=("legacy fallback after ECLAB_VM_IMG",))
+    .annotate("ECLAB_VM_SRC", commands=("deploy", "redeploy"), implies=("legacy fallback after ECLAB_VM_IMG",))
     .annotate(
-        "ECLAB_VRNETLAB_BUILD_JOBS", commands=("deploy",), lifecycle=(LifecycleStage.PREPARE_CALL,)
+        "ECLAB_VRNETLAB_BUILD_JOBS", commands=("deploy", "redeploy"), lifecycle=(LifecycleStage.PREPARE_CALL,)
     )
     .annotate(
         "--eclab-vrnetlab-image",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         path_base=PathBase.TOPOLOGY_DIRECTORY,
         implies=("specific node, node YAML, default selector, then environment precedence",),
@@ -148,17 +152,17 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "--eclab-vrnetlab-build-jobs",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
     )
-    .require_host_tool("docker", "Build the final vrnetlab container image.", commands=("deploy",))
+    .require_host_tool("docker", "Build the final vrnetlab container image.", commands=("deploy", "redeploy"))
     .require_host_tool(
-        "qemu-img", "Inspect and convert the selected image source.", commands=("deploy",)
+        "qemu-img", "Inspect and convert the selected image source.", commands=("deploy", "redeploy")
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
         "The caller must be authorized to use Docker.",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
     )
     .use_case("Build a missing vrnetlab image for an explicitly opted-in node before deploy.")
     .reject("Do not infer a builder type from the image tag; declare ECLAB_VRNETLAB_TYPE.")
@@ -262,12 +266,14 @@ class VrnetlabPlugin(SchemaBackedPlugin):
 
         try:
             parsed = parse_image_options(event.wrapper_args)
-            if parsed.selectors and event.wrapper_args[0] != "deploy":
-                raise VrnetlabError(f"{IMAGE_OPTION} must follow the deploy command")
+            if parsed.selectors and not is_topology_mutation_command(parsed.arguments):
+                raise VrnetlabError(
+                    f"{IMAGE_OPTION} must follow a single-topology deploy or redeploy command"
+                )
             if not parsed.arguments:
                 return CallContribution(removals=parsed.removals) if parsed.removals else None
-            command, *rest = parsed.arguments
-            if command != "deploy":
+            _command, *rest = parsed.arguments
+            if not is_topology_mutation_command(parsed.arguments):
                 return CallContribution(removals=parsed.removals) if parsed.removals else None
             topology_path = topology_path_from_args(tuple(rest))
             topology_data = load_topology(topology_path, event.environment)
@@ -295,8 +301,7 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             parsed = parse_image_options(event.wrapper_args)
             if not parsed.arguments:
                 return
-            command, *_ = parsed.arguments
-            if command != "deploy":
+            if not is_topology_mutation_command(parsed.arguments):
                 return
 
             session = api.require_context(TOPOLOGY_CONTEXT)
@@ -356,11 +361,11 @@ class VrnetlabPlugin(SchemaBackedPlugin):
 def _deploy_completion(context: CompletionContext) -> bool:
     if context.cursor_index == 0:
         return True
-    return "deploy" in context.words[: context.cursor_index]
+    return bool({"deploy", "redeploy"}.intersection(context.words[: context.cursor_index]))
 
 
 def _after_deploy_completion(context: CompletionContext) -> bool:
-    return "deploy" in context.words[: context.cursor_index]
+    return bool({"deploy", "redeploy"}.intersection(context.words[: context.cursor_index]))
 
 
 def _complete_build_jobs(context: CompletionContext) -> tuple[CompletionCandidate, ...]:

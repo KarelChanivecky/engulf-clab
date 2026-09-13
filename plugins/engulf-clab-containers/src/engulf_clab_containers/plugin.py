@@ -17,6 +17,7 @@ from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
     TopologySession,
     editor,
+    is_topology_mutation_command,
     load_topology,
     topology_path_from_args,
 )
@@ -60,7 +61,7 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "image",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=("an active container collection advertises the selected namespace/name",),
         shared_with=("eclab.containers",),
@@ -116,7 +117,7 @@ class ContainersPlugin(SchemaBackedPlugin):
         del api
         return (
             f"  {_HELP_OPTION}   List packaged containers from active collections\n"
-            "  Select one as <collection-namespace>/<name>[:latest]; deploy injects its "
+            "  Select one as <collection-namespace>/<name>[:latest]; deploy or redeploy injects its "
             "required runtime fields and resolves its image provider."
         )
 
@@ -135,7 +136,7 @@ class ContainersPlugin(SchemaBackedPlugin):
             if (
                 event.mode is CallMode.HELP
                 or not event.wrapper_args
-                or event.wrapper_args[0] != "deploy"
+                or not is_topology_mutation_command(event.wrapper_args)
             ):
                 return None
             path = topology_path_from_args(tuple(event.wrapper_args[1:]))
@@ -146,7 +147,7 @@ class ContainersPlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         try:
             session = api.require_context(TOPOLOGY_CONTEXT)

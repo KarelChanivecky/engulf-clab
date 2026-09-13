@@ -189,13 +189,15 @@ class TopologyCollectorPluginTest(unittest.TestCase):
             )
             self.assertTrue(target.exists())
 
-            # A later deploy deterministically replaces the same retained path.
+            # A redeploy rebuilds and deterministically replaces the retained path.
             api.require_context.return_value = TopologySession(
                 topology, {"topology": {"nodes": {"b": {"x": 2}}}}
             )
+            redeploy_args = ("redeploy", "-t", str(topology))
+            redeploy_effective = ("redeploy", "-t", str(target))
             plugin.prepare_call(
                 PreparedCallEvent(
-                    "containerlab", wrapper_args, effective_args, CallMode.NORMAL
+                    "containerlab", redeploy_args, redeploy_effective, CallMode.NORMAL
                 ),
                 api,
             )

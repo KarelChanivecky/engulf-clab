@@ -5,8 +5,9 @@ mutation API. Do not write topology files here.
 
 - Keep plugin ID `engulf_clab.lab_parser`, priority `100`, and context ID
   `engulf_clab.topology.session` stable for dependent distributions.
-- Parse and publish topology sessions only for deploy with a local filesystem
-  topology. For destroy by source, prefer its retained writer topology when it
+- Parse and publish topology sessions only for deploy or single-source redeploy
+  with a local filesystem topology. Preserve native `redeploy --all` and
+  name-only handling. For destroy by source, prefer its retained writer topology when it
   exists; otherwise contribute the single non-writer source for implicit
   selection. Resolve a unique retained topology for name selection and preserve
   all-labs selection. Route the lab-reading commands that search for a topology
@@ -60,6 +61,10 @@ mutation.add(("topology", "nodes", "client", "labels", "role"), "client")
 environment in the raw source before safe YAML loading and requires a top-level
 mapping. Its optional environment mapping makes callback behavior explicit and
 tests deterministic; omitting it uses the current process environment.
+`is_topology_mutation_command()` is the shared command gate for every mutator:
+it accepts deploy and single-source redeploy while leaving `redeploy --all`
+and name-only redeploy to Containerlab. Consumers must use it instead of
+maintaining their own command set.
 `derived_topology_path()` deterministically maps a resolved source topology to
 the hidden same-directory path retained by the writer. Destroy analysis uses
 that path when it exists, replacing an explicit source topology option or

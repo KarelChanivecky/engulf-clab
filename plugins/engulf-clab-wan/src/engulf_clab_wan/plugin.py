@@ -12,7 +12,12 @@ from engulf_api import (
     StateScope,
     WorkspaceState,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    editor,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -132,42 +137,42 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "labels.ECLAB_DHCP_SUBNET",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("labels.ECLAB_DHCP_WAN",),
     )
     .annotate(
         "labels.ECLAB_DHCP_GATEWAY",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("labels.ECLAB_DHCP_WAN", "labels.ECLAB_DHCP_SUBNET"),
     )
     .annotate(
         "labels.ECLAB_DHCP_POOL_START",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("labels.ECLAB_DHCP_WAN", "labels.ECLAB_DHCP_POOL_END"),
     )
     .annotate(
         "labels.ECLAB_DHCP_POOL_END",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("labels.ECLAB_DHCP_WAN", "labels.ECLAB_DHCP_POOL_START"),
     )
     .annotate(
         "labels.ECLAB_DHCP_DNS",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("labels.ECLAB_DHCP_WAN",),
     )
     .annotate(
         "labels.ECLAB_DHCP_LEASE_TIME",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("labels.ECLAB_DHCP_WAN",),
     )
     .annotate(
         "ECLAB_UPLINK_IF",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("an existing host egress interface",),
     )
     .annotate(
         "--eclab-uplink-interface",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("an existing host egress interface",),
     )
     .require_host_tool(
@@ -186,7 +191,7 @@ PLUGIN_SCHEMA = (
         commands=("deploy", "destroy"),
     )
     .require_host_tool(
-        "sh", "Launch the packaged Python DHCP service.", commands=("deploy",)
+        "sh", "Launch the packaged Python DHCP service.", commands=("deploy", "redeploy")
     )
     .require_privilege(
         Privilege.ROOT,
@@ -258,7 +263,7 @@ class WanPlugin(SchemaBackedPlugin):
             "    --eclab-uplink-interface IFACE  Optional host uplink override\n"
             f"  {contract.uplink_environment} is the persistent environment default; "
             "the CLI option wins.\n"
-            "  Marked deploys require root; successful destroy releases managed resources."
+            "  Marked deploys or redeploys require root; successful destroy releases managed resources."
         )
 
     def analyze_call(
@@ -269,8 +274,8 @@ class WanPlugin(SchemaBackedPlugin):
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return None
 
-        command, *rest = event.wrapper_args
-        if command == "deploy":
+        _command, *rest = event.wrapper_args
+        if is_topology_mutation_command(event.wrapper_args):
             try:
                 topology_path = topology_path_from_args(tuple(rest))
                 topology_data = load_topology(topology_path, event.environment)
@@ -281,15 +286,14 @@ class WanPlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *_ = event.wrapper_args
-        if command == "deploy":
+        if is_topology_mutation_command(event.wrapper_args):
             self._setup_before_deploy(api, event.environment)
 
     def prepare_failed(
         self, event: PreparationFailedEvent, api: InvocationAPI
     ) -> None:
         """Release only the bridges this invocation claimed when preparation unwinds."""
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         claimed = api.get_context(_INVOCATION_BRIDGES_CONTEXT)
         if isinstance(claimed, _InvocationBridges):

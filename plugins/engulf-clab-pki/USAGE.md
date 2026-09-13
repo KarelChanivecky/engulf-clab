@@ -66,7 +66,7 @@ recipe uses the pinned public `osixia/openldap:1.5.0` image; the former
 
 ## Lifecycle, state, and security
 
-Persistent authorities live in Engulf user/workspace state; generated leaves and views live in
+Deploy and single-source redeploy both stage PKI. Persistent authorities live in Engulf user/workspace state; generated leaves and views live in
 workspace state. Generation occurs during preparation under leases and is journaled. Failed
 preparation unwinds only paths created by that attempt. If Containerlab starts but deployment
 fails, staged paths remain readable by any partial containers and are journaled for cleanup by a

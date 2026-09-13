@@ -5,7 +5,7 @@ through `engulf-clab-all-plugins`; the vrnetlab builder also installs it as a
 dependency.
 
 It prepares the checkout consumed by `engulf-clab-vrnetlab-build` and activates
-only for deploy when a node explicitly opts in:
+for deploy or single-source redeploy when a node explicitly opts in:
 
 ```yaml
 topology:

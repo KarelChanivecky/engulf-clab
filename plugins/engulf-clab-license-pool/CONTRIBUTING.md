@@ -36,7 +36,7 @@ through the shared topology editor.
 - Record newly created claims and copies in invocation context before later
   preparation can fail. Roll back exactly that set in `prepare_failed` when a
   later preparer raises, inside `prepare_call` when this plugin itself raises,
-  and after any unsuccessful attempted deploy, while preserving pre-existing
+  and after any unsuccessful attempted deploy or redeploy, while preserving pre-existing
   retry claims. Release one workspace after successful destroy and preserve
   destroy-all semantics.
 - Declare parser, writer, and schema ordering only in the package dependency

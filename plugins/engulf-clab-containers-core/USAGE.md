@@ -27,7 +27,7 @@ Docker image goal without parsing Containerlab YAML.
 A topology selects a recipe by its exact image name. The container manager
 registers its package recipe as an image provision and injects only required
 Containerlab runtime fields plus `image-pull-policy: Never` into a temporary
-deploy topology. The source lab is unchanged.
+deploy or single-source redeploy topology. The source lab is unchanged.
 
 ## Common contract
 

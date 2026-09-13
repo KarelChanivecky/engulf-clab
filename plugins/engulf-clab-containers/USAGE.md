@@ -29,8 +29,8 @@ recipe. Other tags are unsupported. An unknown image in an active collection's
 namespace fails instead of falling through to a registry pull.
 
 Declare the recipe's kind explicitly in the source topology (`kind: linux` for
-the maintained recipes). Expansion occurs only for deploy; destroy, graph, and
-direct Containerlab calls use the raw topology. Recipes may reserve `eth0` for
+the maintained recipes). Expansion occurs for deploy and single-source
+redeploy; destroy, graph, and direct Containerlab calls use the raw topology. Recipes may reserve `eth0` for
 management and treat later interfaces as lab-facing, so follow the selected
 recipe's own guide for its interfaces and configuration. The maintained
 `eclab.containers` collection currently supplies the `host-connector` and

@@ -12,6 +12,7 @@ PACKAGES := \
 	engulf-clab-containers-api \
 	engulf-clab-lab-parser \
 	engulf-clab-lab-writer \
+	engulf-clab-sticky-ip \
 	engulf-clab-ensure-checkout \
 	engulf-clab-ensure-containerlab \
 	engulf-clab-ensure-vrnetlab \
@@ -51,6 +52,7 @@ DIR_engulf-docker-image-core := plugins/engulf-docker-image-core
 DIR_engulf-clab-containers-api := plugins/engulf-clab-containers-api
 DIR_engulf-clab-lab-parser := plugins/engulf-clab-lab-parser
 DIR_engulf-clab-lab-writer := plugins/engulf-clab-lab-writer
+DIR_engulf-clab-sticky-ip := plugins/engulf-clab-sticky-ip
 DIR_engulf-clab-ensure-checkout := plugins/engulf-clab-ensure-checkout
 DIR_engulf-clab-ensure-containerlab := plugins/engulf-clab-ensure-containerlab
 DIR_engulf-clab-ensure-vrnetlab := plugins/engulf-clab-ensure-vrnetlab

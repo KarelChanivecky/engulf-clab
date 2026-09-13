@@ -20,6 +20,7 @@ from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
     TopologySession,
     editor,
+    is_topology_mutation_command,
 )
 from engulf_clab_pki_api import PKI_NODE_PROJECTIONS_CONTEXT
 from engulf_clab_schema_api import (
@@ -198,7 +199,7 @@ class PkiPlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         session = api.require_context(TOPOLOGY_CONTEXT)
         if not isinstance(session, TopologySession):
@@ -294,7 +295,7 @@ class PkiPlugin(SchemaBackedPlugin):
             raise
 
     def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
-        if event.wrapper_args and event.wrapper_args[0] == "deploy":
+        if is_topology_mutation_command(event.wrapper_args):
             value = api.get_context(_INVOCATION_CONTEXT)
             if isinstance(value, _Prepared):
                 _rollback(value)
@@ -304,7 +305,7 @@ class PkiPlugin(SchemaBackedPlugin):
             return
         action = event.wrapper_args[0]
         value = api.get_context(_INVOCATION_CONTEXT)
-        if action == "deploy":
+        if is_topology_mutation_command(event.wrapper_args):
             if isinstance(value, _Prepared):
                 succeeded = (
                     event.outcome.kind is OutcomeKind.COMPLETED

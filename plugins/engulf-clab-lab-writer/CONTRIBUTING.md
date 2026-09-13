@@ -7,8 +7,9 @@ file until Containerlab successfully destroys the lab.
   and topology-context read stable.
 - Declare parser and schema ordering only in the package dependency entry-point
   group; never restore a code-level `plugin_dependencies` declaration.
-- Activate only for deploy. During analysis, remove all source topology option
-  tokens and contribute exactly one generated `-t` pair before the separator.
+- Activate only for deploy and single-source redeploy. During analysis, remove
+  all source topology option tokens and contribute exactly one generated `-t`
+  pair before the separator. Preserve native host-wide and name-only redeploy.
 - Place the target beside the source topology at the deterministic
   `.engulf-clab-lab-<source-id>.clab.yml` path so relative paths retain source
   semantics and Containerlab labels keep a usable recovery topology.

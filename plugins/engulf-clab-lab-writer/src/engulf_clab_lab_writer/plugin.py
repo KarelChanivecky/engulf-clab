@@ -17,6 +17,7 @@ from engulf_clab_lab_parser import (
     WRITER_TEMP_PREFIX,
     TopologySession,
     derived_topology_path,
+    is_topology_mutation_command,
     topology_path_from_args,
 )
 from engulf_clab_schema_api import (
@@ -81,7 +82,7 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
         if (
             event.mode is CallMode.HELP
             or not event.wrapper_args
-            or event.wrapper_args[0] != "deploy"
+            or not is_topology_mutation_command(event.wrapper_args)
         ):
             return None
         removals = _topology_indexes(event.wrapper_args)
@@ -97,7 +98,7 @@ class TopologyCollectorPlugin(ExecutableWrapperPlugin):
         )
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         session = api.require_context(TOPOLOGY_CONTEXT)
         if not isinstance(session, TopologySession):

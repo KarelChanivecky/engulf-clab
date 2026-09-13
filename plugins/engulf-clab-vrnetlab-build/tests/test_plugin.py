@@ -112,6 +112,11 @@ class PluginLifecycleTest(unittest.TestCase):
         self.assertTrue(
             option.when(CompletionContext(Shell.BASH, "eclab", "containerlab", ("deploy", "--"), 1))
         )
+        self.assertTrue(
+            option.when(
+                CompletionContext(Shell.BASH, "eclab", "containerlab", ("redeploy", "--"), 1)
+            )
+        )
 
     def test_help_and_non_deploy_calls_do_nothing(self) -> None:
         plugin = VrnetlabPlugin()

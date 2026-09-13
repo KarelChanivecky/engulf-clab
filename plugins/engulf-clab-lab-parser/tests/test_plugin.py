@@ -12,6 +12,7 @@ from engulf_clab_lab_parser.session import (
     TOPOLOGY_CONTEXT,
     TopologySession,
     derived_topology_path,
+    is_topology_mutation_command,
 )
 from engulf_executable_wrapper_api import (
     BeforeCallEvent,
@@ -21,6 +22,34 @@ from engulf_executable_wrapper_api import (
 
 
 class TopologyPluginTest(unittest.TestCase):
+    def test_single_source_redeploy_uses_topology_pipeline(self) -> None:
+        with TemporaryDirectory() as directory:
+            topology = Path(directory) / "lab.clab.yml"
+            topology.write_text("name: lab\ntopology:\n  nodes: {}\n", encoding="utf-8")
+            api = Mock(spec=InvocationAPI)
+
+            TopologyPlugin().prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    ("redeploy", "-t", str(topology)),
+                    ("redeploy", "-t", str(topology)),
+                    CallMode.NORMAL,
+                ),
+                api,
+            )
+
+        context_id, session = api.set_context.call_args.args
+        self.assertEqual(context_id, TOPOLOGY_CONTEXT)
+        self.assertEqual(session.path, topology)
+
+    def test_host_wide_and_name_only_redeploy_do_not_enter_pipeline(self) -> None:
+        self.assertFalse(is_topology_mutation_command(("redeploy", "--all")))
+        self.assertFalse(is_topology_mutation_command(("redeploy", "--name", "lab")))
+        self.assertTrue(
+            is_topology_mutation_command(("redeploy", "--name", "lab", "-t", "lab.yml"))
+        )
+        self.assertTrue(is_topology_mutation_command(("redeploy",)))
+
     def test_prepare_expands_from_effective_call_environment(self) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
@@ -282,7 +311,7 @@ class TopologyPluginTest(unittest.TestCase):
                 "topology: {}\n", encoding="utf-8"
             )
 
-            for args in (("exec", "--cmd", "true"), ("events",), ("redeploy",)):
+            for args in (("exec", "--cmd", "true"), ("events",)):
                 with self.subTest(args=args):
                     self.assertIsNone(
                         plugin.analyze_call(

@@ -6,7 +6,11 @@ from engulf_api import (
     Invocation,
     InvocationAPI,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -65,7 +69,7 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         ARCHIVE_ENV,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=("node.image is the literal tag the archive is loaded as",),
         path_base=PathBase.TOPOLOGY_DIRECTORY,
@@ -77,7 +81,7 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         ARCHIVE_REF_ENV,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=(ARCHIVE_ENV,),
         implies=("required when a multi-image archive does not carry the node image",),
@@ -85,18 +89,18 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         ARCHIVE_RELOAD_ENV,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         requires=(ARCHIVE_ENV,),
         examples=(f'{ARCHIVE_RELOAD_ENV}: "true"',),
     )
     .require_host_tool(
-        "docker", "Load node image archives before Containerlab deploys them.", commands=("deploy",)
+        "docker", "Load node image archives before Containerlab deploys them.", commands=("deploy", "redeploy")
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
         "The caller must be authorized to use the configured Docker daemon.",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
     )
     .use_case("Create a node image from a saved Docker image archive shipped beside the lab.")
     .reject("Do not point this at a qcow2 or raw disk image; that is a vrnetlab source.")
@@ -153,8 +157,8 @@ class ImageArchivePlugin(SchemaBackedPlugin):
     def analyze_call(self, event: BeforeCallEvent, api: InvocationAPI) -> CallContribution | None:
         if event.mode is CallMode.HELP or not event.wrapper_args:
             return None
-        command, *rest = event.wrapper_args
-        if command != "deploy":
+        _command, *rest = event.wrapper_args
+        if not is_topology_mutation_command(event.wrapper_args):
             return None
         try:
             topology_path = topology_path_from_args(tuple(rest))
@@ -168,8 +172,7 @@ class ImageArchivePlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        command, *_ = event.wrapper_args
-        if command != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         try:
             session = api.require_context(TOPOLOGY_CONTEXT)

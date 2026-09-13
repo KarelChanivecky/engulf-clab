@@ -26,7 +26,7 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   environments so CLI precedence reaches source hints and preparation.
 - Use the fixed `ECLAB` environment prefix (`contract.LABEL_PREFIX`). Do not
   derive it from `api.application.short_product_name`/`product` — labels must
-  stay portable across editions. Analyze `deploy` calls without side effects,
+  stay portable across editions. Analyze deploy and single-source redeploy calls without side effects,
   then provision only during `prepare_call()` once every analyzer has accepted
   the invocation. The plugin still activates only when the topology contains a
   node with a nonempty `ECLAB_VRNETLAB_TYPE` environment value.

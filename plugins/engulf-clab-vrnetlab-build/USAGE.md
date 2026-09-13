@@ -39,9 +39,9 @@ eclab deploy -t lab.clab.yml \
   --eclab-vrnetlab-build-jobs 2
 ```
 
-The plugin applies only to deploy and only to nodes with a nonempty
-`ECLAB_VRNETLAB_TYPE`. Place image selectors after the `deploy` command; they
-are plugin-owned deploy options rather than Containerlab root flags. Each exact
+The plugin applies only to deploy and single-source redeploy, and only to nodes
+with a nonempty `ECLAB_VRNETLAB_TYPE`. Place image selectors after the command;
+they are plugin-owned deployment options rather than Containerlab root flags. Each exact
 node or reserved `default` selector may appear once. A bare path remains a
 compatibility spelling of `default=PATH`; prefer the explicit form.
 

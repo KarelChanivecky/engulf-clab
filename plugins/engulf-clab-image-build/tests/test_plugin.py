@@ -11,7 +11,13 @@ from engulf_clab_dockerfile_build.plugin import DockerfilePlugin
 from engulf_clab_lab_parser import TopologySession, load_topology
 from engulf_docker_image_api import IMAGE_GRAPH_CONTEXT
 from engulf_docker_image_core import DockerImageError
-from engulf_executable_wrapper_api import ArgumentRegistry, CallMode, PreparedCallEvent
+from engulf_executable_wrapper_api import (
+    ArgumentRegistry,
+    CallMode,
+    CompletionContext,
+    PreparedCallEvent,
+    Shell,
+)
 
 from engulf_clab_image_build.plugin import PLUGIN_SCHEMA, ImageBuildPlugin, image_build_jobs
 
@@ -71,6 +77,14 @@ class ImageBuildPluginTest(unittest.TestCase):
         )
         self.assertTrue(option.takes_value)
         self.assertEqual(option.environment, "ECLAB_IMAGE_BUILD_JOBS")
+        assert option.when is not None
+        self.assertTrue(
+            option.when(
+                CompletionContext(
+                    Shell.BASH, "eclab", "containerlab", ("redeploy", "--"), 1
+                )
+            )
+        )
 
     def test_schema_exposes_recursive_build_behavior_without_opening_reference(self) -> None:
         options = {option.name: option for option in PLUGIN_SCHEMA.options(_APPLICATION)}

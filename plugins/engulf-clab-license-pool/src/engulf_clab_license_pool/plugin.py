@@ -20,7 +20,12 @@ from engulf_api import (
     InvocationAPI,
     StateScope,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    editor,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     ExplainedValue,
@@ -166,42 +171,42 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         UUID_ENVIRONMENT,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         implies=("stable allocation identity across node renames",),
     )
     .annotate(
         "ECLAB_LIC_CLAMP",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("license selects a $POOL",),
         path_base=PathBase.LICENSE_POOL,
     )
     .annotate(
         "--eclab-license-pool-strategy",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         implies=("active claims remain stable for deployment retries",),
     )
     .annotate(
         LICENSE_POOL_STRATEGY_ENVIRONMENT,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         implies=("used when --eclab-license-pool-strategy is absent",),
     )
     .annotate(
         "ECLAB_LICENSE",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("license is __ECLAB_LICENSE_PROMPT__",),
         path_base=PathBase.INVOCATION_DIRECTORY,
     )
     .annotate(
         "--eclab-license",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("license is __ECLAB_LICENSE_PROMPT__",),
         path_base=PathBase.INVOCATION_DIRECTORY,
     )
     .annotate(
         "ECLAB_LICENSE_*",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("license is __ECLAB_LICENSE_PROMPT__",),
         implies=("override ECLAB_LICENSE for the named node",),
         path_base=PathBase.INVOCATION_DIRECTORY,
@@ -348,8 +353,8 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             "--eclab-license wins.\n"
             f"  {contract.license_environment}_<NODE> remains the per-node prompt override.\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
-            "  Deploy logs each selected license basename with its node; source paths stay private.\n"
-            "  Failed deploy rolls back new claims; successful destroy releases workspace claims."
+            "  Deploy and redeploy log each selected license basename with its node; source paths stay private.\n"
+            "  Failed deployment rolls back new claims; successful destroy releases workspace claims."
         )
 
     def analyze_call(
@@ -358,7 +363,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         session = api.require_context(TOPOLOGY_CONTEXT)
         if not isinstance(session, TopologySession):
@@ -431,7 +436,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             raise
 
     def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if isinstance(allocation, _InvocationAllocation):
@@ -439,7 +444,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
-        if event.wrapper_args and event.wrapper_args[0] == "deploy":
+        if is_topology_mutation_command(event.wrapper_args):
             if isinstance(allocation, _InvocationAllocation) and (
                 event.outcome.kind is not OutcomeKind.COMPLETED
                 or event.outcome.exit_code != 0

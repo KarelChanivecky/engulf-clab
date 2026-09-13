@@ -26,18 +26,16 @@ from .session import (
     TopologyError,
     TopologySession,
     derived_topology_path,
+    is_topology_mutation_command,
     load_topology,
     topology_path_from_args,
 )
 
-
 # Containerlab subcommands that resolve a lab by globbing the working directory
 # for a topology when -t is absent. `exec` and `events` are deliberately absent:
 # without a topology they act on every lab on the host rather than globbing, so
-# naming one would narrow what the user asked for. `redeploy` is absent because
-# it deploys, and the deploy pipeline that produces the derived topology does
-# not run for it -- redeploying the retained file would silently reuse a stale
-# topology instead of rebuilding one from the source.
+# naming one would narrow what the user asked for. A single-source `redeploy`
+# uses the same parse/mutate/write pipeline as `deploy`.
 _LAB_COMMANDS = frozenset({"graph", "inspect", "save"})
 
 
@@ -65,7 +63,7 @@ class TopologyPlugin(ExecutableWrapperPlugin):
             )
         if event.wrapper_args[0] in _LAB_COMMANDS:
             return _lab_topology_contribution(event.wrapper_args)
-        if event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return None
         try:
             load_topology(
@@ -78,7 +76,7 @@ class TopologyPlugin(ExecutableWrapperPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         path = topology_path_from_args(tuple(event.wrapper_args[1:]))
         api.set_context(

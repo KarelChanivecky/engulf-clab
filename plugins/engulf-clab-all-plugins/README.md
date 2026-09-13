@@ -17,6 +17,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-schema` | Last-running compiler for one executable-selected inherited pipeline and exact Containerlab source. |
 | `engulf-clab-develop-eclab-lab` | Static eclab command that installs and refreshes only the `develop-eclab-lab` Codex skill. |
 | `engulf-clab-lab-parser` and `engulf-clab-lab-writer` | Immutable source-topology session and temporary derived-topology collector. |
+| `engulf-clab-sticky-ip` | Stable private IPv4 or IPv6 management subnets and fixed node addresses. |
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
 | `engulf-clab-ensure-containerlab` | Containerlab executable discovery, managed checkout, update, and build. |
 | `engulf-clab-ensure-vrnetlab` | Conditional vrnetlab checkout discovery and provisioning. |
@@ -41,8 +42,8 @@ discovers those installed entry points when `engulf-clab` runs.
 Included feature packages are Dockerfile builds, the packaged-container manager,
 core and PKI collections, Containerlab and vrnetlab provisioning, vrnetlab image
 builds, license pools, managed DHCP/NAT WAN bridges, resource-consumption reports, frozen shareable archives,
-PKI catalogs, certificate mounts, FortiGate PKI injection, and the topology
-mutation/collector infrastructure. Review the individual package READMEs before
+PKI catalogs, certificate mounts, FortiGate PKI injection, sticky management
+addresses, and the topology mutation/collector infrastructure. Review the individual package READMEs before
 enabling host-affecting features such as WAN bridges or
 automatic source updates.
 

@@ -1,7 +1,8 @@
 # engulf-clab-license-pool
 
 Allocates license files from a shared directory pool and points only the
-temporary deploy topology at a lab-local copy.
+temporary deployment topology at a lab-local copy. This runs for deploy and
+single-source redeploy.
 
 Install with `python -m pip install engulf-clab-license-pool`, or through
 `engulf-clab-all-plugins`.
@@ -79,7 +80,7 @@ node UUID, or node name when no UUID is present. Use a stable globally unique
 UUID when nodes may be renamed or different labs use similar names. Changing
 the UUID intentionally creates a new allocation identity.
 
-All pools touched by one deploy are coordinated together so concurrent local
+All pools touched by one deployment are coordinated together so concurrent local
 workspaces cannot claim the same file. The selected source is copied beneath:
 
 ```text
@@ -89,7 +90,7 @@ workspaces cannot claim the same file. The selected source is copied beneath:
 Only the temporary topology receives that copy's path. The source YAML, pool
 file, and license contents are unchanged. Pool/file identities are retained in
 user state, but license contents are not. A failed, preempted, interrupted, or
-cancelled deploy rolls back the claims and lab copies first created by that
+cancelled deploy or redeploy rolls back the claims and lab copies first created by that
 invocation. If this plugin completes preparation but a later plugin fails
 preparation, the preparation unwind performs the same rollback before
 Containerlab starts. A failure inside license preparation rolls back its own
@@ -119,7 +120,7 @@ timestamps.
 
 ## Published selection breadcrumb
 
-After a successful `deploy` preparation, the plugin publishes what each node
+After a successful deploy or single-source redeploy preparation, the plugin publishes what each node
 actually received on the `engulf_clab.license_pool.selection` context, as a
 read-only mapping of node name to `LicenseSelection`. Both the context id and
 the dataclass are exported from `engulf_clab_license_pool`:

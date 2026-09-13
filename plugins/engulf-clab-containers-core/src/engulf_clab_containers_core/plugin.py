@@ -114,21 +114,21 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_CONNECT_HOST",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         requires=("node image selects eclab.containers/host-connector",),
         examples=("10.10.10.50;192.0.2.50",),
     )
     .annotate(
         "ECLAB_CONNECT_HOST_*",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         requires=("node image selects eclab.containers/host-connector",),
         examples=("ECLAB_CONNECT_HOST_2=2001:db8:10::50;2001:db8:20::50",),
     )
     .annotate(
         "ECLAB_DHCP_SUBNET",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         requires=("node image selects eclab.containers/wan-access",),
         implies=("DHCP is enabled on the lab-facing interface",),
@@ -136,27 +136,27 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_DHCP_GATEWAY",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("node image selects eclab.containers/wan-access",),
     )
     .annotate(
         "ECLAB_DHCP_POOL_START",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("node image selects eclab.containers/wan-access",),
     )
     .annotate(
         "ECLAB_DHCP_POOL_END",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("node image selects eclab.containers/wan-access",),
     )
     .annotate(
         "ECLAB_DHCP_DNS",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("node image selects eclab.containers/wan-access",),
     )
     .annotate(
         "ECLAB_DHCP_LEASE_TIME",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         requires=("node image selects eclab.containers/wan-access",),
     )
     .use_case("Use host-connector for explicit VIP mappings or wan-access for outbound access.")

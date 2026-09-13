@@ -32,6 +32,28 @@ _PATTERNS = ("*.clab.yml", "*.clab.yaml", "clab.yml", "clab.yaml", "topology.yml
 WRITER_TEMP_PREFIX = ".engulf-clab-lab-"
 
 
+def is_topology_mutation_command(args: tuple[str, ...]) -> bool:
+    """Return whether one call has a single source topology to mutate."""
+    if not args:
+        return False
+    if args[0] == "deploy":
+        return True
+    if args[0] != "redeploy":
+        return False
+    rest = args[1:]
+    if any(value in {"-a", "--all"} for value in rest):
+        return False
+    has_topology = any(
+        value in _OPTIONS
+        or any(value.startswith(option + "=") for option in _OPTIONS)
+        for value in rest
+    )
+    has_name = any(
+        value == "--name" or value.startswith("--name=") for value in rest
+    )
+    return has_topology or not has_name
+
+
 def derived_topology_path(source: Path) -> Path:
     """Return the stable writer path associated with one source topology."""
     identity = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:16]

@@ -12,7 +12,12 @@ from engulf_api import (
     InvocationAPI,
     RegistrationAPI,
 )
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession, editor
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    editor,
+    is_topology_mutation_command,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
@@ -90,7 +95,7 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "image",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         implies=(
             "active providers are queried for the root and every statically discoverable literal Dockerfile FROM base",
@@ -102,33 +107,33 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "ECLAB_IMAGE_PARAM_*",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.PREPARE_CALL,),
         requires=("node.image",),
         examples=("ECLAB_IMAGE_PARAM_RELEASE=2026.08",),
     )
     .annotate(
         _JOBS_ENV,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
     )
     .annotate(
         _LEGACY_JOBS_ENV,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
     )
     .annotate(
         _JOBS_FLAG,
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
     )
     .require_host_tool(
-        "docker", "Build provider-selected node images before deploy.", commands=("deploy",)
+        "docker", "Build provider-selected node images before deploy.", commands=("deploy", "redeploy")
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
         "The caller must be authorized to use the configured Docker daemon.",
-        commands=("deploy",),
+        commands=("deploy", "redeploy"),
     )
     .use_case(
         "Build a deploy image whose literal Dockerfile FROM bases may also be supplied by active providers; resolution recurses before Containerlab runs."
@@ -188,7 +193,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  Docker image providers are resolved recursively before deploy.\n"
+            "  Docker image providers are resolved recursively before deploy or redeploy.\n"
             "  Unclaimed literal images use an exact local tag or pull when missing.\n"
             "  Provisioned roots use image-pull-policy Never in the derived topology.\n"
             "  Node YAML env fields:\n"
@@ -203,7 +208,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
         if (
             event.mode is CallMode.HELP
             or not event.wrapper_args
-            or event.wrapper_args[0] != "deploy"
+            or not is_topology_mutation_command(event.wrapper_args)
         ):
             return None
         try:
@@ -214,7 +219,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         try:
             session = api.require_context(TOPOLOGY_CONTEXT)
@@ -258,7 +263,7 @@ def image_build_jobs(environment: Mapping[str, str]) -> int:
 def _deploy_completion(context: CompletionContext) -> bool:
     if context.cursor_index == 0:
         return True
-    return "deploy" in context.words[: context.cursor_index]
+    return bool({"deploy", "redeploy"}.intersection(context.words[: context.cursor_index]))
 
 
 def _complete_image_build_jobs(

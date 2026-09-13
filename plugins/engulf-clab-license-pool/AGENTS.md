@@ -33,7 +33,7 @@ through the shared topology editor.
   `sticky`, `round-robin`, and `least-recently-used`.
 - Use the shared topology editor to point only the derived topology at a copy.
   Never edit the selected YAML or consume a pool license in place.
-- On any unsuccessful deploy outcome, release only claims and copies first
+- On any unsuccessful deploy or redeploy outcome, release only claims and copies first
   created by that invocation; preserve pre-existing retry claims. Use
   `prepare_failed` when a later plugin fails preparation, and unwind this
   plugin's own partial preparation before re-raising. Release one workspace

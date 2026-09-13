@@ -4,7 +4,11 @@ from pathlib import Path
 from typing import Any
 
 from engulf_api import BeforeGoalAPI, Invocation, InvocationAPI
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    is_topology_mutation_command,
+)
 from engulf_clab_pki_api import (
     PKI_NODE_PROJECTIONS_CONTEXT,
     NodePkiProjection,
@@ -92,7 +96,7 @@ class FortigatePkiInjector(SchemaBackedPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not event.wrapper_args or event.wrapper_args[0] != "deploy":
+        if not is_topology_mutation_command(event.wrapper_args):
             return
         value = api.get_context(PKI_NODE_PROJECTIONS_CONTEXT)
         if value is None:

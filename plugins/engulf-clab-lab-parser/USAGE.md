@@ -8,7 +8,7 @@ described below and its `ECLAB_ENV_FILE` override.
 Install it through a topology-aware feature plugin, directly with `python -m pip
 install engulf-clab-lab-parser`, or through `engulf-clab-all-plugins`.
 
-For deploy, eclab loads one local YAML source and lets feature plugins record
+For deploy and single-source redeploy, eclab loads one local YAML source and lets feature plugins record
 changes against an immutable original. Before YAML decoding, the parser eagerly
 expands environment expressions from the effective Containerlab call
 environment. Every analyzer and mutator therefore sees the same rendered
@@ -94,9 +94,11 @@ can be reached from its own directory. An explicit source topology is replaced
 with its retained deploy topology when that file exists, so inspection uses the
 actual deployed node set; an explicit retained topology, `--name`, and `--all`
 remain untouched. `exec` and `events` are not routed: without a topology they
-act on every lab on the host rather than searching for one. `redeploy` is not
-routed either, since the pipeline that derives the topology runs only for
-deploy.
+act on every lab on the host rather than searching for one. A single-source
+`redeploy` rebuilds the derived topology through the same parser and mutator
+pipeline as `deploy`. `redeploy --all` and name-only redeploy remain under
+Containerlab's native handling because they do not identify one authoritative
+source topology.
 
 YAML is loaded safely and must have a top-level mapping. Containerlab remains
 responsible for the base schema and semantic validation; each feature plugin
