@@ -9,6 +9,7 @@ after the wrapped call.
 ## Contents
 
 - [Install and run](#install-and-run)
+- [Privilege](#privilege)
 - [Shell completion](#shell-completion)
 - [Containerlab compatibility](#containerlab-compatibility)
 - [Wrapper lifecycle](#wrapper-lifecycle)
@@ -31,15 +32,32 @@ eclab inspect -t lab.clab.yml
 eclab destroy -t lab.clab.yml
 ```
 
-The package requires Engulf runtime `0.1.2` and executable-wrapper `0.1.1` or
-newer. Those versions provide invocation normalization and trusted native
-completion sourcing used while constructing the eclab application. Package
-resolution rejects older releases instead of allowing an incompatible wrapper
-to fail during CLI startup.
+The package requires Engulf runtime `0.3` and executable-wrapper `0.3` or newer.
+Those versions provide invocation normalization, trusted native completion
+sourcing, and the elevated-startup gate used while constructing the eclab
+application. Package resolution rejects older releases instead of allowing an
+incompatible wrapper to fail during CLI startup.
 
 The application itself does not require a fixed Containerlab installation path.
 Install `engulf-clab-ensure-containerlab` to resolve an executable from an
 explicit binary, a checkout, `PATH`, or a managed clone.
+
+## Privilege
+
+`eclab` refuses to start from a privileged process. Engulf requires each
+application goal to opt into elevated startup through installed package
+metadata; the shared `ExecutableWrapperGoal` deliberately has no such
+declaration, and neither does anything in this repository. Running `eclab` as
+root (or elevated on Windows) therefore fails before any plugin is loaded or
+goal setup runs: the launcher prints the refusal on stderr and exits with the
+Engulf framework error code (70).
+
+This is a startup-consent gate, not a sandbox. Run `eclab` as an unprivileged
+user and grant it access to the Docker socket or the specific host privileges
+required by the Containerlab features you use. There is no command-line,
+environment, or configuration override; adding an
+`engulf.privilege_opt_in.v1.goal.v1` entry point would require a deliberate
+contract change to the shared goal, not to this wrapper.
 
 ## Shell completion
 

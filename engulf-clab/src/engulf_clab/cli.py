@@ -7,16 +7,27 @@ import re
 import sys
 from pathlib import Path
 
+from engulf import FRAMEWORK_ERROR_EXIT, GoalPrivilegeError
+
 from .app import CONTAINERLAB_APPLICATION
 
 
 def main() -> int:
-    """Run the standard Containerlab application."""
+    """Run the standard Containerlab application.
+
+    eclab has not opted its goal into elevated startup, so Engulf refuses to
+    construct the application in a privileged process. Report that refusal on
+    stderr and exit with the framework error code instead of a traceback.
+    """
     arguments = tuple(sys.argv[1:])
     if len(arguments) == 2 and arguments[0] == "--eclab-freeze-compatible":
         return _compatible(Path(arguments[1]))
-    with CONTAINERLAB_APPLICATION.create() as application:
-        return application.run()
+    try:
+        with CONTAINERLAB_APPLICATION.create() as application:
+            return application.run()
+    except GoalPrivilegeError as error:
+        print(f"eclab: {error}", file=sys.stderr)
+        return FRAMEWORK_ERROR_EXIT
 
 
 def _compatible(requirements: Path) -> int:

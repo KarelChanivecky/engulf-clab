@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import io
 import os
 import re
 import tomllib
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-from engulf import Application, ApplicationDefinition
+from engulf import (
+    FRAMEWORK_ERROR_EXIT,
+    Application,
+    ApplicationDefinition,
+    GoalPrivilegeError,
+)
 from engulf_executable_wrapper import ExecutableWrapperGoal
 
 from engulf_clab import (
@@ -26,18 +33,18 @@ from engulf_clab.workspace import workspace_root
 
 class PackageMetadataTest(unittest.TestCase):
     def test_requires_runtime_versions_with_source_completion_support(self) -> None:
-        """Engulf 0.2 reads plugin ordering from dependency entry-point groups.
+        """Engulf 0.3 gates elevated startup and reads plugin ordering.
 
-        An older runtime ignores those groups instead of failing, which would load
-        every plugin unordered, so the floor has to exclude the 0.1 line.
+        An older runtime cannot enforce eclab's unprivileged launcher contract,
+        so the floor has to exclude the 0.2 line.
         """
         metadata = tomllib.loads(
             (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
         )
 
-        self.assertIn("engulf>=0.2,<1", metadata["project"]["dependencies"])
+        self.assertIn("engulf>=0.3,<1", metadata["project"]["dependencies"])
         self.assertIn(
-            "engulf-executable-wrapper>=0.2,<1",
+            "engulf-executable-wrapper>=0.3,<1",
             metadata["project"]["dependencies"],
         )
 
@@ -143,6 +150,54 @@ class CliTest(unittest.TestCase):
 
         definition.create.assert_called_once_with()
         application.run.assert_called_once_with()
+
+
+class PrivilegeRefusalTest(unittest.TestCase):
+    """eclab refuses elevated startup; the goal stays opted out by contract."""
+
+    def test_elevated_startup_is_refused(self) -> None:
+        for discover_installed in (True, False):
+            with (
+                self.subTest(discover_installed=discover_installed),
+                patch(
+                    "engulf.application.is_process_elevated",
+                    return_value=True,
+                ),
+                self.assertRaises(GoalPrivilegeError),
+            ):
+                CONTAINERLAB_APPLICATION.create(
+                    discover_installed=discover_installed
+                )
+
+    def test_unprivileged_startup_still_works(self) -> None:
+        with (
+            patch("engulf.application.is_process_elevated", return_value=False),
+            CONTAINERLAB_APPLICATION.create(discover_installed=False) as app,
+        ):
+            self.assertFalse(app.elevated)
+
+    def test_launcher_reports_refusal_with_framework_exit(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch("engulf.application.is_process_elevated", return_value=True),
+            redirect_stderr(stderr),
+        ):
+            result = main()
+        self.assertEqual(result, FRAMEWORK_ERROR_EXIT)
+        self.assertIn("eclab:", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_no_distribution_opts_the_goal_into_privilege(self) -> None:
+        # Any `engulf.privilege_opt_in.*` declaration in this monorepo would
+        # silently authorize elevated startup; the refusal is the contract.
+        repository_root = Path(__file__).resolve().parents[2]
+        offenders = [
+            path.relative_to(repository_root).as_posix()
+            for path in sorted(repository_root.rglob("pyproject.toml"))
+            if ".venv" not in path.parts
+            and "privilege_opt_in" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

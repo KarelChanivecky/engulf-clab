@@ -52,9 +52,12 @@ package does not exist; check `python3 --version` first, and install with an
 explicit `python3.14 -m pip` when it is not your default.
 
 Other prerequisites are Docker and the privileges required by the
-Containerlab features you choose. The ensure-containerlab plugin can provision
-a Containerlab checkout and build its binary; installing Containerlab yourself
-also works.
+Containerlab features you choose. `eclab` itself must run unprivileged: the
+shared goal has no Engulf privilege opt-in, so an elevated launch (root or
+Windows administrator) is refused at startup with framework exit code 70
+rather than loading plugins as root. The ensure-containerlab plugin can
+provision a Containerlab checkout and build its binary; installing Containerlab
+yourself also works.
 
 For a user-wide `eclab` command on `PATH`, use `pipx` (run
 `pipx ensurepath` once after installing pipx):
