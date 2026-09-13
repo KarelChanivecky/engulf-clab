@@ -16,6 +16,15 @@ writable layers, and anonymous volumes. It then removes every available Docker
 image used exclusively by that lab. Images that another known lab uses are
 preserved.
 
+The final status reports storage saved in IEC units. Sleep compares Docker's
+reported aggregate storage for images, container writable layers, and local
+volumes immediately before deletion with the value after every deletion
+attempt. Build cache is excluded because sleep does not remove it. Concurrent
+Docker activity outside the sleep lease can affect the measured difference;
+an increase is reported as zero saved. If the first snapshot fails, no objects
+are deleted. If the final snapshot fails, completed deletions remain in effect,
+the amount is reported as unavailable, and the command exits nonzero.
+
 Plain `sleep --all` is guarded bulk cleanup: it fails without deleting anything
 when any known lab still has a Containerlab container, running or stopped. Once
 every known lab is destroyed, it sleeps all registry labs and removes the

@@ -41,6 +41,8 @@ class FakeDocker:
         self.removed_images: list[str] = []
         self.container_failures: set[str] = set()
         self.image_failures: set[str] = set()
+        self.storage_values = [0, 0]
+        self.storage_error: DockerError | None = None
 
     def containers(self) -> tuple[Container, ...]:
         return self.container_values
@@ -54,6 +56,13 @@ class FakeDocker:
 
     def available_images(self) -> dict[str, str]:
         return self.images
+
+    def storage_bytes(self) -> int:
+        if self.storage_error is not None:
+            raise self.storage_error
+        if len(self.storage_values) > 1:
+            return self.storage_values.pop(0)
+        return self.storage_values[0]
 
     def remove_container(self, container_id: str) -> None:
         if container_id in self.container_failures:
@@ -297,8 +306,71 @@ class ExecutionTest(unittest.TestCase):
         self.assertEqual(docker.removed_containers, ["good"])
         self.assertEqual(docker.removed_images, ["sha256:image"])
 
+    def test_reports_measured_storage_saved(self) -> None:
+        docker = FakeDocker()
+        docker.storage_values = [8 * 1024**3, 5 * 1024**3]
+        logger = MagicMock()
+
+        code = execute(
+            SleepPlan((), (), (), (), ()),
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(logger.info.call_args.args[-1], "3.00 GiB")
+
+    def test_storage_measurement_failure_aborts_before_deletion(self) -> None:
+        docker = FakeDocker()
+        docker.storage_error = DockerError("unavailable")
+
+        code = execute(
+            SleepPlan((), ("container",), ("sha256:image",), (), ()),
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, [])
+        self.assertEqual(docker.removed_images, [])
+
+    def test_final_storage_measurement_failure_reports_unavailable(self) -> None:
+        docker = FakeDocker()
+        docker.storage_bytes = MagicMock(  # type: ignore[method-assign]
+            side_effect=(1024, DockerError("unavailable"))
+        )
+        logger = MagicMock()
+
+        code = execute(
+            SleepPlan((), ("container",), (), (), ()),
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, ["container"])
+        self.assertEqual(logger.info.call_args.args[-1], "unavailable")
+
 
 class DockerTest(unittest.TestCase):
+    def test_storage_snapshot_sums_sleep_owned_categories(self) -> None:
+        docker = DockerClient()
+        payload = json.dumps(
+            [
+                {"Type": "Images", "Size": "1.5GB"},
+                {"Type": "Containers", "Size": "512MiB"},
+                {"Type": "Local Volumes", "Size": "1000B"},
+                {"Type": "Build Cache", "Size": "9GB"},
+            ]
+        )
+        with patch.object(docker, "_run", return_value=payload):
+            measured = docker.storage_bytes()
+
+        self.assertEqual(measured, 1_500_000_000 + 512 * 1024**2 + 1000)
+
     def test_container_discovery_reports_running_state(self) -> None:
         docker = DockerClient()
         payload = json.dumps(
@@ -374,6 +446,7 @@ class PluginTest(unittest.TestCase):
             (LifecycleStage.BEFORE_GOAL,),
         )
         self.assertIn("are deleted", " ".join(annotations["sleep"].implies))
+        self.assertIn("storage saved", " ".join(annotations["sleep"].implies))
 
     def test_sleep_preempts_and_holds_mutation_lease(self) -> None:
         api = MagicMock(spec=BeforeGoalAPI)

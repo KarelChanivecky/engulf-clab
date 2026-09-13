@@ -333,7 +333,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
 | `engulf-clab-lab-registry-api` | Contract only | Typed access to the shared persistent lab inventory. |
 | `engulf-clab-lab-registry` | `engulf_clab.lab_registry` | Tracks deployed and explicitly discovered labs for inventory consumers. |
-| `engulf-clab-sleep` | `engulf_clab.sleep` | Safely sleeps selected, destroyed, or stopped labs while preserving workspaces. |
+| `engulf-clab-sleep` | `engulf_clab.sleep` | Sleeps selected, destroyed, or stopped labs and reports reclaimed Docker storage. |
 | `engulf-clab-consumption` | `engulf_clab.consumption` | Reports deployed, stopped, and sleeping state with CPU, RAM, lab-directory, and image storage. |
 | `engulf-clab-freeze-api` | Contract only | Typed extension hooks for optional freeze and defrost contributors. |
 | `engulf-clab-pki-api` | Contract only | Immutable authorized node-PKI projections for independent consumers. |

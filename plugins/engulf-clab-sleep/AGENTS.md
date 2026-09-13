@@ -10,4 +10,6 @@
 - Never force Docker image removal or add broad prune behavior.
 - Use callback logging, keep the sleep lease around planning and mutation, and
   require no MCP.
+- Measure Docker image, container, and local-volume storage before and after
+  deletion, and report the nonnegative reduction in IEC units.
 - Declare ordering in packaging and run package, consumer, and skill tests.

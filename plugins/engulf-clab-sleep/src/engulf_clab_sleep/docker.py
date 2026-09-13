@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -11,6 +12,27 @@ from .model import Container
 
 class DockerError(RuntimeError):
     pass
+
+
+_SIZE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kmgtpe]?i?b)\s*$", re.IGNORECASE)
+_DECIMAL = {
+    "b": 1,
+    "kb": 1000,
+    "mb": 1000**2,
+    "gb": 1000**3,
+    "tb": 1000**4,
+    "pb": 1000**5,
+    "eb": 1000**6,
+}
+_BINARY = {
+    "kib": 1024,
+    "mib": 1024**2,
+    "gib": 1024**3,
+    "tib": 1024**4,
+    "pib": 1024**5,
+    "eib": 1024**6,
+}
+_SLEEP_STORAGE_TYPES = frozenset({"images", "containers", "local volumes"})
 
 
 class DockerClient:
@@ -92,6 +114,25 @@ class DockerClient:
             result[image_id.removeprefix("sha256:")] = image_id
         return result
 
+    def storage_bytes(self) -> int:
+        records = _records(self._run(("system", "df", "--format", "json")))
+        found = False
+        total = 0
+        for item in records:
+            category = item.get("Type")
+            if not isinstance(category, str) or category.casefold() not in _SLEEP_STORAGE_TYPES:
+                continue
+            size = _parse_size(item.get("Size"))
+            if size is None:
+                raise DockerError(
+                    f"docker system df returned an invalid size for {category}"
+                )
+            found = True
+            total += size
+        if not found:
+            raise DockerError("docker system df returned no storage records")
+        return total
+
     def remove_container(self, container_id: str) -> None:
         self._run(("container", "rm", "--force", "--volumes", container_id))
 
@@ -125,3 +166,40 @@ def _json(value: str, source: str) -> Any:
         return json.loads(value)
     except json.JSONDecodeError as error:
         raise DockerError(f"docker {source} returned invalid JSON: {error}") from error
+
+
+def _records(output: str) -> tuple[dict[str, Any], ...]:
+    stripped = output.strip()
+    if not stripped:
+        return ()
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, list):
+        values: list[Any] = payload
+    elif isinstance(payload, dict):
+        values = [payload]
+    else:
+        values = []
+        for line in stripped.splitlines():
+            try:
+                values.append(json.loads(line))
+            except json.JSONDecodeError as error:
+                raise DockerError(
+                    f"docker system df returned invalid JSON: {error}"
+                ) from error
+    return tuple(item for item in values if isinstance(item, dict))
+
+
+def _parse_size(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value if value >= 0 else None
+    if not isinstance(value, str):
+        return None
+    match = _SIZE.fullmatch(value)
+    if match is None:
+        return None
+    unit = match.group(2).casefold()
+    multiplier = _BINARY.get(unit, _DECIMAL.get(unit))
+    return None if multiplier is None else round(float(match.group(1)) * multiplier)

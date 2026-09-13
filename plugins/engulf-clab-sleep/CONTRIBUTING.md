@@ -14,10 +14,13 @@ Never pass `--force` to Docker image removal: non-lab containers are outside the
 registry's ownership model and Docker must protect them.
 
 Persist complete observations before the first deletion and abort cleanly if
-that fails. Once deletion starts, continue independent removals, log every
-failure through the callback logger, and return nonzero for partial completion.
-Hold the sleep lease across Docker discovery, planning, and mutation so two sleep
-commands cannot act on stale plans. Never add MCP or filesystem-delete behavior.
+that or the initial Docker storage snapshot fails. Once deletion starts,
+continue independent removals, take a final storage snapshot, log every failure
+through the callback logger, and return nonzero for partial completion. Compute
+saved storage from Docker's aggregate image, container, and local-volume totals;
+exclude build cache. Hold the sleep lease across Docker discovery, planning,
+measurement, and mutation so two sleep commands cannot act on stale plans.
+Never add MCP or filesystem-delete behavior.
 
 Packaging runs the lab registry before sleep and the schema compiler afterward.
 Tests use fake Docker and registry boundaries; they must not touch a live daemon.

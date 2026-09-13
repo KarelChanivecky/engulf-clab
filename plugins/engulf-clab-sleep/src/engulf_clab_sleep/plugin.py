@@ -50,6 +50,7 @@ PLUGIN_SCHEMA = (
             "normal Containerlab execution is preempted",
             "lab containers, writable layers, anonymous volumes, and selected images are deleted",
             "lab directories and registry records are preserved",
+            "Docker-reported storage saved is measured and logged",
         ),
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
@@ -139,5 +140,5 @@ class SleepPlugin(SchemaBackedPlugin):
         del api
         return (
             "  sleep [-t TOPOLOGY | --all [--stopped]]  "
-            "Remove lab containers and reclaim lab-owned Docker images"
+            "Remove lab containers, reclaim images, and report storage saved"
         )

@@ -158,6 +158,12 @@ def execute(
         logger.error("could not preserve labs in the registry before sleep: %s", error)
         return 1
 
+    try:
+        storage_before = docker.storage_bytes()
+    except DockerError as error:
+        logger.error("could not measure Docker storage before sleep: %s", error)
+        return 1
+
     failures: list[str] = []
     removed_containers = 0
     removed_images = 0
@@ -174,16 +180,39 @@ def execute(
         except DockerError as error:
             failures.append(str(error))
 
+    storage_saved: int | None
+    try:
+        storage_after = docker.storage_bytes()
+        storage_saved = max(0, storage_before - storage_after)
+    except DockerError as error:
+        failures.append(f"could not measure Docker storage after sleep: {error}")
+        storage_saved = None
+
     for failure in failures:
         logger.error("%s", failure)
     logger.info(
-        "slept %d lab(s): removed %d container(s) and %d image(s); preserved %d shared image(s)",
+        "slept %d lab(s): removed %d container(s) and %d image(s); "
+        "preserved %d shared image(s); storage saved %s",
         len(sleep_plan.labs),
         removed_containers,
         removed_images,
         len(sleep_plan.preserved_shared_image_ids),
+        _bytes(storage_saved),
     )
     return 1 if failures else 0
+
+
+def _bytes(value: int | None) -> str:
+    if value is None:
+        return "unavailable"
+    units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
+    amount = float(value)
+    unit = units[0]
+    for unit in units:
+        if abs(amount) < 1024 or unit == units[-1]:
+            break
+        amount /= 1024
+    return f"{amount:.0f} {unit}" if unit == "B" else f"{amount:.2f} {unit}"
 
 
 def _known_labs(
