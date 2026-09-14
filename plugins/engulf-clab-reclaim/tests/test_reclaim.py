@@ -1,0 +1,507 @@
+from __future__ import annotations
+
+import json
+import tomllib
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
+
+from engulf_api import ApplicationMetadata, BeforeGoalAPI, GoalResultStatus, Invocation
+from engulf_clab_lab_registry_api import LabRecord, LabRegistryError
+from engulf_clab_schema_api import LifecycleStage
+
+from engulf_clab_reclaim.command import (
+    ReclaimError,
+    execute,
+    parse_options,
+    parser,
+    plan,
+)
+from engulf_clab_reclaim.docker import DockerClient, DockerError
+from engulf_clab_reclaim.model import Container, LabUse, ReclaimPlan
+from engulf_clab_reclaim.plugin import PLUGIN_SCHEMA, ReclaimPlugin
+
+
+class FakeRegistry:
+    def __init__(self, records: tuple[LabRecord, ...] = ()) -> None:
+        self.record_values = records
+        self.updates: list[tuple[LabRecord, ...]] = []
+        self.error: RuntimeError | None = None
+
+    def records(self) -> tuple[LabRecord, ...]:
+        return self.record_values
+
+    def upsert(self, records: tuple[LabRecord, ...]) -> None:
+        if self.error is not None:
+            raise self.error
+        self.updates.append(records)
+
+
+class FakeDocker:
+    def __init__(self) -> None:
+        self.container_values: tuple[Container, ...] = ()
+        self.references: dict[str, str] = {}
+        self.images: dict[str, str] = {}
+        self.removed_containers: list[str] = []
+        self.removed_images: list[str] = []
+        self.container_failures: set[str] = set()
+        self.image_failures: set[str] = set()
+        self.storage_values = [0, 0]
+        self.storage_error: DockerError | None = None
+
+    def containers(self) -> tuple[Container, ...]:
+        return self.container_values
+
+    def resolve_images(self, references: tuple[str, ...]) -> dict[str, str]:
+        return {
+            reference: self.references[reference]
+            for reference in references
+            if reference in self.references
+        }
+
+    def available_images(self) -> dict[str, str]:
+        return self.images
+
+    def storage_bytes(self) -> int:
+        if self.storage_error is not None:
+            raise self.storage_error
+        if len(self.storage_values) > 1:
+            return self.storage_values.pop(0)
+        return self.storage_values[0]
+
+    def remove_container(self, container_id: str) -> None:
+        if container_id in self.container_failures:
+            raise DockerError(f"cannot remove container {container_id}")
+        self.removed_containers.append(container_id)
+
+    def remove_image(self, image_id: str) -> None:
+        if image_id in self.image_failures:
+            raise DockerError(f"cannot remove image {image_id}")
+        self.removed_images.append(image_id)
+
+
+def topology(root: Path, name: str = "one", image: str = "example:1") -> Path:
+    path = root / "lab.clab.yml"
+    path.write_text(
+        f"name: {name}\ntopology:\n  nodes:\n    node:\n      image: {image}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class PlanningTest(unittest.TestCase):
+    def test_single_lab_deletes_unique_and_preserves_shared_images(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            selected_topology = topology(root)
+            records = (
+                LabRecord(
+                    "one",
+                    root,
+                    selected_topology,
+                    frozenset({"sha256:unique", "sha256:shared", "sha256:historical"}),
+                    True,
+                ),
+                LabRecord(
+                    "two",
+                    Path("/labs/two"),
+                    None,
+                    frozenset({"sha256:shared"}),
+                    True,
+                ),
+            )
+            docker = FakeDocker()
+            docker.container_values = (
+                Container("one-unique", "one", selected_topology, "sha256:unique"),
+                Container("one-shared", "one", selected_topology, "sha256:shared"),
+                Container(
+                    "two-shared",
+                    "two",
+                    Path("/labs/two/lab.clab.yml"),
+                    "sha256:shared",
+                ),
+            )
+            docker.images = {
+                "unique": "sha256:unique",
+                "shared": "sha256:shared",
+                "historical": "sha256:historical",
+            }
+
+            reclaim_plan = plan(
+                (),
+                cwd=root,
+                environment={},
+                registry=FakeRegistry(records),
+                docker=docker,
+            )
+
+        self.assertEqual(
+            reclaim_plan.image_ids,
+            ("sha256:historical", "sha256:unique"),
+        )
+        self.assertEqual(reclaim_plan.container_ids, ("one-unique", "one-shared"))
+        self.assertEqual(reclaim_plan.preserved_shared_image_ids, ("sha256:shared",))
+
+    def test_all_deletes_shared_union_when_every_lab_is_destroyed(self) -> None:
+        one = Path("/labs/one/lab.clab.yml")
+        two = Path("/labs/two/lab.clab.yml")
+        records = (
+            LabRecord("one", one.parent, one, frozenset({"sha256:shared"}), True),
+            LabRecord("two", two.parent, two, frozenset({"sha256:shared"}), True),
+        )
+        docker = FakeDocker()
+        docker.images = {"shared": "sha256:shared"}
+
+        reclaim_plan = plan(
+            ("--all",),
+            cwd=Path("/labs"),
+            environment={},
+            registry=FakeRegistry(records),
+            docker=docker,
+        )
+
+        self.assertEqual(reclaim_plan.container_ids, ())
+        self.assertEqual(reclaim_plan.image_ids, ("sha256:shared",))
+        self.assertEqual(reclaim_plan.preserved_shared_image_ids, ())
+
+    def test_all_fails_when_any_lab_still_has_a_container(self) -> None:
+        lab = Path("/labs/one/lab.clab.yml")
+        docker = FakeDocker()
+        docker.container_values = (
+            Container("container", "one", lab, "sha256:image", False),
+        )
+
+        with self.assertRaisesRegex(ReclaimError, "containers remain for: one"):
+            plan(
+                ("--all",),
+                cwd=Path("/labs"),
+                environment={},
+                registry=FakeRegistry(),
+                docker=docker,
+            )
+
+    def test_all_stopped_selects_only_stopped_labs_and_preserves_shared(self) -> None:
+        stopped = Path("/labs/stopped/lab.clab.yml")
+        running = Path("/labs/running/lab.clab.yml")
+        docker = FakeDocker()
+        docker.container_values = (
+            Container("stopped", "stopped", stopped, "sha256:shared", False),
+            Container("running", "running", running, "sha256:shared", True),
+        )
+        docker.images = {"shared": "sha256:shared"}
+
+        reclaim_plan = plan(
+            ("--all", "--stopped"),
+            cwd=Path("/labs"),
+            environment={},
+            registry=FakeRegistry(),
+            docker=docker,
+        )
+
+        self.assertEqual(tuple(lab.name for lab in reclaim_plan.labs), ("stopped",))
+        self.assertEqual(reclaim_plan.container_ids, ("stopped",))
+        self.assertEqual(reclaim_plan.image_ids, ())
+        self.assertEqual(reclaim_plan.preserved_shared_image_ids, ("sha256:shared",))
+
+    def test_never_deployed_lab_resolves_topology_image(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            topology(root, image="example/router:1")
+            docker = FakeDocker()
+            docker.references = {"example/router:1": "sha256:resolved"}
+            docker.images = {"resolved": "sha256:resolved"}
+
+            reclaim_plan = plan(
+                (),
+                cwd=root,
+                environment={},
+                registry=FakeRegistry(),
+                docker=docker,
+            )
+
+        self.assertEqual(reclaim_plan.image_ids, ("sha256:resolved",))
+        self.assertFalse(reclaim_plan.observations[0].ever_deployed)
+
+    def test_topology_and_all_conflict(self) -> None:
+        with self.assertRaises(SystemExit):
+            parser("eclab reclaim").parse_args(("-t", "lab.clab.yml", "--all"))
+
+    def test_stopped_requires_all(self) -> None:
+        with self.assertRaises(SystemExit):
+            parse_options(("--stopped",), "eclab reclaim")
+
+
+class ExecutionTest(unittest.TestCase):
+    def test_persists_before_removing_objects(self) -> None:
+        events: list[str] = []
+
+        class Registry(FakeRegistry):
+            def upsert(self, records: tuple[LabRecord, ...]) -> None:
+                events.append("registry")
+                super().upsert(records)
+
+        class Docker(FakeDocker):
+            def remove_container(self, container_id: str) -> None:
+                events.append(f"container:{container_id}")
+                super().remove_container(container_id)
+
+            def remove_image(self, image_id: str) -> None:
+                events.append(f"image:{image_id}")
+                super().remove_image(image_id)
+
+        record = LabRecord(
+            "one", Path("/labs/one"), None, frozenset({"sha256:image"}), True
+        )
+        reclaim_plan = ReclaimPlan(
+            (LabUse("one", record.directory, None, record.image_ids, ("c",), True),),
+            ("c",),
+            ("sha256:image",),
+            (),
+            (record,),
+        )
+        logger = MagicMock()
+        registry = Registry()
+
+        code = execute(
+            reclaim_plan,
+            registry=registry,
+            docker=Docker(),
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(events, ["registry", "container:c", "image:sha256:image"])
+
+    def test_registry_failure_aborts_before_deletion(self) -> None:
+        registry = FakeRegistry()
+        registry.error = LabRegistryError("unavailable")
+        docker = FakeDocker()
+        reclaim_plan = ReclaimPlan((), ("c",), ("sha256:image",), (), ())
+
+        code = execute(
+            reclaim_plan,
+            registry=registry,
+            docker=docker,
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, [])
+        self.assertEqual(docker.removed_images, [])
+
+    def test_deletion_failures_do_not_stop_independent_attempts(self) -> None:
+        docker = FakeDocker()
+        docker.container_failures = {"bad"}
+        reclaim_plan = ReclaimPlan(
+            (),
+            ("bad", "good"),
+            ("sha256:image",),
+            (),
+            (),
+        )
+
+        code = execute(
+            reclaim_plan,
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, ["good"])
+        self.assertEqual(docker.removed_images, ["sha256:image"])
+
+    def test_reports_measured_storage_saved(self) -> None:
+        docker = FakeDocker()
+        docker.storage_values = [8 * 1024**3, 5 * 1024**3]
+        logger = MagicMock()
+
+        code = execute(
+            ReclaimPlan((), (), (), (), ()),
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(logger.info.call_args.args[-1], "3.00 GiB")
+
+    def test_storage_measurement_failure_aborts_before_deletion(self) -> None:
+        docker = FakeDocker()
+        docker.storage_error = DockerError("unavailable")
+
+        code = execute(
+            ReclaimPlan((), ("container",), ("sha256:image",), (), ()),
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, [])
+        self.assertEqual(docker.removed_images, [])
+
+    def test_final_storage_measurement_failure_reports_unavailable(self) -> None:
+        docker = FakeDocker()
+        docker.storage_bytes = MagicMock(  # type: ignore[method-assign]
+            side_effect=(1024, DockerError("unavailable"))
+        )
+        logger = MagicMock()
+
+        code = execute(
+            ReclaimPlan((), ("container",), (), (), ()),
+            registry=FakeRegistry(),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, ["container"])
+        self.assertEqual(logger.info.call_args.args[-1], "unavailable")
+
+
+class DockerTest(unittest.TestCase):
+    def test_storage_snapshot_sums_reclaim_owned_categories(self) -> None:
+        docker = DockerClient()
+        payload = json.dumps(
+            [
+                {"Type": "Images", "Size": "1.5GB"},
+                {"Type": "Containers", "Size": "512MiB"},
+                {"Type": "Local Volumes", "Size": "1000B"},
+                {"Type": "Build Cache", "Size": "9GB"},
+            ]
+        )
+        with patch.object(docker, "_run", return_value=payload):
+            measured = docker.storage_bytes()
+
+        self.assertEqual(measured, 1_500_000_000 + 512 * 1024**2 + 1000)
+
+    def test_container_discovery_reports_running_state(self) -> None:
+        docker = DockerClient()
+        payload = json.dumps(
+            [
+                {
+                    "Id": "container",
+                    "Image": "sha256:image",
+                    "State": {"Running": True},
+                    "Config": {
+                        "Labels": {
+                            "containerlab": "demo",
+                            "clab-topo-file": "/labs/demo/lab.clab.yml",
+                        }
+                    },
+                }
+            ]
+        )
+        with patch.object(docker, "_run", side_effect=("container\n", payload)):
+            containers = docker.containers()
+
+        self.assertTrue(containers[0].running)
+
+    def test_image_removal_is_not_forced(self) -> None:
+        docker = DockerClient()
+        with patch.object(docker, "_run", return_value="") as run:
+            docker.remove_image("sha256:image")
+        run.assert_called_once_with(("image", "rm", "sha256:image"))
+
+
+class PluginTest(unittest.TestCase):
+    def test_package_declares_registry_before_reclaim(self) -> None:
+        project = tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+                encoding="utf-8"
+            )
+        )["project"]
+        group = project["entry-points"][
+            "engulf.plugins.v1.dependency.engulf_clab_reclaim"
+        ]
+        self.assertEqual(
+            group,
+            {
+                "engulf_clab.lab_registry": "preprocess=before; postprocess=none",
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+            },
+        )
+        goal = project["entry-points"][
+            "engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"
+        ]
+        application = project["entry-points"][
+            "engulf.plugins.v1.application.engulf_clab"
+        ]
+        self.assertEqual(goal, application)
+        self.assertEqual(tuple(goal), ("engulf_clab.reclaim",))
+
+    def test_schema_declares_reclaim_and_destructive_scope(self) -> None:
+        application = ApplicationMetadata(
+            application_id="engulf-clab",
+            display_name="ECLAB",
+            vendor="Engulf",
+            product="ECLAB",
+            version="1",
+            short_product_name="eclab",
+        )
+        names = {option.name for option in PLUGIN_SCHEMA.options(application)}
+        self.assertTrue({"reclaim", "-t", "--all", "--stopped"}.issubset(names))
+        annotations = {
+            annotation.subject: annotation
+            for annotation in PLUGIN_SCHEMA.annotations(application)
+        }
+        self.assertEqual(
+            annotations["reclaim"].lifecycle,
+            (LifecycleStage.BEFORE_GOAL,),
+        )
+        self.assertIn("are deleted", " ".join(annotations["reclaim"].implies))
+        self.assertIn("storage saved", " ".join(annotations["reclaim"].implies))
+
+    def test_reclaim_preempts_and_holds_mutation_lease(self) -> None:
+        api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = None
+        api.application = MagicMock(spec=ApplicationMetadata)
+        api.application.short_product_name = "eclab"
+        invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
+        registry = FakeRegistry()
+        reclaim_plan = ReclaimPlan((), (), (), (), ())
+
+        with (
+            patch("engulf_clab_reclaim.plugin.lab_registry", return_value=registry),
+            patch("engulf_clab_reclaim.plugin.DockerClient") as docker,
+            patch(
+                "engulf_clab_reclaim.plugin.plan", return_value=reclaim_plan
+            ) as planner,
+            patch("engulf_clab_reclaim.plugin.execute", return_value=0) as executor,
+        ):
+            result = ReclaimPlugin().before_goal(invocation, api)
+
+        assert result is not None
+        self.assertIs(result.status, GoalResultStatus.COMPLETED)
+        self.assertEqual(result.exit_code, 0)
+        api.leases.assert_called_once_with(("eclab-reclaim:docker",))
+        planner.assert_called_once()
+        executor.assert_called_once_with(
+            reclaim_plan,
+            registry=registry,
+            docker=docker.return_value,
+            logger=api.logger,
+        )
+
+    def test_help_exits_before_registry_or_lease(self) -> None:
+        api = MagicMock(spec=BeforeGoalAPI)
+        api.get_context.return_value = None
+        api.application = MagicMock(spec=ApplicationMetadata)
+        api.application.short_product_name = "eclab"
+        invocation = Invocation(("reclaim", "--help"), Path("/labs"), {})
+
+        with (
+            patch("engulf_clab_reclaim.plugin.lab_registry") as registry,
+            self.assertRaises(SystemExit) as stopped,
+        ):
+            ReclaimPlugin().before_goal(invocation, api)
+
+        self.assertEqual(stopped.exception.code, 0)
+        registry.assert_not_called()
+        api.leases.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

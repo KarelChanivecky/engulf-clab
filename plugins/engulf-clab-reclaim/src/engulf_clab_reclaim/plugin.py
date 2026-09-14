@@ -18,33 +18,33 @@ from engulf_clab_schema_api import (
 )
 from engulf_executable_wrapper_api import HelpAPI
 
-from .command import SleepError, execute, parse_options, plan
+from .command import ReclaimError, execute, parse_options, plan
 from .docker import DockerClient, DockerError
 
 PLUGIN_SCHEMA = (
-    PluginSchema("engulf_clab.sleep", package="engulf_clab_sleep")
+    PluginSchema("engulf_clab.reclaim", package="engulf_clab_reclaim")
     .add_command(
-        "sleep",
+        "reclaim",
         "Remove lab containers and reclaim lab-owned Docker image storage.",
     )
     .add_cli_flag(
         ("-t", "--topology"),
         "Select one lab topology instead of discovering it in the current directory.",
-        command="sleep",
+        command="reclaim",
         values=ValueType.FILE_PATH,
     )
     .add_cli_flag(
         "--all",
-        "Sleep every known lab only when every lab is already destroyed.",
-        command="sleep",
+        "Reclaim storage for every known lab only when all are already destroyed.",
+        command="reclaim",
     )
     .add_cli_flag(
         "--stopped",
-        "With --all, sleep only labs whose containers exist but are stopped.",
-        command="sleep",
+        "With --all, reclaim only labs whose containers exist but are stopped.",
+        command="reclaim",
     )
     .annotate(
-        "sleep",
+        "reclaim",
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         implies=(
             "normal Containerlab execution is preempted",
@@ -55,33 +55,33 @@ PLUGIN_SCHEMA = (
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
         examples=(
-            "eclab sleep -t lab.clab.yml",
-            "eclab sleep --all",
-            "eclab sleep --all --stopped",
+            "eclab reclaim -t lab.clab.yml",
+            "eclab reclaim --all",
+            "eclab reclaim --all --stopped",
         ),
     )
     .annotate(
         "-t",
-        commands=("sleep",),
+        commands=("reclaim",),
         path_base=PathBase.INVOCATION_DIRECTORY,
         conflicts_with=("--all",),
     )
     .annotate(
         "--all",
-        commands=("sleep",),
+        commands=("reclaim",),
         conflicts_with=("-t or --topology",),
         implies=("the command fails if any known lab still has containers",),
     )
     .annotate(
         "--stopped",
-        commands=("sleep",),
+        commands=("reclaim",),
         requires=("--all",),
         implies=("running and destroyed labs are not selected",),
     )
     .require_host_tool(
         "docker",
         "Docker supplies lab discovery and removes containers, volumes, and images.",
-        commands=("sleep",),
+        commands=("reclaim",),
     )
     .use_case("Reclaim Docker storage while preserving a lab's source workspace.")
     .reject("Do not use --all when any known lab must remain deployed.")
@@ -94,10 +94,10 @@ PLUGIN_SCHEMA = (
 )
 
 
-class SleepPlugin(SchemaBackedPlugin):
-    """Own the destructive Docker-only sleep command."""
+class ReclaimPlugin(SchemaBackedPlugin):
+    """Own the destructive Docker-only storage-reclamation command."""
 
-    plugin_id = "engulf_clab.sleep"
+    plugin_id = "engulf_clab.reclaim"
     schema = PLUGIN_SCHEMA
     priority = 195
     context_reads = SCHEMA_CONTEXTS | frozenset({LAB_REGISTRY_CONTEXT})
@@ -107,29 +107,29 @@ class SleepPlugin(SchemaBackedPlugin):
         self, invocation: Invocation, api: BeforeGoalAPI
     ) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
-        if not invocation.arguments or invocation.arguments[0] != "sleep":
+        if not invocation.arguments or invocation.arguments[0] != "reclaim":
             return None
         application_name = api.application.short_product_name or api.application.product
         arguments = invocation.arguments[1:]
-        options = parse_options(arguments, f"{application_name} sleep")
+        options = parse_options(arguments, f"{application_name} reclaim")
         registry = lab_registry(api)
         docker = DockerClient()
-        with api.leases(("eclab-sleep:docker",)):
+        with api.leases(("eclab-reclaim:docker",)):
             try:
-                sleep_plan = plan(
+                reclaim_plan = plan(
                     arguments,
                     cwd=invocation.cwd,
                     environment=invocation.environment,
                     registry=registry,
                     docker=docker,
-                    program=f"{application_name} sleep",
+                    program=f"{application_name} reclaim",
                     options=options,
                 )
-            except (DockerError, SleepError, LabRegistryError) as error:
-                api.logger.error("%s sleep: %s", application_name, error)
+            except (DockerError, ReclaimError, LabRegistryError) as error:
+                api.logger.error("%s reclaim: %s", application_name, error)
                 return GoalResult.completed(exit_code=1)
             exit_code = execute(
-                sleep_plan,
+                reclaim_plan,
                 registry=registry,
                 docker=docker,
                 logger=api.logger,
@@ -139,6 +139,6 @@ class SleepPlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  sleep [-t TOPOLOGY | --all [--stopped]]  "
+            "  reclaim [-t TOPOLOGY | --all [--stopped]]  "
             "Remove lab containers, reclaim images, and report storage saved"
         )

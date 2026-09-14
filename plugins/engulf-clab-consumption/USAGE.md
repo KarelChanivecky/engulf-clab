@@ -27,8 +27,8 @@ RAM. `STATE` is `DEPLOYED` when at least one lab container is running. Any
 non-running lab that consumes unique image storage is `STOPPED`, whether its
 containers still exist or it has no containers. Docker measurement uncertainty
 also remains `STOPPED` rather than claiming that storage is zero. A lab becomes
-`SLEEPING` when its unique image storage is zero. Shared image storage does not
-prevent `SLEEPING`. The total row displays `—` for state.
+`RECLAIMED` when its unique image storage is zero. Shared image storage does not
+prevent `RECLAIMED`. The total row displays `—` for state.
 
 `LAB DIR` is allocated filesystem space beneath the topology directory. The walk
 does not follow symlinks and counts a hard-linked inode once. An unreadable path

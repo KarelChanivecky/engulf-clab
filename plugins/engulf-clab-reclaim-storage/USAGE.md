@@ -1,6 +1,6 @@
 # Sleep labs
 
-Install `engulf-clab-sleep` beside `engulf-clab`. The active plugin adds:
+Install `engulf-clab-reclaim-storage` beside `engulf-clab`. The active plugin adds:
 
 ```text
 eclab sleep [-t TOPOLOGY | --all [--stopped]]
@@ -11,7 +11,7 @@ directory. `-t`/`--topology` selects one topology relative to the invocation
 directory. The topology selector and `--all` conflict, and `--stopped` requires
 `--all`.
 
-Sleeping one lab permanently removes all its Containerlab containers, their
+Reclaimed one lab permanently removes all its Containerlab containers, their
 writable layers, and anonymous volumes. It then removes every available Docker
 image used exclusively by that lab. Images that another known lab uses are
 preserved.
@@ -40,7 +40,7 @@ container is preserved by Docker and reported as a failure.
 The command never deletes the topology, startup configurations, captures, logs,
 or any other file in a lab directory. It does not prune unrelated containers,
 images, volumes, networks, or build cache. After complete success, selected labs
-appear as `SLEEPING` in consumption once unique image storage reaches zero.
+appear as `RECLAIMED` in consumption once unique image storage reaches zero.
 Images shared with other labs may remain without changing that state.
 Sleep is deliberately Docker-only: it does not dispatch the normal destroy
 lifecycle or release non-Docker resources owned by other plugins, such as host

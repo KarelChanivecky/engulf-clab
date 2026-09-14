@@ -32,7 +32,7 @@ _BINARY = {
     "pib": 1024**5,
     "eib": 1024**6,
 }
-_SLEEP_STORAGE_TYPES = frozenset({"images", "containers", "local volumes"})
+_RECLAIM_STORAGE_TYPES = frozenset({"images", "containers", "local volumes"})
 
 
 class DockerClient:
@@ -120,7 +120,7 @@ class DockerClient:
         total = 0
         for item in records:
             category = item.get("Type")
-            if not isinstance(category, str) or category.casefold() not in _SLEEP_STORAGE_TYPES:
+            if not isinstance(category, str) or category.casefold() not in _RECLAIM_STORAGE_TYPES:
                 continue
             size = _parse_size(item.get("Size"))
             if size is None:

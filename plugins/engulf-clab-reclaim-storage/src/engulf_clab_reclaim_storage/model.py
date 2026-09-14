@@ -31,7 +31,7 @@ class LabUse:
 
 
 @dataclass(frozen=True, slots=True)
-class SleepPlan:
+class ReclaimStoragePlan:
     labs: tuple[LabUse, ...]
     container_ids: tuple[str, ...]
     image_ids: tuple[str, ...]

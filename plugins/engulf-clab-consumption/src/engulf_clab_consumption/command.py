@@ -196,7 +196,7 @@ def _lab_from_record(record: LabRecord) -> Lab:
         record.directory,
         record.image_ids,
         (),
-        LabState.SLEEPING,
+        LabState.RECLAIMED,
         record.topology,
     )
 

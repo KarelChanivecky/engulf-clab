@@ -8,7 +8,7 @@ from pathlib import Path
 class LabState(StrEnum):
     DEPLOYED = "DEPLOYED"
     STOPPED = "STOPPED"
-    SLEEPING = "SLEEPING"
+    RECLAIMED = "RECLAIMED"
 
 
 @dataclass(frozen=True)

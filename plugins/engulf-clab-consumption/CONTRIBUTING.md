@@ -24,7 +24,7 @@ Preserve these accounting invariants:
 - distinguish Docker-confirmed absence for no-container images from measurement
   failure;
 - distinguish running `DEPLOYED`, unique-image-consuming `STOPPED`, and
-  zero-unique-image or never-deployed `SLEEPING` state;
+  zero-unique-image or never-deployed `RECLAIMED` state;
 - propagate unavailable measurements as `N/A` instead of zero or a partial sum;
 - hold no state transaction or resource lease.
 

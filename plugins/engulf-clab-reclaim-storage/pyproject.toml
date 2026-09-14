@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "engulf-clab-sleep"
+name = "engulf-clab-reclaim"
 version = "0.1.1"
 description = "Reclaim lab-owned Docker storage while preserving eclab workspaces"
 readme = "README.md"
@@ -20,23 +20,23 @@ dependencies = [
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
-"engulf_clab.sleep" = "engulf_clab_sleep:plugin"
+"engulf_clab.reclaim_storage" = "engulf_clab_reclaim_storage:plugin"
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
-"engulf_clab.sleep" = "engulf_clab_sleep:plugin"
+"engulf_clab.reclaim_storage" = "engulf_clab_reclaim_storage:plugin"
 
-[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_sleep"]
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_reclaim_storage"]
 "engulf_clab.lab_registry" = "preprocess=before; postprocess=none"
 "engulf_clab.schema" = "preprocess=after; postprocess=none"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/engulf_clab_sleep"]
+packages = ["src/engulf_clab_reclaim_storage"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"README.md" = "engulf_clab_sleep/README.md"
-"AGENTS.md" = "engulf_clab_sleep/AGENTS.md"
-"CONTRIBUTING.md" = "engulf_clab_sleep/CONTRIBUTING.md"
-"USAGE.md" = "engulf_clab_sleep/USAGE.md"
+"README.md" = "engulf_clab_reclaim_storage/README.md"
+"AGENTS.md" = "engulf_clab_reclaim_storage/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_reclaim_storage/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_reclaim_storage/USAGE.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -57,4 +57,4 @@ target-version = "py314"
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src/engulf_clab_sleep"]
+files = ["src/engulf_clab_reclaim_storage"]

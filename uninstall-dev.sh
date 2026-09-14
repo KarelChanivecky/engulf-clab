@@ -33,7 +33,7 @@ fi
     engulf-clab-freeze \
     engulf-clab-lab-registry \
     engulf-clab-lab-registry-api \
-    engulf-clab-sleep \
+    engulf-clab-reclaim-storage \
     engulf-clab-consumption \
     engulf-clab-freeze-api \
     engulf-clab-pki \

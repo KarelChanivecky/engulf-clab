@@ -54,7 +54,7 @@ def selected_lab(
             if any(item.running for item in matching)
             else LabState.STOPPED
             if matching
-            else LabState.SLEEPING
+            else LabState.RECLAIMED
         ),
         topology,
     )
@@ -121,7 +121,7 @@ def collect(
         directory = directory_size(lab.directory) if lab.directory is not None else None
         images = [_usage_for(image_id, usage) for image_id in lab.image_ids]
         missing_images_are_absent = (
-            image_usage_available and lab.state is LabState.SLEEPING
+            image_usage_available and lab.state is LabState.RECLAIMED
         )
         complete_images = image_usage_available and (
             missing_images_are_absent or all(item is not None for item in images)
@@ -151,7 +151,7 @@ def collect(
         state = (
             LabState.DEPLOYED
             if lab.running_container_ids
-            else LabState.SLEEPING
+            else LabState.RECLAIMED
             if unique == 0
             else LabState.STOPPED
         )
@@ -212,7 +212,7 @@ def totals(
         if image is None
     }
     safely_absent = all(
-        row.state is LabState.SLEEPING
+        row.state is LabState.RECLAIMED
         for identifier in absent_images
         for row in rows
         if identifier in row.image_ids

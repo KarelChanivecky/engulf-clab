@@ -11,10 +11,10 @@ from engulf_clab_lab_parser import load_topology, topology_path_from_args
 from engulf_clab_lab_registry_api import LabRecord, LabRegistry, LabRegistryError
 
 from .docker import DockerClient, DockerError
-from .model import Container, LabUse, SleepPlan
+from .model import Container, LabUse, ReclaimPlan
 
 
-class SleepError(RuntimeError):
+class ReclaimError(RuntimeError):
     pass
 
 
@@ -28,12 +28,12 @@ def parser(program: str) -> argparse.ArgumentParser:
     selection.add_argument(
         "--all",
         action="store_true",
-        help="sleep every known lab, but only when all are destroyed",
+        help="reclaim every known lab, but only when all are destroyed",
     )
     result.add_argument(
         "--stopped",
         action="store_true",
-        help="with --all, sleep only labs whose containers are stopped",
+        help="with --all, reclaim only labs whose containers are stopped",
     )
     return result
 
@@ -53,9 +53,9 @@ def plan(
     environment: Mapping[str, str],
     registry: LabRegistry,
     docker: DockerClient,
-    program: str = "eclab sleep",
+    program: str = "eclab reclaim",
     options: argparse.Namespace | None = None,
-) -> SleepPlan:
+) -> ReclaimPlan:
     if options is None:
         options = parse_options(arguments, program)
     records = registry.records()
@@ -72,7 +72,7 @@ def plan(
             deployed = tuple(lab for lab in universe if lab.container_ids)
             if deployed:
                 names = ", ".join(lab.name for lab in deployed)
-                raise SleepError(
+                raise ReclaimError(
                     "--all requires every known lab to be destroyed; "
                     f"containers remain for: {names}"
                 )
@@ -90,7 +90,7 @@ def plan(
                 docker,
             )
         except (OSError, RuntimeError) as error:
-            raise SleepError(str(error)) from error
+            raise ReclaimError(str(error)) from error
         universe = tuple(
             lab
             for lab in universe
@@ -132,7 +132,7 @@ def plan(
         for lab in targets
         if lab.directory is not None
     )
-    return SleepPlan(
+    return ReclaimPlan(
         targets,
         tuple(
             dict.fromkeys(
@@ -146,34 +146,37 @@ def plan(
 
 
 def execute(
-    sleep_plan: SleepPlan,
+    reclaim_plan: ReclaimPlan,
     *,
     registry: LabRegistry,
     docker: DockerClient,
     logger: PluginLogger,
 ) -> int:
     try:
-        registry.upsert(sleep_plan.observations)
+        registry.upsert(reclaim_plan.observations)
     except (OSError, RuntimeError, LabRegistryError) as error:
-        logger.error("could not preserve labs in the registry before sleep: %s", error)
+        logger.error(
+            "could not preserve labs in the registry before storage reclamation: %s",
+            error,
+        )
         return 1
 
     try:
         storage_before = docker.storage_bytes()
     except DockerError as error:
-        logger.error("could not measure Docker storage before sleep: %s", error)
+        logger.error("could not measure Docker storage before reclamation: %s", error)
         return 1
 
     failures: list[str] = []
     removed_containers = 0
     removed_images = 0
-    for container_id in sleep_plan.container_ids:
+    for container_id in reclaim_plan.container_ids:
         try:
             docker.remove_container(container_id)
             removed_containers += 1
         except DockerError as error:
             failures.append(str(error))
-    for image_id in sleep_plan.image_ids:
+    for image_id in reclaim_plan.image_ids:
         try:
             docker.remove_image(image_id)
             removed_images += 1
@@ -185,18 +188,18 @@ def execute(
         storage_after = docker.storage_bytes()
         storage_saved = max(0, storage_before - storage_after)
     except DockerError as error:
-        failures.append(f"could not measure Docker storage after sleep: {error}")
+        failures.append(f"could not measure Docker storage after reclamation: {error}")
         storage_saved = None
 
     for failure in failures:
         logger.error("%s", failure)
     logger.info(
-        "slept %d lab(s): removed %d container(s) and %d image(s); "
+        "reclaimed storage for %d lab(s): removed %d container(s) and %d image(s); "
         "preserved %d shared image(s); storage saved %s",
-        len(sleep_plan.labs),
+        len(reclaim_plan.labs),
         removed_containers,
         removed_images,
-        len(sleep_plan.preserved_shared_image_ids),
+        len(reclaim_plan.preserved_shared_image_ids),
         _bytes(storage_saved),
     )
     return 1 if failures else 0
@@ -264,7 +267,7 @@ def _selected_lab(
     document = load_topology(topology, environment)
     name = document.get("name")
     if not isinstance(name, str) or not name:
-        raise SleepError(f"topology has no nonempty name: {topology}")
+        raise ReclaimError(f"topology has no nonempty name: {topology}")
     matching = tuple(
         item
         for item in containers

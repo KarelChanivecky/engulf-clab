@@ -124,19 +124,19 @@ class AccountingTest(unittest.TestCase):
         self.assertEqual(classified["image"].unique, 1000)
         self.assertEqual(classified["image"].shared, 0)
 
-    def test_shared_images_do_not_prevent_sleeping_state(self) -> None:
+    def test_shared_images_do_not_prevent_reclaimed_state(self) -> None:
         docker = FakeDocker()
         docker.images = {"shared": ImageUsage("shared", 1000, 400, 600)}
         labs = (
-            Lab("a", None, frozenset({"shared"}), (), LabState.SLEEPING),
-            Lab("b", None, frozenset({"shared"}), (), LabState.SLEEPING),
+            Lab("a", None, frozenset({"shared"}), (), LabState.RECLAIMED),
+            Lab("b", None, frozenset({"shared"}), (), LabState.RECLAIMED),
         )
 
         classified = classify_image_usage(docker.images, labs)
         rows = collect(labs, docker, image_usage=classified)
 
         self.assertEqual([row.unique_image_bytes for row in rows], [0, 0])
-        self.assertTrue(all(row.state is LabState.SLEEPING for row in rows))
+        self.assertTrue(all(row.state is LabState.RECLAIMED for row in rows))
 
     def test_never_deployed_lab_with_unique_image_is_stopped(self) -> None:
         docker = FakeDocker()
@@ -146,7 +146,7 @@ class AccountingTest(unittest.TestCase):
             None,
             frozenset({"image"}),
             (),
-            LabState.SLEEPING,
+            LabState.RECLAIMED,
         )
 
         row = collect((lab,), docker, image_usage=docker.images)[0]
@@ -232,7 +232,7 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(lab.name, "demo")
             self.assertEqual(lab.image_ids, frozenset({"sha256:abc"}))
             self.assertEqual(lab.running_container_ids, ())
-            self.assertIs(lab.state, LabState.SLEEPING)
+            self.assertIs(lab.state, LabState.RECLAIMED)
 
     def test_selected_lab_resolves_default_and_kind_images(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -305,7 +305,7 @@ topology:
             lab = selected_lab(topology, (), docker, {}, record=record)
 
             self.assertEqual(lab.image_ids, frozenset({"sha256:last"}))
-            self.assertIs(lab.state, LabState.SLEEPING)
+            self.assertIs(lab.state, LabState.RECLAIMED)
 
     def test_stale_index_row_is_hidden_when_no_resources_remain(self) -> None:
         lab = Lab(
@@ -313,7 +313,7 @@ topology:
             Path("/definitely/missing/eclab-lab"),
             frozenset({"sha256:gone"}),
             (),
-            LabState.SLEEPING,
+            LabState.RECLAIMED,
         )
 
         self.assertFalse(has_retained_resources(lab, {}, image_usage_available=True))
@@ -336,7 +336,7 @@ class CommandTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("IMAGES UNIQUE", output.getvalue())
             self.assertIn("STATE", output.getvalue())
-            self.assertIn("SLEEPING", output.getvalue())
+            self.assertIn("RECLAIMED", output.getvalue())
             self.assertIn("demo", output.getvalue())
             self.assertIn("TOTAL", output.getvalue())
 
@@ -365,7 +365,7 @@ class CommandTest(unittest.TestCase):
             self.assertIn("STOPPED", output.getvalue())
             self.assertEqual(registry.updates, [])
 
-    def test_no_container_missing_historical_image_is_sleeping(self) -> None:
+    def test_no_container_missing_historical_image_is_reclaimed(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             lab = Lab(
@@ -373,7 +373,7 @@ class CommandTest(unittest.TestCase):
                 root,
                 frozenset({"sha256:removed"}),
                 (),
-                LabState.SLEEPING,
+                LabState.RECLAIMED,
             )
 
             row = collect((lab,), FakeDocker(), image_usage={})[0]
@@ -381,7 +381,7 @@ class CommandTest(unittest.TestCase):
             self.assertEqual(row.unique_image_bytes, 0)
             self.assertEqual(row.shared_image_bytes, 0)
             self.assertEqual(row.storage_bytes, row.directory_bytes)
-            self.assertIs(row.state, LabState.SLEEPING)
+            self.assertIs(row.state, LabState.RECLAIMED)
 
     def test_no_container_image_is_na_when_docker_measurement_failed(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -390,7 +390,7 @@ class CommandTest(unittest.TestCase):
                 Path(temporary),
                 frozenset({"sha256:unknown"}),
                 (),
-                LabState.SLEEPING,
+                LabState.RECLAIMED,
             )
 
             row = collect(
@@ -476,7 +476,7 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(delays, [2])
         self.assertIn("TOTAL", output.getvalue())
 
-    def test_poll_reflects_sleeping_to_deployed_transition(self) -> None:
+    def test_poll_reflects_reclaimed_to_deployed_transition(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             topology = root / "lab.clab.yml"
@@ -518,7 +518,7 @@ class CommandTest(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(registry.reads, 2)
-            self.assertRegex(output.getvalue(), r"demo\s+SLEEPING")
+            self.assertRegex(output.getvalue(), r"demo\s+RECLAIMED")
             self.assertRegex(output.getvalue(), r"demo\s+DEPLOYED")
 
     def test_topology_and_all_conflict(self) -> None:

@@ -1,4 +1,4 @@
-# Contributing to engulf-clab-sleep
+# Contributing to engulf-clab-reclaim-storage
 
 The plugin preempts only `sleep` in `before_goal`. Planning must be read-only and
 complete before mutation begins. Preserve lab workspaces and registry history;
@@ -28,8 +28,8 @@ Tests use fake Docker and registry boundaries; they must not touch a live daemon
 Validate narrowly with:
 
 ```bash
-PYTHONPATH=plugins/engulf-clab-lab-registry-api/src:plugins/engulf-clab-sleep/src \
-  .venv/bin/python -m pytest -q plugins/engulf-clab-sleep/tests
-.venv/bin/python -m compileall -q plugins/engulf-clab-sleep/src
+PYTHONPATH=plugins/engulf-clab-lab-registry-api/src:plugins/engulf-clab-reclaim-storage/src \
+  .venv/bin/python -m pytest -q plugins/engulf-clab-reclaim-storage/tests
+.venv/bin/python -m compileall -q plugins/engulf-clab-reclaim-storage/src
 make check-skill
 ```
