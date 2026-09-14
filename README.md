@@ -30,57 +30,154 @@ meta-package to enable the complete maintained set.
 
 ## Complete feature inventory
 
-The table below inventories the maintained capabilities in this repository.
-The installed launcher's help and plugin list remain authoritative for the
-features active in a particular environment or edition.
+Each cell is a standalone feature rather than a feature/description pair. This
+lists implemented capabilities; reserved PKI namespaces such as generated CRLs,
+OCSP enforcement, and managed certificate databases are not claimed. The
+installed launcher's help and plugin list remain authoritative for a particular
+environment or edition.
 
-| Feature | What it provides |
+| Feature | Feature |
 | --- | --- |
-| Containerlab-compatible `eclab` wrapper | Preserves ordinary Containerlab commands, flags, topology YAML, exit behavior, and relative-path semantics while Engulf plugins contribute preparation, mutation, execution, and cleanup around the native call. The reusable application definition also supports separately branded editions with controlled plugin sets. |
-| Safe privilege boundary | Refuses to launch the wrapper itself as root or Windows administrator, reports `GoalPrivilegeError` without a traceback, and returns framework exit code 70. Features that need privileged host changes use their own explicit boundary, such as the local MCP daemon. |
-| Package-discovered plugin system | Discovers independently installed plugins through Python entry points, enforces declared application and goal compatibility, resolves package-declared ordering, and exposes activation order, distribution, and version through `--engulf-plugin-list`. The `engulf-clab-all-plugins` meta-package installs the complete maintained plugin set. |
-| Runtime help, diagnostics, and logging | Combines native wrapper help with concise help from every active plugin, offers the packaged-container catalog through `--eclab-containers-help`, supports global and per-plugin log levels, and keeps operational output on callback-bound Engulf loggers. |
-| Shell completion | Installs Bash, Zsh, or Fish completion for the selected launcher; merges wrapper/schema candidates with an explicitly trusted native Containerlab completer, and retains schema-backed candidates when native completion is unavailable. |
-| Stable workspace identity and managed state | Uses the selected topology's directory as the canonical workspace, or the current directory when no filesystem topology is selected. Engulf user/workspace state, short transactions, resource leases, and invocation contexts give plugins durable identities without rewriting source labs. |
-| Topology selection, parsing, and environment expansion | Selects `-t`, `--topo`, or `--topology` consistently, discovers an unambiguous local topology when allowed, parses ordinary Containerlab YAML once into an immutable shared model, loads the lab environment file, expands supported variables, and exposes deferred mutations without giving mutators ownership of the source document. |
-| Temporary topology writer | Applies ordered deferred mutations only to a derived topology beside the source, preserves relative references, forwards the effective path to Containerlab, and removes the temporary file after the call. The maintained pipeline never rewrites the source topology. |
-| Containerlab discovery and managed builds | Resolves an explicit binary or directory, `PATH`, a prepared checkout, or managed user-state checkout; can clone/update a selected repository and revision, build Containerlab, and validate Docker availability. Per-invocation schema and source controls override persistent environment defaults. |
-| Sudo-less Containerlab setup | Supports the Containerlab sudo-less setup workflow as an explicit wrapper operation while keeping the `eclab` Python process unprivileged and reporting host prerequisite or permission failures cleanly. |
-| Shared safe-checkout engine | Gives Containerlab and vrnetlab provisioning a common API for canonical repository identity, locked clone/update operations, moving or fixed revisions, clamp behavior, recovery, and protection against unsafe or unrelated checkout paths. |
-| vrnetlab discovery and provisioning | Resolves an explicit vrnetlab directory, environment selection, prepared checkout, or managed checkout; can clone/update the configured repository/version and publishes the exact selected source for builders and runtime-schema generation. |
-| Application-neutral Docker image API | Defines immutable image requirements, custom parameters, provisions, Dockerfile/pull/archive/vrnetlab recipes, provider responses, authority and fallback rules, graph contexts, and an independent `org.engulf.docker-image` goal contract usable without eclab or YAML. |
-| Recursive image resolution and execution | Resolves roots and recursively discovered dependencies, ranks authoritative providers deterministically, honors terminal rejection and controlled fallback, detects cycles/conflicting recipes, and executes dependency-first. Independent branches may run concurrently while tag/source leases serialize conflicting Docker work. |
-| Dockerfile dependency analysis | Discovers literal `FROM` and external `COPY --from` image dependencies, expands known global build arguments, rejects unresolved dynamic sources, excludes stage aliases and `scratch`, and combines discovered edges with explicit provider dependencies. |
-| Topology image-build dispatcher | Converts final topology image references into graph roots, carries node-scoped image parameters, resolves every active provider, provisions images before Containerlab, and sets locally provisioned roots to `image-pull-policy: Never` in the derived topology. |
-| Per-node Dockerfile builds | Declares Dockerfile, context, build arguments, Docker flags, and build-only base nodes through node environment controls. Build-only nodes contribute graph roots and dependencies but are removed from the deployable topology; Docker layer caching supplies rebuild freshness. |
-| Docker image archives | Loads plain or compressed `docker save` archives, optionally selects and retags one source from a multi-image archive, supports missing-only reuse/reload policy, verifies ambiguity instead of guessing, and integrates archive images into the same dependency graph and leasing model. |
-| vrnetlab appliance image builds | Selects node VM source artifacts and builder types, resolves source precedence, prepares the appropriate vrnetlab builder, fingerprints source/checkout/image identity, runs dependency-aware Make builds with configurable parallelism, safely restores pre-existing builder artifacts/tags after failures, and reuses matching successful outputs. |
-| Extensible packaged-container manager | Lets independently published collections register immutable, package-owned Dockerfile recipes and required Containerlab runtime fields. It validates namespaces/assets/conflicts, canonicalizes managed `:latest` references, rejects unknown images in owned namespaces, preserves source YAML, and exposes the active collection catalog. |
-| Core helper containers | Supplies `eclab.containers/host-connector` for protocol-independent IPv4/IPv6 VIP-to-external-host forwarding and source NAT, plus `eclab.containers/wan-access` for one-interface IPv4 masquerading with optional DHCP. Required capabilities, sysctls, and safe defaults are injected without embedding lab credentials or addressing. |
-| PKI-aware Debian and Fedora base containers | Supplies `eclab.containers.pki/debian` and `/fedora` bases whose retained entrypoint installs a node's projected trust and identity configuration before the application starts. Descendants may add browsers, curl, nginx, Playwright, or other applications without baking private material into image layers. |
-| License pools | Accepts a file, pool directory, variable reference, or frozen-license prompt; allocates safely across labs with sticky, least-recently-used, or round-robin behavior; supports exact per-node clamps; publishes a non-secret selection breadcrumb; and releases only the current lab's claims during lifecycle cleanup. |
-| Managed DHCP/NAT WAN bridges | Recognizes explicitly marked Containerlab bridge nodes, validates subnet/gateway/pool/DNS/lease controls, selects an uplink, manages IPv4 forwarding, marked firewall/NAT rules, gateway addressing, and a packaged DHCP process, shares compatible bridges across workspaces, journals provisioning, and restores only resources it owns on last release. |
-| Sticky management addressing | Assigns deterministic private management IPv4 or IPv6 subnets and stable per-node addresses after parsing; honors complete explicit addressing, configurable pools/exclusions/capacity, disable controls, and cross-lab allocation state while checking Engulf claims, Docker networks, host routes, and bounded traceroutes for conflicts. |
-| PKI catalog and certificate generation | Uses manifest version 2 to merge local/global profiles, stores, authorities, and leaf declarations; resolves scoped references and node requests; generates persistent authorities and ephemeral identities under leases; backdates defaults for clock tolerance; creates least-privilege read-only node projections; and exposes the `pki global` path, init, edit, and validate operations plus a non-generating `pki effective` view. |
-| PKI trust and identity policy | Supports natural-root trust, explicit include/exclude rules, requested private authorities, per-node certificate lists, configurable mount targets, inventory/fingerprint metadata, and `all`/`none` trust selection. Private keys appear only in authorized node views, while optional service declarations can inject supporting service nodes. |
-| Portable Linux PKI runtime | Provides the common container entrypoint and adapters for system trust, isolated or augmented trust, default and application-specific identities, browsers/NSS, Playwright, curl, nginx, OpenSSL, and Python. Separate Debian 13 and Fedora 44 providers install distribution-specific trust prerequisites as recursively resolved image assets. |
-| FortiGate PKI injection | For resolved `fortinet_fortigate` nodes, converts only the authorized typed PKI projection into validated `FOS_PKI_CA_CERTS` and `FOS_PKI_LOCAL_CERTS` path mappings, checks read-only mount/path containment and refname uniqueness, and leaves generation, secrets, rollback, and cleanup to the PKI owner. |
-| Portable freeze archives | `eclab freeze` creates an atomic, sanitized lab archive containing a copied topology, exact Python package lock, best-effort wheelhouse, external VM inputs, and launcher. It records prior output archives to prevent recursive inclusion, applies built-in and lab-specific ignore rules, rejects unsafe external symlinks, redacts license selections, and never changes the source lab. |
-| Offline freeze mode | Optionally bundles the active eclab environment, resolved Containerlab executable, exact vrnetlab checkout, and ordinary topology images for an offline, platform-compatible handoff; generated appliances, vendor VM inputs, and unavailable prerequisites fail explicitly instead of producing a falsely portable archive. |
-| Atomic defrost and license restoration | Expands into a staged destination, validates archive safety, restores executable permissions and bundled tools/images, prepares a compatible runtime, resolves redacted licenses from CLI/environment/prompt sources, removes freeze metadata, and publishes atomically. `--force` replaces only a destination recorded by an earlier defrost. |
-| Encrypted PKI secret export | Ordinary freezes contain no private material. An explicit passphrase-file flow exports only declarations marked `freeze.exportable`, encrypts them, and verifies fingerprints and canonical declaration identities during defrost. Typed freeze/defrost contributor APIs let optional packages extend archives without coupling to the core plugin. |
-| Persistent lab registry | Records successful deploy/redeploy lab identity, canonical topology location, and exact Docker image IDs in versioned Engulf user state; retains destroyed labs for inventory, accepts complete observations from consumers, preserves corrupt state rather than overwriting it, and exposes a typed read/contribution API without scanning or mutating labs. |
-| Resource consumption reporting | `eclab consumption` reports one lab or all known/deployed labs with `DEPLOYED`, `STOPPED`, or `RECLAIMED` state, instantaneous CPU, RAM, allocated lab-directory space, unique image storage, shared image storage, total storage, and a deduplicated total row. It handles moved tags, retained container root filesystems, unavailable measurements, registry seeding, and non-overlapping two-second polling. |
-| Docker storage reclaim | `eclab reclaim` removes a selected lab's containers, writable layers, anonymous volumes, and exclusively owned images; guarded `--all` requires every known lab to be destroyed, while `--all --stopped` selects only non-running containerized labs. It preserves shared/unrelated images, lab files, networks, build cache, and non-Docker plugin resources, serializes deletion, attempts every selected object, and reports measured IEC storage saved. |
-| Reclaimed lifecycle state | A non-running lab is `STOPPED` while unique image storage remains or Docker cannot prove it is zero, and becomes `RECLAIMED` once unique image storage is zero. Shared images do not prevent `RECLAIMED`, making the state describe per-lab reclaimable ownership rather than global Docker cache contents. |
-| Runtime schema declaration API | Lets plugins declare concise task-routable controls, relationships, safety notes, wrapper flag/environment precedence, packaged documentation snapshots, and edition pipeline membership without embedding implementation-only contributor documentation. |
-| Runtime schema compiler | Composes active plugin declarations with the exact selected Containerlab schema and matching Containerlab/vrnetlab node-kind documentation; records source revision, application metadata, provider ownership, pipeline lineage, and fingerprints; emits task catalogs, per-provider YAML, per-kind references, a manifest, and the final validation schema; and caches immutable artifacts per edition pipeline. |
-| Runtime-generated Codex lab skill | Installs a concise static workflow plus the compiled catalog and task-relevant provider references for the exact active runtime. Installation refuses symlinked/unrelated targets, backs up recognized targets, publishes atomically, retains fingerprinted historical runtimes for existing conversations, repairs incomplete installs, and tracks roots for best-effort refresh after later eclab calls. |
-| Static comparison skill | Keeps a separately packaged, separately named `develop-eclab-lab-static` baseline installable beside the generated skill for explicit comparative evaluation without taking over the generated target or refresh lifecycle. |
-| Local privileged MCP control service | Provides an unprivileged stdio bridge to a root-owned, group-protected Unix-socket daemon with configured lab roots and service-owned profiles. Its typed tools list labs, validate bounded YAML/offline graphs, deploy, destroy one lab, inspect status, retrieve bounded node logs/diagnostics, and list/inspect/log/cancel retained asynchronous jobs—without arbitrary commands, flags, paths, environment secrets, node execution, or `destroy --all`. |
-| MCP job safety and operations | Enforces stable lab IDs, caller override policy, one active lifecycle job per lab, bounded logs/results/retention, peer attribution, process-group cancellation with escalation, restart reconciliation, root-owned state, and structured safe errors. Different labs may run concurrently while duplicate work for one lab returns the existing job. |
-| Comprehensive demonstration lab | Installs a non-plugin example lab combining a client, Fake WAN, FortiGate, DMZ, and work network so operators and contributors can exercise the integrated feature set from a self-contained starting point. |
-| Independently publishable contracts and plugins | Keeps the wrapper, MCP service, demo installer, meta-package, shared checkout/image/container/freeze/PKI/registry/schema APIs, runtime implementations, providers, collections, and skills as separately versioned Python distributions, allowing applications and editions to install only the contracts and features they need. |
+| Lab packaging via freeze/defrost | Lab resource-consumption inspection and Docker reclaim |
+| Native Containerlab CLI passthrough | Engulf before/after invocation lifecycle |
+| Package-discovered plugins | Package-declared plugin ordering |
+| Complete all-plugins meta-package | Separately branded launcher editions |
+| Unprivileged launcher enforcement | Privileged operations behind a narrow MCP boundary |
+| Global diagnostic log level | Per-plugin diagnostic log levels |
+| Active plugin/version inventory | Dynamic installed-plugin help |
+| Bash, Zsh, and Fish completion | Trusted native Containerlab completion merging |
+| Stable topology-directory workspace identity | Engulf-managed user and workspace state |
+| Shared-resource leases | Transactional state updates |
+| Explicit topology selection | Unambiguous local topology discovery |
+| Immutable shared topology parsing | Lab-local `<name>.env` loading |
+| Topology environment expansion | Ordered deferred topology mutations |
+| Temporary derived topology output | Source topology preservation |
+| Relative-path preservation | Automatic temporary-topology cleanup |
+| Automatic Containerlab provisioning | Automatic vrnetlab provisioning |
+| Explicit Containerlab binary selection | Explicit vrnetlab checkout selection |
+| Managed Containerlab checkout | Containerlab revision pinning and updates |
+| Automatic Containerlab source builds | Sudo-less Containerlab host setup |
+| Managed vrnetlab revision pinning and updates | Shared safe Git-checkout engine |
+| Exact Containerlab/vrnetlab source publication | Dirty-checkout and unsafe-path protection |
+| Application-neutral Docker image graph | Per-image immutable build parameters |
+| Authority-ranked image providers | Controlled provider failure fallback |
+| Recursive Dockerfile `FROM` resolution | External `COPY --from` image resolution |
+| Image dependency cycle detection | Conflicting image recipe detection |
+| Dependency-first image provisioning | Parallel independent image builds |
+| Exact-tag local image reuse | Registry pull fallback |
+| Topology-declared Dockerfile builds | Per-node Docker build contexts |
+| Docker build arguments and flags | Build-only topology image nodes |
+| Docker image provisioning from `.tar` | Docker image provisioning from `.tar.gz`/`.tgz` |
+| Compressed image-archive loading | Multi-image archive source selection |
+| Archive image retagging | Missing-only reuse or forced archive reload |
+| Automatic vrnetlab image builds | Per-node vrnetlab builder selection |
+| Raw `.qcow2` vrnetlab sources | Archived vrnetlab image sources |
+| Per-node and default VM-image selectors | Node/lab/global source-variable precedence |
+| vrnetlab source/build fingerprinting | Matching vrnetlab build reuse |
+| Configurable parallel vrnetlab builds | Serialized same-builder execution |
+| Safe vrnetlab build-input restoration | Docker-tag and builder-directory leases |
+| Extensible packaged-container collections | Installed container recipe catalog |
+| Required runtime-field injection | Owned image-namespace validation |
+| IPv4 host-connector VIP forwarding | IPv6 host-connector VIP forwarding |
+| Protocol-independent host connection | Host-connector return-path source NAT |
+| Static-NAT WAN access container | Optional-DHCP WAN access container |
+| PKI-aware Debian 13 base container | PKI-aware Fedora 44 base container |
+| Direct per-node license files | Shared directory license pools |
+| Sticky license selection | Least-recently-used license selection |
+| Round-robin license selection | Exact per-node license clamps |
+| UUID-stable license claims | Concurrent cross-lab license leasing |
+| Failed-preparation license rollback | Destroy-time license release |
+| Frozen-license prompts | Non-secret selected-license breadcrumbs |
+| Sticky IPv4 management subnets | Sticky IPv6 management subnets |
+| Deterministic per-node management IPs | Complete explicit addressing preservation |
+| Configurable private address pools | Address-pool exclusions and capacity limits |
+| Docker-network collision checks | Host-route and bounded-traceroute collision checks |
+| Historical address reuse | `--keep-mgmt-net` claim preservation |
+| Managed DHCP bridge nodes | Managed IPv4 outbound NAT |
+| Configurable WAN subnet and gateway | Configurable DHCP pool bounds |
+| Configurable DHCP DNS and lease time | Explicit or route-discovered uplink selection |
+| Shared compatible WAN bridges | Incompatible bridge-claim rejection |
+| WAN provisioning journals | Ownership-aware WAN cleanup |
+| Local and global PKI catalogs | Whole-object scoped PKI shadowing |
+| Root and intermediate CA generation | Server and client certificate generation |
+| Cross-signed CA variants | CRL distribution-point configuration |
+| Combined server/client certificate profiles | Certificate authority variants |
+| RSA key generation | ECDSA key generation |
+| Ed25519 and Ed448 key generation | Offline ML-DSA key generation when supported |
+| Reusable certificate profiles | Custom certificate subjects |
+| DNS and IP subject alternative names | Email and URI subject alternative names |
+| Certificate key-usage controls | Extended-key-usage controls |
+| Basic constraints | Name constraints |
+| Authority Information Access/OCSP URLs | CRL-signing key usage |
+| Certificate policy OIDs and CPS URLs | Custom certificate extensions |
+| PEM and DER output | PKCS#12 and JKS output |
+| Configurable certificate validity | Clock-skew-safe default backdating |
+| Immutable certificate generation history | Node-name default leaf common names |
+| Canonical local/global PKI references | Ambiguous and duplicate reference rejection |
+| Natural-root trust selection | Explicit trust include/exclude rules |
+| Requested private CA access | Least-privilege per-node PKI views |
+| PKI inventory and fingerprints | Read-only PKI mounts |
+| Configurable PKI mount target | Persistent CA and ephemeral leaf lifecycles |
+| `pki global path` and `init` | `pki global edit` and `validate` |
+| Non-generating `pki effective` inspection | Optional PKI service-node recipes |
+| Linux system trust installation | Augmented or isolated application trust |
+| Chrome/Chromium NSS trust | Managed Firefox profile trust |
+| Browser client-certificate selection | Playwright client-certificate configuration |
+| curl client identity configuration | nginx identity configuration fragment |
+| Debian-family PKI runtime installer | Fedora-family PKI runtime installer |
+| FortiGate CA-certificate injection | FortiGate local certificate/key injection |
+| FortiGate PKI refname validation | FortiGate least-privilege projection checks |
+| Lab packaging with `freeze` | Lab expansion with `defrost` |
+| Sanitized portable lab archives | Atomic archive creation and expansion |
+| Exact Python package lock | Best-effort wheelhouse bundling |
+| Self-contained frozen-lab launcher | External VM-input collection |
+| Offline eclab runtime bundling | Offline Containerlab and vrnetlab bundling |
+| Ordinary Docker image bundling | Platform/prerequisite validation |
+| License redaction during freeze | CLI/environment/prompt license restoration |
+| Lab-specific freeze-ignore rules | Unsafe external-symlink rejection |
+| Nested output-archive prevention | Custom archive output selection |
+| Encrypted exportable PKI secrets | PKI secret fingerprint verification on defrost |
+| Tracked-destination force replacement | Freeze/defrost extension API |
+| Persistent lab registry | Canonical lab identity tracking |
+| Exact deployed Docker image-ID tracking | Retained destroyed-lab inventory |
+| Explicit observation of pre-registry labs | Corrupt-registry preservation |
+| Single-lab resource consumption inspection | All-lab resource consumption inspection |
+| Two-second live consumption polling | `DEPLOYED`, `STOPPED`, and `RECLAIMED` states |
+| Per-lab CPU inspection | Per-lab RAM inspection |
+| Allocated lab-directory storage | Unique image storage accounting |
+| Shared image storage accounting | Deduplicated aggregate totals |
+| Moved-tag/retained-rootfs image estimates | Explicit unavailable-value reporting |
+| Single-lab Docker storage reclaim | Guarded all-destroyed-labs reclaim |
+| Stopped-labs-only reclaim | Container writable-layer removal |
+| Anonymous-volume removal | Exclusively owned image removal |
+| Shared image preservation | Lab workspace/file preservation |
+| Unrelated Docker resource preservation | Build-cache preservation |
+| Measured IEC storage-saved reporting | Best-effort deletion with aggregate failure status |
+| Serialized reclaim operations | Non-forced Docker image deletion |
+| `RECLAIMED` state after unique storage reaches zero | Shared images allowed for `RECLAIMED` labs |
+| Runtime plugin-schema declaration API | Schema-backed wrapper options and environment defaults |
+| Exact-source Containerlab schema composition | Matching Containerlab node-kind documentation |
+| Matching vrnetlab builder documentation | Task-routed feature catalogs |
+| Per-plugin compact capability schemas | Final composed topology validation schema |
+| Provider/source/pipeline manifest | Fingerprinted immutable runtime artifacts |
+| Edition-aware schema inheritance | Lazy cached schema refresh |
+| Runtime-generated Codex lab skill | Atomic generated-skill installation |
+| Generated-skill destination safety checks | Recognized-target backups |
+| Historical fingerprinted runtime snapshots | Tracked generated-skill refresh |
+| Separately installable static comparison skill | Comprehensive demonstration lab installer |
+| MCP allowed-lab discovery | MCP bounded YAML/offline-graph validation |
+| MCP asynchronous single-lab deploy | MCP asynchronous single-lab destroy |
+| MCP normalized lab status | MCP bounded node-log retrieval |
+| MCP runtime diagnostics | MCP job listing and status |
+| MCP bounded job logs | MCP process-group job cancellation |
+| Root-owned Unix-socket MCP daemon | Unprivileged standard-stdio MCP bridge |
+| Configured allowed lab roots | Service-owned environment profiles |
+| Stable opaque MCP lab IDs | Caller environment-override policy |
+| One active lifecycle job per lab | Concurrent jobs for different labs |
+| Bounded MCP output and retention | Daemon-restart job reconciliation |
+| No arbitrary MCP commands or flags | No MCP `destroy --all` or node execution |
+| Independently publishable feature packages | Typed image/container/freeze/PKI/registry/schema APIs |
+| Python 3.14 package baseline | Typed-package `py.typed` support |
 
 ## Documentation map
 
