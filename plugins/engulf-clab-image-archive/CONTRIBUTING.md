@@ -26,7 +26,7 @@ the dispatcher that consumes this provider during deploy and single-source redep
   provider map before `engulf_clab.image_build` resolves the graph, which the
   packaging-declared `image_build` AFTER dependency guarantees. The lab-parser,
   image-build, and schema ordering edges belong only in the distribution's
-  dependency entry-point metadata; Engulf 0.2 rejects code-level declarations.
+  dependency entry-point metadata; Engulf rejects code-level declarations.
 - The provider map is prepared state for one invocation. Clear it in
   `prepare_failed()` when a later plugin cannot prepare, in `after_call()` after
   any attempted call, and within this plugin's own exception path because a

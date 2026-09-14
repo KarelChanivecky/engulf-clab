@@ -61,7 +61,7 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   post-destroy cleanup remains in `after_call()`.
 - Declare the parser, writer, and schema ordering edges only in the
   `engulf.plugins.v1.dependency.engulf_clab_wan` package metadata. Do not
-  restore `plugin_dependencies` on the class; Engulf 0.2 rejects code-declared
+  restore `plugin_dependencies` on the class; Engulf rejects code-declared
   dependencies.
 - `prepare_call()` claims real host bridges, so both failure paths must release
   them. Release only the claims this invocation added: record the workspace's

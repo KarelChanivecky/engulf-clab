@@ -64,9 +64,9 @@ class PkiContainerCollectionTest(unittest.TestCase):
             {"eclab.containers.pki.images": "engulf_clab_containers_pki:image_plugin"},
         )
         dependencies = tuple(project["dependencies"])
-        self.assertIn("engulf-clab-pki>=0.3.1,<1", dependencies)
-        self.assertIn("engulf-clab-pki-linux-debian>=0.1.2,<1", dependencies)
-        self.assertIn("engulf-clab-pki-linux-fedora>=0.1.2,<1", dependencies)
+        self.assertIn("engulf-clab-pki>=0.1.0,<1", dependencies)
+        self.assertIn("engulf-clab-pki-linux-debian>=0.1.0,<1", dependencies)
+        self.assertIn("engulf-clab-pki-linux-fedora>=0.1.0,<1", dependencies)
 
     def test_collection_registers_both_pki_bases(self) -> None:
         self.assertIsInstance(plugin, ContainerCollectionPlugin)

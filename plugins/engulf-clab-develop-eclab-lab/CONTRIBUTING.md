@@ -6,8 +6,8 @@
   `engulf.plugins.v1.dependency.engulf_clab_develop_lab_skill` package metadata,
   keeping both positions (`preprocess=after; postprocess=before`). The
   postprocess edge is what lets this collector run before the schema plugin
-  tears down. Do not restore `plugin_dependencies` on the class; Engulf 0.2
-  rejects code-declared dependencies.
+  tears down. Do not restore `plugin_dependencies` on the class; Engulf rejects
+  code-declared dependencies.
 - Keep the public distribution name `engulf-clab-develop-eclab-lab`; it is the
   stable package identity even though the plugin ID is product-neutral. The
   command `install-develop-eclab-lab-skill`, target `develop-eclab-lab`, and

@@ -12,7 +12,7 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   options survive before-goal preemption.
 - Declare the schema ordering edge only in
   `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Do not
-  restore `plugin_dependencies` on the class; Engulf 0.2 rejects code-declared
+  restore `plugin_dependencies` on the class; Engulf rejects code-declared
   dependencies.
 - Keep `freeze` and `defrost` as before-goal control commands that preempt
   Containerlab. Freeze acquires the workspace freeze lease; offline mode also

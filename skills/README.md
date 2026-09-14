@@ -139,8 +139,8 @@ ordering edge in their distribution's
 `engulf.plugins.v1.dependency.<plugin_id>` entry-point group, include
 `SCHEMA_CONTEXTS` in their context contract, derive their executable-wrapper
 adapter from `SchemaBackedPlugin`, and call
-`record_plugin_schema(api, PLUGIN_SCHEMA)` from `before_goal`. Engulf 0.2 rejects
-`plugin_dependencies` declared in code, and schema-api 2.0 removed the
+`record_plugin_schema(api, PLUGIN_SCHEMA)` from `before_goal`. Engulf rejects
+`plugin_dependencies` declared in code, and the current schema API omits the
 `SCHEMA_PLUGIN_DEPENDENCY` constant that used to express this edge.
 
 ## Validation

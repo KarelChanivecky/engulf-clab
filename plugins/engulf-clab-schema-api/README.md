@@ -15,8 +15,8 @@ into both context declarations, and call `record_plugin_schema()` at the start
 of `before_goal()`. The helper stores an immutable snapshot in invocation
 context; callback API objects are never retained.
 
-Declare that dependency in the distribution, never in code. Engulf 0.2 rejects a
-plugin that sets `plugin_dependencies`, so 2.0 removed the
+Declare that dependency in the distribution, never in code. Engulf rejects a
+plugin that sets `plugin_dependencies`, so the current API omits the
 `SCHEMA_PLUGIN_DEPENDENCY` constant that used to express this edge in code:
 
 ```toml

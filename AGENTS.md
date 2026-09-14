@@ -30,7 +30,7 @@ wrapper and separately publishable Engulf plugin packages.
   selected. Keep this identity stable for persisted workspace state.
 - The wrapper uses `ExecutableWrapperGoal` and `PluginPolicy.declared()`.
 - The wrapper application (and its `eclab` console launcher) depends on
-  `engulf>=0.3,<1`, the release that gates elevated startup. eclab refuses
+  `engulf>=0.1,<1`, the release line that gates elevated startup. eclab refuses
   privilege: no distribution in this monorepo may declare an
   `engulf.privilege_opt_in.v1.goal.v1` entry point, because the shared
   `ExecutableWrapperGoal` is opted out by upstream contract. The launcher must
@@ -48,11 +48,11 @@ engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper
 engulf.plugins.v1.application.engulf_clab
 ```
 
-- Plugin packages should declare `engulf-api>=1.2,<2` and
-  `engulf-executable-wrapper-api>=1.2,<2`; plugin code imports neither runtime
-  package. `1.2` is the floor for packaging-declared plugin dependencies and the
+- Plugin packages should declare `engulf-api>=1.0,<2` and
+  `engulf-executable-wrapper-api>=1.0,<2`; plugin code imports neither runtime
+  package. `1.0` is the floor for packaging-declared plugin dependencies and the
   `prepare_failed()` unwind callback.
-- Declare plugin ordering in packaging, never in code. Engulf 0.2 rejects a
+- Declare plugin ordering in packaging, never in code. Engulf rejects a
   plugin that sets `plugin_dependencies` and loads the edges from the
   distribution's dependency entry-point group instead:
 

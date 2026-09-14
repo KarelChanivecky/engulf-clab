@@ -20,7 +20,7 @@ retagging happen in `engulf-docker-image-core`, not here.
 
 Declare the lab-parser, image-build, and schema ordering edges only in package
 entry-point metadata. Do not restore `plugin_dependencies` on the plugin class;
-Engulf 0.2 rejects code-declared dependencies.
+Engulf rejects code-declared dependencies.
 
 Use the fixed `ECLAB` prefix (`config.LABEL_PREFIX`). Do not derive it from
 `api.application.short_product_name`/`product` — labels must stay portable

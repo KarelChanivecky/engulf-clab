@@ -18,7 +18,7 @@ from engulf_clab_containers_api import (
 
 class ContractTest(unittest.TestCase):
     def test_collection_plugins_declare_no_code_dependencies(self) -> None:
-        """Engulf 0.2 rejects code-declared dependencies, inherited ones included."""
+        """Engulf rejects code-declared dependencies, inherited ones included."""
         collection = ContainerCollectionPlugin("vendor.containers", ())
 
         self.assertNotIn("plugin_dependencies", ContainerCollectionPlugin.__dict__)

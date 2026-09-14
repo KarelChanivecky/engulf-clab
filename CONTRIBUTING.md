@@ -128,7 +128,7 @@ Follow these lifecycle rules:
    an external command.
 9. Declare context reads/writes in code. Declare hard ordering dependencies in
    the distribution's `engulf.plugins.v1.dependency.<plugin_id>` entry-point
-   group — Engulf 0.2 rejects `plugin_dependencies` set in code. Do not rely on
+   group — Engulf rejects `plugin_dependencies` set in code. Do not rely on
    priority alone when correctness requires another plugin.
 
 The canonical workspace is the selected topology's directory. Calls without a

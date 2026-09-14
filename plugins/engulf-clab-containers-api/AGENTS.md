@@ -11,7 +11,7 @@ discovery or topology mutation here.
 - Preserve the plugin ID, context ID, manager dependency, namespace
   normalization, and before-goal registration contract.
 - Do not declare `plugin_dependencies` on `ContainerCollectionPlugin` or any
-  subclass. Engulf 0.2 rejects code-declared dependencies, and a base-class
+  subclass. Engulf rejects code-declared dependencies, and a base-class
   attribute would fail every collection that inherits it. Each collection
   distribution declares its own ordering edge on
   `CONTAINER_MANAGER_PLUGIN_ID` in its

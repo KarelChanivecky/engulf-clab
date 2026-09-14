@@ -117,7 +117,7 @@ The collection plugin appends a `RegisteredContainerCollection` to context
 ordering edge that makes the manager run after collection registration is
 declared by each collection distribution, not by this package: add
 `engulf_clab.containers` to the collection's
-`engulf.plugins.v1.dependency.<plugin_id>` entry-point group. Engulf 0.2 rejects
+`engulf.plugins.v1.dependency.<plugin_id>` entry-point group. Engulf rejects
 `plugin_dependencies` declared in code, so `ContainerCollectionPlugin` carries no
 default edge for subclasses to inherit. The manager then:
 

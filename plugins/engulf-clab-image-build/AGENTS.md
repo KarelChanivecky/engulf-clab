@@ -10,7 +10,7 @@
 - Build only in `prepare_call`; keep analysis side-effect free.
 - Declare lab-parser, lab-writer, and schema ordering only in
   `engulf.plugins.v1.dependency.engulf_clab_image_build` package metadata. Do
-  not restore `plugin_dependencies`; Engulf 0.2 rejects code-declared edges.
+  not restore `plugin_dependencies`; Engulf rejects code-declared edges.
 - Provision every literal root through ranked offers, including the low-authority
   local-or-pull fallback, then force `image-pull-policy: Never` only in the
   derived topology.

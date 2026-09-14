@@ -9,7 +9,7 @@ collapse adapters for unrelated goals back onto one ID.
 
 - Declare the collection manager and last-running schema ordering edges only in
   `engulf.plugins.v1.dependency.eclab_containers` package metadata. Do not add
-  `plugin_dependencies` to the adapter class; Engulf 1.2 rejects code-declared
+  `plugin_dependencies` to the adapter class; Engulf rejects code-declared
   dependencies. The independent Docker-image adapter has no plugin dependencies.
 
 - Import only stable API packages. Publish the same recipes through the eclab

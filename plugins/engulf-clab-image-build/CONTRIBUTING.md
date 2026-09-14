@@ -17,7 +17,7 @@ cache behavior, ranked fallback, and derived pull-policy behavior directly
 visible in the compact `PluginSchema` capability surface.
 Declare the parser, writer, and schema ordering edges only in
 `engulf.plugins.v1.dependency.engulf_clab_image_build` package metadata;
-Engulf 0.2 rejects a class-level `plugin_dependencies` declaration.
+Engulf rejects a class-level `plugin_dependencies` declaration.
 The low-authority fallback must accept an exact local tag before attempting a
 registry pull; higher-authority provider recipes retain their declared policy.
 `USAGE.md` may elaborate on them but must not be their only discovery path.
