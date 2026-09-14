@@ -9,7 +9,7 @@ Install this package to author or type-check a collection. Lab users normally
 receive it through a collection or manager dependency:
 
 ```bash
-python -m pip install 'engulf-clab-containers-api>=1.2.0,<2'
+python -m pip install 'engulf-clab-containers-api>=1.0.0,<2'
 ```
 
 The API imports the stable `engulf_api`, `engulf_executable_wrapper_api`, and
@@ -74,8 +74,8 @@ as the entry-point name:
 The dependency group name is the plugin ID with dots replaced by underscores.
 It is the only supported place to declare the manager ordering edge.
 
-The collection package depends on `engulf-clab-containers-api>=1.2.0,<2` and
-`engulf-clab-containers>=0.4.0,<1`. Its plugin ID owns the image namespace after
+The collection package depends on `engulf-clab-containers-api>=1.0.0,<2` and
+`engulf-clab-containers>=0.1.0,<1`. Its plugin ID owns the image namespace after
 underscores are converted to hyphens, so the example exposes
 `vendor.containers/utility:latest`. Two active plugins cannot own the same
 namespace. Dockerfiles and everything they `COPY` must be included in the
@@ -166,6 +166,6 @@ The `1.x` API is the compatibility boundary for independently published
 collections. Adding an optional field with a safe default may be compatible;
 renaming fields, changing accepted value types, altering image namespace rules,
 or changing manager lifecycle expectations requires a major-version review.
-Collection packages should use `>=1.2.0,<2`, not an unbounded dependency. The
-`1.2` floor is the first release that requires packaging-declared plugin
-dependencies and the Engulf 1.2 plugin APIs.
+Collection packages should use `>=1.0.0,<2`, not an unbounded dependency. The
+`1.0` floor is the beta baseline that requires packaging-declared plugin
+dependencies and the Engulf 1.0 plugin APIs.

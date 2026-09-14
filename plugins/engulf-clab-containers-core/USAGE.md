@@ -8,8 +8,8 @@ python -m pip install engulf-clab-containers engulf-clab-containers-core
 eclab --eclab-containers-help
 ```
 
-Version 0.3.0 and later requires the Engulf 1.2 plugin APIs used for
-package-declared dependency ordering and separate goal-adapter identities.
+The beta release requires the Engulf 1.0 plugin APIs used for package-declared
+dependency ordering and separate goal-adapter identities.
 
 The distribution publishes two thin adapters over the same immutable recipes:
 the `eclab.containers` executable-wrapper collection adapter and the

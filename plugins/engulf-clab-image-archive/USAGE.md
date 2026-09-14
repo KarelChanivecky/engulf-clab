@@ -7,8 +7,8 @@ reference the archive is loaded as. Help, other commands, and topologies
 without an archive declaration register no requests.
 
 Install with `python -m pip install engulf-clab-image-archive`; it is also
-included in `engulf-clab-all-plugins`. Version 0.2.0 and later requires the
-Engulf 1.2 plugin APIs used for packaging-declared dependency ordering and
+included in `engulf-clab-all-plugins`. The beta release requires the Engulf 1.0
+plugin APIs used for packaging-declared dependency ordering and
 preparation-failure cleanup.
 
 ## Configuration

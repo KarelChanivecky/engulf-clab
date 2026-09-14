@@ -4,19 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-freeze"
-version = "0.4.1"
+version = "0.1.0"
 description = "Create and expand portable, sanitized frozen engulf-clab lab archives"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.2,<2",
-    "engulf-executable-wrapper-api>=1.2,<2",
-    "engulf-clab-schema-api>=2.0.0,<3",
-    "engulf-clab-schema>=0.2.0,<1",
-    "engulf-clab-lab-parser>=0.2.0,<1",
-    "engulf-clab-vrnetlab-build>=0.4.0,<1",
-    "engulf-clab-freeze-api>=1,<2",
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0.0,<3",
+    "engulf-clab-schema>=0.1.0,<1",
+    "engulf-clab-lab-parser>=0.1.0,<1",
+    "engulf-clab-vrnetlab-build>=0.1.0,<1",
+    "engulf-clab-freeze-api>=1.0,<2",
     "PyYAML>=6.0",
 ]
 

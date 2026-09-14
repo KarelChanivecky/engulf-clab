@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-lab-registry"
-version = "0.1.1"
+version = "0.1.0"
 description = "Persistent shared lab inventory for engulf-clab"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.2,<2",
-    "engulf-executable-wrapper-api>=1.2,<2",
-    "engulf-clab-schema-api>=2.0.0,<3",
-    "engulf-clab-schema>=0.2.0,<1",
-    "engulf-clab-lab-parser>=0.2.0,<1",
-    "engulf-clab-lab-registry-api>=1,<2",
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0.0,<3",
+    "engulf-clab-schema>=0.1.0,<1",
+    "engulf-clab-lab-parser>=0.1.0,<1",
+    "engulf-clab-lab-registry-api>=1.0.0,<2",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]

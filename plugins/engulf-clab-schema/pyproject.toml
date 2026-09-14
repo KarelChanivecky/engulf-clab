@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-schema"
-version = "0.2.0"
+version = "0.1.0"
 description = "Runtime Containerlab and Engulf plugin schema generator"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.2,<2",
-    "engulf-executable-wrapper-api>=1.2,<2",
-    "engulf-clab-schema-api>=2.0.0,<3",
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0.0,<3",
     "PyYAML>=6.0,<7",
 ]
 

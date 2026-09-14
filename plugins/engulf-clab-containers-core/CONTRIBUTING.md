@@ -11,7 +11,7 @@ image namespace.
 - Keep manager and schema ordering in the
   `engulf.plugins.v1.dependency.eclab_containers` entry-point group. The manager
   and schema dependencies run after this collection registers its declarations.
-  Never restore class-level `plugin_dependencies`; Engulf 1.2 rejects them.
+  Never restore class-level `plugin_dependencies`; Engulf 1.0 rejects them.
 
 - Import only stable API packages. Publish the same recipes through the eclab
   collection adapter and the generic Docker-image goal adapter; neither may

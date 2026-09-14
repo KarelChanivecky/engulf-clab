@@ -9,12 +9,12 @@ provider lookup, and `plugin.py` owns lifecycle, schema, and help. Recipe
 execution — `docker load`, retag, and reuse — belongs to
 `engulf-docker-image-core`; this package never runs Docker.
 
-The distribution depends on `engulf-docker-image-core>=1.2` even though it
+The distribution depends on `engulf-docker-image-core>=1.0.0` even though it
 imports nothing from it: `DockerArchiveRecipe` has no executor in earlier
 releases, and the floor keeps a stale resolver from failing the recipe kind at
 build time.
 
-It also depends directly on `engulf-clab-image-build>=0.2`: the packaging-level
+It also depends directly on `engulf-clab-image-build>=0.1.0`: the packaging-level
 ordering edge names that plugin as a hard dependency, and the adapter supplies
 the dispatcher that consumes this provider during deploy and single-source redeploy.
 

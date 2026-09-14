@@ -26,7 +26,7 @@ PACKAGES := \
 	engulf-clab-license-pool \
 	engulf-clab-freeze \
 	engulf-clab-lab-registry \
-	engulf-clab-reclaim-storage \
+	engulf-clab-reclaim \
 	engulf-clab-consumption \
 	engulf-clab-pki \
 	engulf-clab-pki-linux-core \
@@ -66,7 +66,7 @@ DIR_engulf-clab-wan := plugins/engulf-clab-wan
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool
 DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
 DIR_engulf-clab-lab-registry := plugins/engulf-clab-lab-registry
-DIR_engulf-clab-reclaim-storage := plugins/engulf-clab-reclaim-storage
+DIR_engulf-clab-reclaim := plugins/engulf-clab-reclaim
 DIR_engulf-clab-consumption := plugins/engulf-clab-consumption
 DIR_engulf-clab-pki := plugins/engulf-clab-pki
 DIR_engulf-clab-pki-linux-core := plugins/engulf-clab-pki-linux-core

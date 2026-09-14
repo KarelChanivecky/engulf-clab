@@ -168,8 +168,8 @@ Every new directory under `plugins/` requires:
   `engulf-clab-all-plugins` — keep a single reference `README.md` instead,
   because their README is the API reference rather than an operator guide;
 - `py.typed` when the package exposes typed Python interfaces;
-- compatible `engulf-api>=1.2,<2` and
-  `engulf-executable-wrapper-api>=1.2,<2` dependencies for runtime plugins;
+- compatible `engulf-api>=1.0,<2` and
+  `engulf-executable-wrapper-api>=1.0,<2` dependencies for runtime plugins;
 - both required entry-point declarations for a discoverable plugin, plus a
   dependency entry-point group when the plugin needs a hard ordering edge;
 - a dependency in `engulf-clab-all-plugins` when it is part of the maintained

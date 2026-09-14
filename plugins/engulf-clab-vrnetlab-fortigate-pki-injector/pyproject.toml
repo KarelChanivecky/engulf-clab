@@ -4,20 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-vrnetlab-fortigate-pki-injector"
-version = "0.2.2"
+version = "0.1.0"
 description = "Inject engulf-clab PKI paths into vrnetlab FortiGate nodes"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.2,<2",
-    "engulf-executable-wrapper-api>=1.2,<2",
-    "engulf-clab-schema-api>=2.0.0,<3",
-    "engulf-clab-schema>=0.2.0,<1",
-    "engulf-clab-pki-api>=2,<3",
-    "engulf-clab-pki>=0.3.2,<1",
-    "engulf-clab-lab-parser>=0.2.2,<1",
-    "engulf-clab-lab-writer>=0.2.2,<1",
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0.0,<3",
+    "engulf-clab-schema>=0.1.0,<1",
+    "engulf-clab-pki-api>=1.0,<3",
+    "engulf-clab-pki>=0.1.0,<1",
+    "engulf-clab-lab-parser>=0.1.0,<1",
+    "engulf-clab-lab-writer>=0.1.0,<1",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]

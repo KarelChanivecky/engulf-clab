@@ -33,7 +33,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Sanitized portable and strict offline lab archives. |
 | `engulf-clab-lab-registry-api` and `engulf-clab-lab-registry` | Typed shared inventory plus persistent deploy/redeploy tracking. |
-| `engulf-clab-reclaim-storage` | Guarded Docker reclamation with measured storage-saved reporting. |
+| `engulf-clab-reclaim` | Guarded Docker reclamation with measured storage-saved reporting. |
 | `engulf-clab-consumption` | Deployed, stopped, and reclaimed state with resource reports. |
 | `engulf-clab-freeze-api`, `engulf-clab-pki-api`, and `engulf-clab-pki` | Format-2 extension contract plus typed opt-in PKI generation and private node views. |
 | `engulf-clab-pki-linux-core`, `engulf-clab-pki-linux-debian`, and `engulf-clab-pki-linux-fedora` | Runtime plus Debian/Fedora installer asset images for automatic Linux trust and identity integration. |

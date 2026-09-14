@@ -77,7 +77,7 @@ local_packages=(
     "plugins/engulf-clab-license-pool"
     "plugins/engulf-clab-freeze"
     "plugins/engulf-clab-lab-registry"
-    "plugins/engulf-clab-reclaim-storage"
+    "plugins/engulf-clab-reclaim"
     "plugins/engulf-clab-consumption"
     "plugins/engulf-clab-pki"
     "plugins/engulf-clab-pki-linux-core"

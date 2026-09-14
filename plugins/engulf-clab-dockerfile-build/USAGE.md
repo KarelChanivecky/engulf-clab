@@ -6,8 +6,8 @@ through installed providers and runs Docker. Help, other commands, and
 topologies without a Dockerfile declaration do not add recipes.
 
 Install with `python -m pip install engulf-clab-dockerfile-build`; it is also
-included in `engulf-clab-all-plugins`. Version 0.3.0 and later requires the
-Engulf 1.2 plugin APIs used for packaging-declared dependency ordering.
+included in `engulf-clab-all-plugins`. The beta release requires the Engulf 1.0
+plugin APIs used for packaging-declared dependency ordering.
 
 ## Configuration
 

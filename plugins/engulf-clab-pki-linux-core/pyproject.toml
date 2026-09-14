@@ -4,19 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-pki-linux-core"
-version = "0.1.2"
+version = "0.1.0"
 description = "Portable runtime PKI adapters for eclab Linux images"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-  "engulf-api>=1.2,<2",
-  "engulf-executable-wrapper-api>=1.2,<2",
-  "engulf-clab-schema-api>=2.0.0,<3",
-  "engulf-clab-schema>=0.2.0,<1",
-  "engulf-docker-image-api>=1.4.0,<2",
-  "engulf-docker-image-core>=1.4.0,<2",
-  "engulf-clab-image-build>=0.2.1,<1",
+  "engulf-api>=1.0,<2",
+  "engulf-executable-wrapper-api>=1.0,<2",
+  "engulf-clab-schema-api>=1.0.0,<3",
+  "engulf-clab-schema>=0.1.0,<1",
+  "engulf-docker-image-api>=1.0.0,<2",
+  "engulf-docker-image-core>=1.0.0,<2",
+  "engulf-clab-image-build>=0.1.0,<1",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]

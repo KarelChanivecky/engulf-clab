@@ -8,8 +8,8 @@ bridge does not use this plugin, require root because of it, or change host
 networking.
 
 Install with `python -m pip install engulf-clab-wan`, or through
-`engulf-clab-all-plugins`. Version 0.2.0 and later requires the Engulf 1.2
-plugin APIs used for packaging-declared dependency ordering.
+`engulf-clab-all-plugins`. The beta release requires the Engulf 1.0 plugin APIs
+used for packaging-declared dependency ordering.
 
 ## Configuration
 

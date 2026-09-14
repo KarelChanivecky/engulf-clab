@@ -33,7 +33,7 @@ PLUGIN_SCHEMA = (
     .order(
         LifecycleStage.BEFORE_GOAL,
         "The registry snapshot is published before inventory consumers run.",
-        before=("engulf_clab.consumption", "engulf_clab.reclaim_storage"),
+        before=("engulf_clab.consumption", "engulf_clab.reclaim"),
     )
     .require_host_tool(
         "docker",

@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-docker-image-core"
-version = "1.4.0"
+version = "1.0.0"
 description = "Application-neutral recursive Docker image resolver and build scheduler"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "engulf-api>=1.2,<2",
-    "engulf-docker-image-api>=1.4.0,<2",
+    "engulf-api>=1.0,<2",
+    "engulf-docker-image-api>=1.0.0,<2",
 ]
 
 [tool.hatch.build.targets.wheel]

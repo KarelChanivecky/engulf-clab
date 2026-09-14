@@ -9,9 +9,9 @@ missing contributor fails without leaving a partial destination.
 Creates a shareable archive without changing or deploying the source lab, and
 expands a received archive back into a runnable one:
 
-Install with `python -m pip install engulf-clab-freeze`. Version 0.2.0 and later
-requires the Engulf 1.2 plugin APIs used for packaging-declared dependency
-ordering. Version 0.3.0 adds `defrost`.
+Install with `python -m pip install engulf-clab-freeze`. The beta release
+requires the Engulf 1.0 plugin APIs used for packaging-declared dependency
+ordering and includes `defrost`.
 
 ```bash
 eclab freeze
