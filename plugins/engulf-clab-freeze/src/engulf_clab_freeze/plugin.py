@@ -8,6 +8,8 @@ from engulf_api import (
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
+    SCHEMA_SOURCE_CONTEXT,
+    SCHEMA_VRNETLAB_SOURCE_CONTEXT,
     LifecycleStage,
     PathBase,
     PluginSchema,
@@ -212,7 +214,9 @@ class FreezePlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.freeze"
     schema = PLUGIN_SCHEMA
     priority = 200
-    context_reads = SCHEMA_CONTEXTS
+    context_reads = SCHEMA_CONTEXTS | frozenset(
+        {SCHEMA_SOURCE_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}
+    )
     context_writes = SCHEMA_CONTEXTS
 
     def before_goal(
@@ -222,9 +226,11 @@ class FreezePlugin(SchemaBackedPlugin):
         if not invocation.arguments:
             return None
         if invocation.arguments[0] == "defrost":
+            self._acknowledge_schema_sources(api)
             return self._defrost(invocation, api)
         if invocation.arguments[0] != "freeze":
             return None
+        self._acknowledge_schema_sources(api)
         workspace = api.state(StateScope.WORKSPACE)
         offline = "--offline" in invocation.arguments[1:]
         application_name = api.application.short_product_name or api.application.product
@@ -247,6 +253,12 @@ class FreezePlugin(SchemaBackedPlugin):
                 environment=invocation.environment,
             )
         return GoalResult.completed(exit_code=exit_code)
+
+    @staticmethod
+    def _acknowledge_schema_sources(api: BeforeGoalAPI) -> None:
+        """Consume terminal schema inputs when a control command preempts it."""
+        api.get_context(SCHEMA_SOURCE_CONTEXT)
+        api.get_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT)
 
     def _defrost(
         self, invocation: Invocation, api: BeforeGoalAPI

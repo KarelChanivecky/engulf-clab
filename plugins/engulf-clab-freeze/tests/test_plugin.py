@@ -14,6 +14,10 @@ from engulf_api import (
     WorkspaceState,
 )
 from engulf_clab_freeze.plugin import FreezePlugin
+from engulf_clab_schema_api import (
+    SCHEMA_SOURCE_CONTEXT,
+    SCHEMA_VRNETLAB_SOURCE_CONTEXT,
+)
 
 
 class FreezePluginTest(unittest.TestCase):
@@ -69,6 +73,12 @@ class FreezePluginTest(unittest.TestCase):
             application_name="fclab",
             logger=api.logger,
             environment=invocation.environment,
+        )
+        api.get_context.assert_has_calls(
+            [
+                call(SCHEMA_SOURCE_CONTEXT),
+                call(SCHEMA_VRNETLAB_SOURCE_CONTEXT),
+            ]
         )
 
     def test_offline_freeze_receives_user_state_for_managed_tools(self) -> None:
@@ -146,6 +156,12 @@ class FreezePluginTest(unittest.TestCase):
             cwd=invocation.cwd,
             user_state=api.state.return_value.directory,
         )
+        api.get_context.assert_has_calls(
+            [
+                call(SCHEMA_SOURCE_CONTEXT),
+                call(SCHEMA_VRNETLAB_SOURCE_CONTEXT),
+            ]
+        )
 
     def test_non_freeze_invocations_continue_to_the_wrapped_goal(self) -> None:
         api = MagicMock(spec=BeforeGoalAPI)
@@ -161,6 +177,8 @@ class FreezePluginTest(unittest.TestCase):
         command.assert_not_called()
         api.state.assert_not_called()
         api.leases.assert_not_called()
+        self.assertNotIn(call(SCHEMA_SOURCE_CONTEXT), api.get_context.call_args_list)
+        self.assertNotIn(call(SCHEMA_VRNETLAB_SOURCE_CONTEXT), api.get_context.call_args_list)
 
     def test_help_lists_both_control_commands(self) -> None:
         help_text = FreezePlugin().help(MagicMock())

@@ -68,6 +68,9 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   Track it in workspace state without nesting previous outputs.
 - Both commands perform all work in `before_goal` and have no `prepare_call`
   phase, so executable-wrapper `prepare_failed` cleanup does not apply here.
+  Before either command preempts the goal, acknowledge the Containerlab and
+  vrnetlab schema-source contexts because the terminal schema consumer will not
+  run; ordinary non-freeze invocations must leave those contexts untouched.
 - Keep `USAGE.md` archive layout, exclusion, launcher, offline, expansion, and
   license behavior synchronized with implementation and tests.
 - Run command, defrost, plugin, and state tests. Mock pip, Docker, Git, and
