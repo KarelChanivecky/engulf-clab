@@ -38,74 +38,131 @@ for a particular environment or edition.
 
 | Feature | Feature |
 | --- | --- |
-| Automatically provision Containerlab | Automatically provision vrnetlab |
-| Select a custom Containerlab executable or checkout | Pin or update the Containerlab version |
-| Select a custom vrnetlab checkout | Pin or update the vrnetlab version |
-| Build Containerlab automatically from source | Configure sudo-less Containerlab access |
-| Install Bash, Zsh, or Fish completion | Inspect installed plugin features and versions |
-| Configure global or per-plugin diagnostics | Load topology variables from a lab-local environment file |
-| Install only the eclab feature packages a lab needs | Create a separately branded eclab edition |
-| Build node images from topology-declared Dockerfiles | Choose per-node Docker build contexts and arguments |
-| Automatically build Dockerfile base-image dependencies | Build independent container images in parallel |
-| Build base images without deploying their builder nodes | Reuse locally available images without pulling |
-| Provision Docker images from `.tar` archives | Provision Docker images from gzip-, bzip2-, or xz-compressed `docker save` archives |
-| Select and retag an image from a multi-image archive | Reload an updated archive that uses an existing tag |
-| Automatically build vrnetlab images | Build vrnetlab images from raw `.qcow2` files |
-| Build vrnetlab images from compressed VM archives | Select default or per-node VM image sources |
-| Configure parallel vrnetlab build jobs | Reuse a matching completed vrnetlab build |
-| Use package-provided helper containers | List helper containers available in the current installation |
-| Map IPv4 or IPv6 lab VIPs to external hosts | Give a lab node outbound access through a NAT container |
-| Provide DHCP from a WAN-access container | Build PKI-aware application containers from Debian or Fedora bases |
-| Allocate node licenses from shared directory pools | Keep the same pooled license for a stable node identity |
-| Select pooled licenses by sticky, round-robin, or least-recently-used policy | Clamp a node to a specific license file |
-| Resolve redacted licenses when deploying a defrosted lab | Share license pools safely across concurrently managed labs |
-| Assign stable IPv4 management addresses | Assign stable IPv6 management addresses |
-| Configure private management-address pools and exclusions | Preserve node addresses as a lab topology changes |
-| Preserve a complete explicitly addressed management network | Retain a lab's management network across redeploys |
-| Add a managed DHCP WAN bridge to a topology | Give isolated lab nodes managed outbound IPv4 NAT |
-| Configure WAN subnet, gateway, DHCP pool, DNS, and lease time | Select the host uplink used by a managed WAN |
-| Share a compatible managed WAN bridge between labs | Create local and global PKI catalogs |
-| Create root and intermediate certificate authorities | Create server and client certificates |
-| Create cross-signed CA variants | Create reusable certificate profiles |
-| Generate RSA or ECDSA keys | Generate Ed25519 or Ed448 keys |
-| Generate ML-DSA keys when supported by the cryptography provider | Configure certificate subjects and validity periods |
-| Add DNS, IP, email, or URI subject alternative names | Configure certificate key usage and extended key usage |
-| Configure CA path-length and name constraints | Configure AIA and OCSP responder URLs |
-| Configure CRL distribution-point URLs | Configure certificate policies and CPS URLs |
-| Add custom certificate extensions | Export certificates as PEM, DER, PKCS#12, or JKS |
-| Choose which CAs a node trusts | Give selected nodes access to designated private CAs |
-| Give each node only its requested certificates and keys | Choose a custom in-container PKI mount location |
-| Initialize, edit, and validate the global PKI catalog | Inspect the effective PKI catalog and node requests without generating keys |
-| Add declared PKI service containers to a lab | Install projected trust into Linux system trust stores |
-| Choose augmented or isolated application trust | Install projected trust into Chrome and Chromium profiles |
-| Install projected trust into a managed Firefox profile | Select browser client certificates |
-| Generate Playwright client-certificate configuration | Configure a client identity for curl |
-| Generate an nginx TLS identity fragment | Inject authorized CA certificates into FortiGate nodes |
-| Inject authorized local certificates and keys into FortiGate nodes | Package a lab for sharing with `freeze` |
-| Restore a packaged lab with `defrost` | Create a sanitized archive without credentials or license files |
-| Reproduce the Python package versions recorded by a frozen lab | Include topology-referenced external VM inputs |
-| Create an offline package with eclab and Containerlab | Include the selected vrnetlab checkout in an offline package |
-| Include ordinary Docker images in an offline package | Run a frozen lab from its self-contained launcher |
-| Redact licenses during freeze and resolve them during defrost | Exclude additional files with a lab-specific freeze-ignore file |
-| Choose a custom freeze archive destination | Export explicitly allowed PKI secrets with passphrase encryption |
-| Inspect CPU and RAM consumption for one or all known labs | Inspect lab-directory and Docker-image storage consumption |
-| Compare unique and shared image storage by lab | Poll live lab resource consumption |
-| Distinguish deployed, stopped, and reclaimed labs | Reclaim Docker storage for one lab |
-| Reclaim every known lab after all labs are destroyed | Reclaim only labs whose containers are stopped |
-| Remove lab containers, writable layers, and anonymous volumes | Remove Docker images used exclusively by reclaimed labs |
-| Report the amount of Docker storage reclaimed | Generate a topology schema for the installed eclab feature set |
-| Validate against the exact selected Containerlab schema | Browse documentation for detected Containerlab node kinds |
-| Browse matching vrnetlab builder documentation | Generate a task-routed catalog of installed eclab capabilities |
-| Install a Codex lab-development skill matching the active runtime | Refresh generated lab guidance after installed features change |
-| Keep a static comparison skill beside the generated skill | Install a comprehensive demonstration lab |
-| Discover labs approved for MCP operation | Validate an approved lab through MCP before running it |
-| Deploy or destroy an approved lab through MCP | Inspect normalized lab and node status through MCP |
-| Retrieve bounded node logs through MCP | Inspect eclab, Containerlab, and Docker diagnostics through MCP |
-| Monitor asynchronous MCP lifecycle jobs | Retrieve logs for an MCP lifecycle job |
-| Cancel an MCP lifecycle job | Use administrator-defined MCP runtime profiles |
-| Publish a reusable packaged-container collection | Publish an application-neutral Docker image provider |
-| Extend freeze and defrost with an independent plugin | Consume typed PKI projections from an independent integration |
-| Build tools against the typed lab-registry API | Add controls to an edition-aware runtime schema pipeline |
+| [Automatically provision Containerlab][clab-resolution] | [Automatically provision vrnetlab][vrnet-checkout] |
+| [Select a custom Containerlab executable or checkout][clab-resolution] | [Pin or update the Containerlab version][clab-checkout] |
+| [Select a custom vrnetlab checkout][vrnet-checkout] | [Pin or update the vrnetlab version][vrnet-checkout] |
+| [Build Containerlab automatically from source][clab-checkout] | [Configure sudo-less Containerlab access][clab-sudoless] |
+| [Install Bash, Zsh, or Fish completion][wrapper-completion] | [Inspect installed plugin features and versions][wrapper-plugins] |
+| [Configure global or per-plugin diagnostics][wrapper-diagnostics] | [Load topology variables from a lab-local environment file][parser-env] |
+| [Install only the eclab feature packages a lab needs][all-plugins] | [Create a separately branded eclab edition][wrapper-editions] |
+| [Build node images from topology-declared Dockerfiles][dockerfile-config] | [Choose per-node Docker build contexts and arguments][dockerfile-config] |
+| [Automatically build Dockerfile base-image dependencies][image-core] | [Build independent container images in parallel][image-core] |
+| [Build base images without deploying their builder nodes][dockerfile-build] | [Reuse locally available images without pulling][image-core] |
+| [Provision Docker images from `.tar` archives][archive-config] | [Provision Docker images from gzip-, bzip2-, or xz-compressed `docker save` archives][archive-config] |
+| [Select and retag an image from a multi-image archive][archive-behavior] | [Reload an updated archive that uses an existing tag][archive-behavior] |
+| [Automatically build vrnetlab images][vrnet-build] | [Build vrnetlab images from raw `.qcow2` files][vrnet-build] |
+| [Build vrnetlab images from compressed VM archives][vrnet-build] | [Select default or per-node VM image sources][vrnet-sources] |
+| [Configure parallel vrnetlab build jobs][vrnet-build] | [Reuse a matching completed vrnetlab build][vrnet-lifecycle] |
+| [Use package-provided helper containers][containers-use] | [List helper containers available in the current installation][containers-use] |
+| [Map IPv4 or IPv6 lab VIPs to external hosts][core-host] | [Give a lab node outbound access through a NAT container][core-wan] |
+| [Provide DHCP from a WAN-access container][core-wan] | [Build PKI-aware application containers from Debian or Fedora bases][pki-bases] |
+| [Allocate node licenses from shared directory pools][license-inputs] | [Keep the same pooled license for a stable node identity][license-lifecycle] |
+| [Select pooled licenses by sticky, round-robin, or least-recently-used policy][license-strategy] | [Clamp a node to a specific license file][license-inputs] |
+| [Resolve redacted licenses when deploying a defrosted lab][license-frozen] | [Share license pools safely across concurrently managed labs][license-lifecycle] |
+| [Assign stable IPv4 management addresses][sticky-config] | [Assign stable IPv6 management addresses][sticky-config] |
+| [Configure private management-address pools and exclusions][sticky-config] | [Preserve node addresses as a lab topology changes][sticky-lifecycle] |
+| [Preserve a complete explicitly addressed management network][sticky-explicit] | [Retain a lab's management network across redeploys][sticky-lifecycle] |
+| [Add a managed DHCP WAN bridge to a topology][wan-config] | [Give isolated lab nodes managed outbound IPv4 NAT][wan-config] |
+| [Configure WAN subnet, gateway, DHCP pool, DNS, and lease time][wan-config] | [Select the host uplink used by a managed WAN][wan-config] |
+| [Share a compatible managed WAN bridge between labs][wan-lifecycle] | [Create local and global PKI catalogs][pki-catalog] |
+| [Create root and intermediate certificate authorities][pki-catalog] | [Create server and client certificates][pki-catalog] |
+| [Create cross-signed CA variants][pki-catalog] | [Create reusable certificate profiles][pki-catalog] |
+| [Generate RSA or ECDSA keys][pki-catalog] | [Generate Ed25519 or Ed448 keys][pki-catalog] |
+| [Generate ML-DSA keys when supported by the cryptography provider][pki-catalog] | [Configure certificate subjects and validity periods][pki-catalog] |
+| [Add DNS, IP, email, or URI subject alternative names][pki-catalog] | [Configure certificate key usage and extended key usage][pki-catalog] |
+| [Configure CA path-length and name constraints][pki-catalog] | [Configure AIA and OCSP responder URLs][pki-catalog] |
+| [Configure CRL distribution-point URLs][pki-catalog] | [Configure certificate policies and CPS URLs][pki-catalog] |
+| [Add custom certificate extensions][pki-catalog] | [Export certificates as PEM, DER, PKCS#12, or JKS][pki-catalog] |
+| [Choose which CAs a node trusts][pki-trust] | [Give selected nodes access to designated private CAs][pki-catalog] |
+| [Give each node only its requested certificates and keys][pki-trust] | [Choose a custom in-container PKI mount location][pki-catalog] |
+| [Initialize, edit, and validate the global PKI catalog][pki-lifecycle] | [Inspect the effective PKI catalog and node requests without generating keys][pki-lifecycle] |
+| [Add declared PKI service containers to a lab][pki-trust] | [Install projected trust into Linux system trust stores][linux-pki] |
+| [Choose augmented or isolated application trust][linux-pki] | [Install projected trust into Chrome and Chromium profiles][linux-pki] |
+| [Install projected trust into a managed Firefox profile][linux-pki] | [Select browser client certificates][linux-pki] |
+| [Generate Playwright client-certificate configuration][linux-pki] | [Configure a client identity for curl][linux-pki] |
+| [Generate an nginx TLS identity fragment][linux-pki] | [Inject authorized CA certificates into FortiGate nodes][fgt-pki] |
+| [Inject authorized local certificates and keys into FortiGate nodes][fgt-pki] | [Package a lab for sharing with `freeze`][freeze-archive] |
+| [Restore a packaged lab with `defrost`][freeze-expand] | [Create a sanitized archive without credentials or license files][freeze-sanitize] |
+| [Reproduce the Python package versions recorded by a frozen lab][freeze-bundles] | [Include topology-referenced external VM inputs][freeze-bundles] |
+| [Create an offline package with eclab and Containerlab][freeze-bundles] | [Include the selected vrnetlab checkout in an offline package][freeze-bundles] |
+| [Include ordinary Docker images in an offline package][freeze-bundles] | [Run a frozen lab from its self-contained launcher][freeze-archive] |
+| [Redact licenses during freeze and resolve them during defrost][freeze-sanitize] | [Exclude additional files with a lab-specific freeze-ignore file][freeze-sanitize] |
+| [Choose a custom freeze archive destination][freeze-archive] | [Export explicitly allowed PKI secrets with passphrase encryption][pki-lifecycle] |
+| [Inspect CPU and RAM consumption for one or all known labs][consumption] | [Inspect lab-directory and Docker-image storage consumption][consumption] |
+| [Compare unique and shared image storage by lab][consumption] | [Poll live lab resource consumption][consumption] |
+| [Distinguish deployed, stopped, and reclaimed labs][consumption] | [Reclaim Docker storage for one lab][reclaim] |
+| [Reclaim every known lab after all labs are destroyed][reclaim] | [Reclaim only labs whose containers are stopped][reclaim] |
+| [Remove lab containers, writable layers, and anonymous volumes][reclaim] | [Remove Docker images used exclusively by reclaimed labs][reclaim] |
+| [Report the amount of Docker storage reclaimed][reclaim] | [Generate a topology schema for the installed eclab feature set][schema] |
+| [Validate against the exact selected Containerlab schema][schema-source] | [Browse documentation for detected Containerlab node kinds][schema-source] |
+| [Browse matching vrnetlab builder documentation][schema-source] | [Generate a task-routed catalog of installed eclab capabilities][schema] |
+| [Install a Codex lab-development skill matching the active runtime][skill] | [Refresh generated lab guidance after installed features change][skill] |
+| [Keep a static comparison skill beside the generated skill][static-skill] | [Install a comprehensive demonstration lab][demo] |
+| [Discover labs approved for MCP operation][mcp-tools] | [Validate an approved lab through MCP before running it][mcp-tools] |
+| [Deploy or destroy an approved lab through MCP][mcp-tools] | [Inspect normalized lab and node status through MCP][mcp-tools] |
+| [Retrieve bounded node logs through MCP][mcp-tools] | [Inspect eclab, Containerlab, and Docker diagnostics through MCP][mcp-tools] |
+| [Monitor asynchronous MCP lifecycle jobs][mcp-jobs] | [Retrieve logs for an MCP lifecycle job][mcp-jobs] |
+| [Cancel an MCP lifecycle job][mcp-jobs] | [Use administrator-defined MCP runtime profiles][mcp-profiles] |
+| [Publish a reusable packaged-container collection][containers-author] | [Publish an application-neutral Docker image provider][image-api] |
+| [Extend freeze and defrost with an independent plugin][freeze-api] | [Consume typed PKI projections from an independent integration][pki-api] |
+| [Build tools against the typed lab-registry API][registry-api] | [Add controls to an edition-aware runtime schema pipeline][schema-api] |
+
+[clab-resolution]: plugins/engulf-clab-ensure-containerlab/USAGE.md#resolution
+[clab-checkout]: plugins/engulf-clab-ensure-containerlab/USAGE.md#managed-checkout
+[clab-sudoless]: plugins/engulf-clab-ensure-containerlab/USAGE.md#sudo-less-operation
+[vrnet-checkout]: plugins/engulf-clab-ensure-vrnetlab/USAGE.md#checkout-selection
+[wrapper-completion]: engulf-clab/README.md#shell-completion
+[wrapper-plugins]: engulf-clab/README.md#plugin-discovery
+[wrapper-diagnostics]: engulf-clab/README.md#diagnostics-and-workspace-identity
+[parser-env]: plugins/engulf-clab-lab-parser/USAGE.md#lab-environment-file
+[all-plugins]: plugins/engulf-clab-all-plugins/README.md#included-distributions
+[wrapper-editions]: engulf-clab/README.md#editions
+[dockerfile-config]: plugins/engulf-clab-dockerfile-build/USAGE.md#configuration
+[dockerfile-build]: plugins/engulf-clab-dockerfile-build/USAGE.md#build-behavior
+[image-core]: plugins/engulf-docker-image-core/USAGE.md
+[archive-config]: plugins/engulf-clab-image-archive/USAGE.md#configuration
+[archive-behavior]: plugins/engulf-clab-image-archive/USAGE.md#provisioning-behavior
+[vrnet-build]: plugins/engulf-clab-vrnetlab-build/USAGE.md#node-and-source-configuration
+[vrnet-sources]: plugins/engulf-clab-vrnetlab-build/USAGE.md#source-precedence
+[vrnet-lifecycle]: plugins/engulf-clab-vrnetlab-build/USAGE.md#validation-and-build-lifecycle
+[containers-use]: plugins/engulf-clab-containers/USAGE.md#topology-use
+[core-host]: plugins/engulf-clab-containers-core/USAGE.md#host-connector
+[core-wan]: plugins/engulf-clab-containers-core/USAGE.md#wan-access
+[pki-bases]: plugins/engulf-clab-containers-pki/USAGE.md#inherit-a-base
+[license-inputs]: plugins/engulf-clab-license-pool/USAGE.md#inputs
+[license-strategy]: plugins/engulf-clab-license-pool/USAGE.md#selection-strategies
+[license-lifecycle]: plugins/engulf-clab-license-pool/USAGE.md#allocation-lifecycle
+[license-frozen]: plugins/engulf-clab-license-pool/USAGE.md#frozen-prompts-and-security
+[sticky-config]: plugins/engulf-clab-sticky-ip/USAGE.md#allocation-configuration
+[sticky-explicit]: plugins/engulf-clab-sticky-ip/USAGE.md#explicit-addressing
+[sticky-lifecycle]: plugins/engulf-clab-sticky-ip/USAGE.md#availability-and-lifecycle
+[wan-config]: plugins/engulf-clab-wan/USAGE.md#configuration
+[wan-lifecycle]: plugins/engulf-clab-wan/USAGE.md#host-changes-and-cleanup
+[pki-catalog]: plugins/engulf-clab-pki/USAGE.md#catalog-and-node-requests
+[pki-trust]: plugins/engulf-clab-pki/USAGE.md#trust-and-inventory
+[pki-lifecycle]: plugins/engulf-clab-pki/USAGE.md#lifecycle-state-and-security
+[linux-pki]: plugins/engulf-clab-pki-linux-core/USAGE.md
+[fgt-pki]: plugins/engulf-clab-vrnetlab-fortigate-pki-injector/USAGE.md#generated-launcher-environment
+[freeze-bundles]: plugins/engulf-clab-freeze/USAGE.md#normal-and-offline-bundles
+[freeze-sanitize]: plugins/engulf-clab-freeze/USAGE.md#sanitization-and-exclusions
+[freeze-archive]: plugins/engulf-clab-freeze/USAGE.md#archive-and-recipient-workflow
+[freeze-expand]: plugins/engulf-clab-freeze/USAGE.md#expanding-an-archive
+[consumption]: plugins/engulf-clab-consumption/USAGE.md
+[reclaim]: plugins/engulf-clab-reclaim/USAGE.md
+[schema]: plugins/engulf-clab-schema/USAGE.md
+[schema-source]: plugins/engulf-clab-schema/USAGE.md#source-identity
+[skill]: plugins/engulf-clab-develop-eclab-lab/USAGE.md
+[static-skill]: skills/README.md#static-comparison-baseline
+[demo]: demo-lab/README.md
+[mcp-tools]: mcp-server/README.md#mcp-tools
+[mcp-jobs]: mcp-server/README.md#jobs-and-cancellation
+[mcp-profiles]: mcp-server/README.md#configure-lab-roots-and-profiles
+[containers-author]: plugins/engulf-clab-containers-api/README.md#publishing-a-collection
+[image-api]: plugins/engulf-docker-image-api/USAGE.md
+[freeze-api]: plugins/engulf-clab-freeze-api/USAGE.md
+[pki-api]: plugins/engulf-clab-pki-api/USAGE.md
+[registry-api]: plugins/engulf-clab-lab-registry-api/USAGE.md
+[schema-api]: plugins/engulf-clab-schema-api/README.md#edition-schema-pipelines
 
 ## Documentation map
 
