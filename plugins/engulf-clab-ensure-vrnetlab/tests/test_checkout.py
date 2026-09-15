@@ -162,7 +162,7 @@ class EnsureCheckoutTest(unittest.TestCase):
                     "git",
                     "clone",
                     "--branch",
-                    "ft_faster_reads",
+                    "master",
                     "--",
                     "https://github.com/KarelChanivecky/vrnetlab.git",
                     run.call_args.args[0][-1],

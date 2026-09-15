@@ -211,7 +211,7 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
         return (
             "  --eclab-vrnetlab-dir DIR      Use an existing vrnetlab checkout\n"
             "  --eclab-vrnetlab-repo URL     Override clone source (default: "
-            "KarelChanivecky/vrnetlab ft_faster_reads)\n"
+            "KarelChanivecky/vrnetlab master)\n"
             "  --eclab-vrnetlab-update       Check a Git checkout for updates (daily)\n"
             "  --eclab-vrnetlab-version REV  Clamp to a Git tag, commit, or revision\n"
             "  VRNETLAB_{DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "

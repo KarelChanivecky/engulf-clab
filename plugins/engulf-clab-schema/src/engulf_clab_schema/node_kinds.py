@@ -18,7 +18,7 @@ from engulf_clab_schema_api import (
 from .source import BaseSchema, checkout_for_binary, sanitize_repository, split_repository_revision
 
 DEFAULT_VRNETLAB_REPOSITORY = (
-    "https://github.com/KarelChanivecky/vrnetlab/tree/ft_faster_reads"
+    "https://github.com/KarelChanivecky/vrnetlab/tree/master"
 )
 NODE_KIND_PROVIDER_ID = "containerlab.node_kinds"
 _CONTAINERLAB_KIND_INDEX = PurePosixPath("docs/manual/kinds/index.md")

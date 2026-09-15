@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-ensure-vrnetlab"
-version = "0.1.0"
+version = "0.1.1"
 description = "Provision a vrnetlab checkout for engulf-clab build plugins"
 readme = "README.md"
 requires-python = ">=3.14"

@@ -28,7 +28,7 @@ Docker/Make work.
 | CLI option | Persistent default | Meaning |
 | --- | --- | --- |
 | `--eclab-vrnetlab-dir DIR` | `VRNETLAB_DIR` | Existing checkout. |
-| `--eclab-vrnetlab-repo URL` | `VRNETLAB_REPO` | Managed clone source; defaults to `https://github.com/KarelChanivecky/vrnetlab/tree/ft_faster_reads`. GitHub `/tree/<branch>` URLs select that branch. |
+| `--eclab-vrnetlab-repo URL` | `VRNETLAB_REPO` | Managed clone source; defaults to `https://github.com/KarelChanivecky/vrnetlab/tree/master`. GitHub `/tree/<branch>` URLs select that branch. |
 | `--eclab-vrnetlab-update` | `VRNETLAB_UPDATE` | Check for updates at most daily per checkout/request. |
 | `--eclab-vrnetlab-version REV` | `VRNETLAB_VERSION` | Pin a tag, commit, or revision and enable checking. |
 
