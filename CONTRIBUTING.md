@@ -41,33 +41,36 @@ through the shared parser/writer pipeline.
 
 ## Development environment
 
-Use Python 3.14. The repository-wide installer builds the neighboring Engulf
-checkout, every local distribution, and an isolated development environment:
+Use Python 3.14. `make` owns the development environment: it creates `.venv`
+and builds every local distribution into `dist/`.
 
 ```bash
-ENGULF_DIR=../cliwrap ./install-dev.sh
+make environment
+make build
+```
+
+`make build` covers every package in this repository, including those that also
+depend on a neighboring Engulf checkout. For a single package use its
+`build-<package>` target; the target name is the distribution name from the
+`PACKAGES` list in the `Makefile`:
+
+```bash
+make build-engulf-clab-wan
+```
+
+To exercise the packages in a development virtual environment, install them
+editable so entry-point discovery matches a released installation, and add the
+neighboring Engulf checkout the same way:
+
+```bash
 source .venv/bin/activate
+python -m pip install -e ./engulf-clab
+python -m pip install -e ./plugins/engulf-clab-wan
 python -m pip check
 eclab --help
 ```
 
-Set `VENV_DIR` to choose another virtual environment, `PYTHON` to choose the
-bootstrap interpreter, and `ENGULF_DIR` to identify the Engulf checkout. The
-script installs wheels rather than editable packages so entry-point discovery
-matches a released installation. Rerun it after changing package metadata,
-entry points, or the Engulf contracts.
-
-Use `./uninstall-dev.sh` to uninstall the development distributions while
-preserving the virtual environment. It accepts the same `VENV_DIR` override.
-
-For a narrow package-only build, run its `build.sh`. Every package script accepts
-normal `python -m build` arguments and honors `PYTHON` and `VENV_DIR`:
-
-```bash
-PYTHON="$PWD/.venv/bin/python" \
-VENV_DIR="$PWD/.venv" \
-plugins/engulf-clab-wan/build.sh
-```
+Remove `.venv` to reset the development environment.
 
 ## Engulf plugin contract
 

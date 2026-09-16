@@ -57,6 +57,7 @@ Run the narrowest checks that exercise the changed boundary:
 make check-skill
 ```
 
-Use `./build.sh` in this directory for a distribution build, and
-`git diff --check` before committing. Never run real deploy/destroy, Docker
-loads, or privileged MCP installation as part of validation.
+Run `make build-<package>` for a distribution build (or `make build` for
+every distribution), and `git diff --check` before committing. Never run real
+deploy/destroy, Docker loads, or privileged MCP installation as part of
+validation.

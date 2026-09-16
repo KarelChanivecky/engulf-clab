@@ -87,19 +87,17 @@ python -m pip install -e ./engulf-clab
 python -m pip install -e ./plugins/engulf-clab-ensure-containerlab
 ```
 
-Alternatively, `install-dev.sh` builds the local Engulf and eclab trees into an
-isolated development virtual environment. It requires a pointer to the Engulf
-checkout:
+`make` owns the development environment. It creates `.venv` and builds every
+local distribution into `dist/`:
 
 ```bash
-ENGULF_DIR=../cliwrap ./install-dev.sh
-source .venv/bin/activate
-eclab --help
+make environment
+make build
 ```
 
-Use `./uninstall-dev.sh` to remove the development distributions from that
-virtual environment without deleting the environment itself. Set `VENV_DIR` to
-use a location other than `.venv`.
+Use `make build-<package>` for a single distribution, where `<package>` is the
+distribution name from the `PACKAGES` list in the `Makefile`. Remove `.venv` to
+reset the development environment.
 
 ## Topology language and runtime discovery
 

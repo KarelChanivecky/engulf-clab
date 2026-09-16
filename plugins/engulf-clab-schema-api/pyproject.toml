@@ -18,7 +18,7 @@ dependencies = [
 packages = ["src/engulf_clab_schema_api"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/build.sh", "/pyproject.toml"]
+include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]
 
 [tool.ruff]
 target-version = "py314"

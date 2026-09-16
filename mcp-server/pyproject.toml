@@ -44,7 +44,6 @@ include = [
     "/AGENTS.md",
     "/LICENSE",
     "/README.md",
-    "/build.sh",
     "/pyproject.toml",
 ]
 

@@ -79,6 +79,7 @@ make check-skill
 Checkout-helper changes require both ensure-plugin suites, plus the
 `engulf-clab-vrnetlab-build` suite that consumes the prepared checkout.
 
-Use `./build.sh` in this directory for a distribution build, and `git diff --check`
-before committing. Never run real deploy/destroy, Docker builds, Git clones, or
+Run `make build-<package>` for a distribution build (or `make build` for
+every distribution), and `git diff --check` before committing. Never run
+real deploy/destroy, Docker builds, Git clones, or
 privileged MCP installation as part of validation.

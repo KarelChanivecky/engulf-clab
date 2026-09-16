@@ -111,8 +111,9 @@ system Python location). The system installer rejects user-writable executable
 trees, since a root service must never execute code from a normal user's venv.
 Use a development venv for the unprivileged bridge and tests only.
 
-For a checkout, `ENGULF_DIR=../engulf ./install-dev.sh` also builds and installs
-the bridge into this repository's development virtual environment.
+For a checkout, `make build-engulf-clab-mcp` builds the bridge, and
+`python -m pip install -e ./mcp-server` installs it into this repository's
+development virtual environment.
 
 The privileged service needs a root-owned configuration file and a group for
 local lab operators. The supplied installer creates the `eclab-mcp` group,

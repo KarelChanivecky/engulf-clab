@@ -115,6 +115,7 @@ and every direct topology-mutator suite (`engulf-clab-wan`,
 `engulf-clab-license-pool`, `engulf-clab-dockerfile-build`,
 `engulf-clab-containers`).
 
-Use `./build.sh` in this directory for a distribution build, and `git diff --check`
-before committing. Never run real deploy/destroy, Docker builds, Git clones, or
+Run `make build-<package>` for a distribution build (or `make build` for
+every distribution), and `git diff --check` before committing. Never run
+real deploy/destroy, Docker builds, Git clones, or
 privileged MCP installation as part of validation.

@@ -41,7 +41,7 @@ packages = ["src/engulf_clab_image_build"]
 "USAGE.md" = "engulf_clab_image_build/USAGE.md"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/build.sh", "/pyproject.toml"]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
 
 [tool.ruff]
 target-version = "py314"

@@ -36,7 +36,7 @@ packages = ["src/engulf_clab_develop_lab_skill"]
 "skill" = "engulf_clab_develop_lab_skill/skill"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/skill", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/build.sh", "/pyproject.toml"]
+include = ["/src", "/skill", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
 
 [tool.ruff]
 target-version = "py314"
