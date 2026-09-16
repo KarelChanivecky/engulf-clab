@@ -7,7 +7,7 @@ name = "engulf-clab-pki-linux-debian"
 version = "0.1.0"
 description = "Debian-family eclab PKI integration asset"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 dependencies = ["engulf-api>=1.0,<2", "engulf-executable-wrapper-api>=1.0,<2", "engulf-clab-schema-api>=1.0.0,<3", "engulf-clab-schema>=0.1.0,<1", "engulf-docker-image-api>=1.0.0,<2", "engulf-docker-image-core>=1.0.0,<2", "engulf-clab-image-build>=0.1.0,<1", "engulf-clab-pki-linux-core>=0.1.0,<1"]
 
@@ -30,5 +30,5 @@ packages = ["src/engulf_clab_pki_linux_debian"]
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 100

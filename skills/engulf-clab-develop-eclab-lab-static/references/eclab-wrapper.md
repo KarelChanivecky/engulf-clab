@@ -21,7 +21,7 @@ after the wrapped call.
 ## Install and run
 
 ```bash
-python3.14 -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install engulf-clab engulf-clab-all-plugins
 

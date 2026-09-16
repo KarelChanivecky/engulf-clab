@@ -4,7 +4,7 @@ Installs one portable, broad-coverage eclab demonstration lab without
 publishing an Engulf plugin of its own.
 
 ```bash
-python3.14 -m pip install engulf-clab-demo-lab
+python3.12 -m pip install engulf-clab-demo-lab
 eclab-demo-lab-install
 cd eclab-demo-lab
 ./run-eclab.sh --help

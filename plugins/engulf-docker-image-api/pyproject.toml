@@ -7,7 +7,7 @@ name = "engulf-docker-image-api"
 version = "1.0.0"
 description = "Application-neutral Docker image graph and provider contracts for Engulf"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
@@ -26,10 +26,10 @@ packages = ["src/engulf_docker_image_api"]
 include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 100
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 files = ["src/engulf_docker_image_api"]

@@ -10,7 +10,7 @@ contains sanitized arguments and application/goal identity only. It deliberately
 has no current directory, workspace, home, or environment. Diagnostic extensions
 are not normal goal plugins and do not receive lifecycle or goal-phase APIs.
 
-The package is typed, OS-independent, and requires Python 3.14 or newer.
+The package is typed, OS-independent, and requires Python 3.12 or newer.
 
 Import public contracts from `engulf_api`, not from its implementation modules.
 `PLUGIN_API_MAJOR` is `1` and `PLUGIN_API_VERSION` is `"1.0.0"`. The major is part
@@ -522,7 +522,7 @@ build-backend = "hatchling.build"
 [project]
 name = "example-report-api"
 version = "1.0.0"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = ["engulf-api>=1.0,<2"]
 
 [tool.hatch.build.targets.wheel]

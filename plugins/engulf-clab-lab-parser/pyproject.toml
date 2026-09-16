@@ -6,7 +6,7 @@ name = "engulf-clab-lab-parser"
 version = "0.1.0"
 description = "Shared immutable topology and mutation API for engulf-clab"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 dependencies = ["engulf-api>=1.0,<2", "engulf-executable-wrapper-api>=1.0,<2", "engulf-clab-schema-api>=1.0.0,<3", "engulf-clab-schema>=0.1.0,<1", "PyYAML>=6.0"]
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]

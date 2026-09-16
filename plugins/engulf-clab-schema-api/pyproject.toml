@@ -7,7 +7,7 @@ name = "engulf-clab-schema-api"
 version = "1.0.0"
 description = "Typed runtime schema contribution contract for engulf-clab plugins"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
@@ -21,10 +21,10 @@ packages = ["src/engulf_clab_schema_api"]
 include = ["/src", "/tests", "/AGENTS.md", "/LICENSE", "/README.md", "/pyproject.toml"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 100
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 files = ["src/engulf_clab_schema_api"]

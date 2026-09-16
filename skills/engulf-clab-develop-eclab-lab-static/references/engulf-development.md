@@ -284,7 +284,7 @@ the meaning of existing activation policy.
 Before completion, run:
 
 ```console
-python3.14 -m venv --upgrade-deps .venv
+python3.12 -m venv --upgrade-deps .venv
 .venv/bin/python -m pip install --group dev
 PYTHONPATH=engulf-api/src .venv/bin/python -m unittest discover -s engulf-api/tests -v
 PYTHONPATH=engulf-api/src:engulf-executable-wrapper-api/src .venv/bin/python -m unittest discover -s engulf-executable-wrapper-api/tests -v

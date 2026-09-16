@@ -19,7 +19,7 @@ guides, every maintained plugin guide, and packaged-container documentation. An
 installed skill does not require either source repository.
 
 ```bash
-python3.14 -m pip install engulf-clab-develop-eclab-lab-static
+python3.12 -m pip install engulf-clab-develop-eclab-lab-static
 develop-eclab-lab-static-install
 develop-eclab-lab-static-install --check
 ```
@@ -31,7 +31,7 @@ backup storage with `--backup-dir` or `DEVELOP_ECLAB_LAB_STATIC_BACKUP_DIR`. The
 installer publishes atomically, backs up recognized older installations, and
 refuses to replace an unrelated path.
 """, content-type = "text/markdown" }
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 
 [project.scripts]
@@ -56,10 +56,10 @@ include = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 100
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 files = ["src/develop_eclab_lab_static_skill"]

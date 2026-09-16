@@ -2,12 +2,12 @@
 
 ## Install
 
-Install with Python 3.14 or newer. The distribution installs eclab and the
+Install with Python 3.12 or newer. The distribution installs eclab and the
 curated plugin set required by the lab; it deliberately excludes proprietary
 vrnetlab, license-pool, managed-WAN, and generated-skill features.
 
 ```bash
-python3.14 -m pip install engulf-clab-demo-lab
+python3.12 -m pip install engulf-clab-demo-lab
 eclab-demo-lab-install
 ```
 

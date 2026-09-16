@@ -38,8 +38,8 @@ through the shared parser/writer pipeline.
 
 ## Development environment
 
-Use Python 3.14. `make` owns the development environment: it creates `.venv`
-and builds every local distribution into `dist/`.
+Use Python 3.12 or newer. `make` owns the development environment: it creates
+`.venv` and builds every local distribution into `dist/`.
 
 ```bash
 make environment

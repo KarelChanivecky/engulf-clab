@@ -45,10 +45,10 @@ edge cases.
 
 ## Quick start
 
-Prerequisites are Python 3.14, Docker, and the privileges required by the
-Containerlab features you choose. The ensure-containerlab plugin can provision
-a Containerlab checkout and build its binary; installing Containerlab yourself
-also works.
+Prerequisites are Python 3.12 or newer, Docker, and the privileges required by
+the Containerlab features you choose. The ensure-containerlab plugin can
+provision a Containerlab checkout and build its binary; installing Containerlab
+yourself also works.
 
 For a user-wide `eclab` command on `PATH`, use `pipx` (run
 `pipx ensurepath` once after installing pipx):
@@ -61,7 +61,7 @@ pipx inject engulf-clab engulf-clab-all-plugins
 For a project-local installation, use a virtual environment:
 
 ```bash
-python3.14 -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install engulf-clab engulf-clab-all-plugins
@@ -195,7 +195,7 @@ ENGULF_DIR=../engulf ./install-mcp.sh
 It asks for allowed topology roots, the local users allowed to operate labs, and
 optional service-owned profile variables (with a hidden prompt for secrets).
 It then validates the generated configuration and starts the service. Docker,
-Containerlab, and Python 3.14 must already be available on the host.
+Containerlab, and Python 3.12 or newer must already be available on the host.
 
 For an unattended installation, provide the trusted root and operator directly:
 
@@ -209,7 +209,7 @@ After publishing the packages, install the service runtime in an
 administrator-owned environment and use the same guided service installer:
 
 ```bash
-sudo python3.14 -m venv /opt/eclab-mcp/venv
+sudo python3.12 -m venv /opt/eclab-mcp/venv
 sudo /opt/eclab-mcp/venv/bin/python -m pip install 'engulf-clab-mcp[all-plugins]'
 sudo /opt/eclab-mcp/venv/bin/eclab-mcp-install-system --interactive
 ```
@@ -397,9 +397,9 @@ ACME_CLAB = CONTAINERLAB_APPLICATION.edition(
 
 ## Contributing
 
-Use Python 3.14 and the repository `.venv` when present. Keep changes focused
-and run the narrowest relevant checks, such as unit tests, bytecode compilation,
-plugin discovery, and `ruff check`.
+Use Python 3.12 or newer and the repository `.venv` when present. Keep changes
+focused and run the narrowest relevant checks, such as unit tests, bytecode
+compilation, plugin discovery, and `ruff check`.
 
 Read [`CONTRIBUTING.md`](eclab-contributing.md) for the complete development setup,
 plugin lifecycle contract, package checklist, documentation requirements,

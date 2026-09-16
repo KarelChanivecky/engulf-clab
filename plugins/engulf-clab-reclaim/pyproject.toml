@@ -7,7 +7,7 @@ name = "engulf-clab-reclaim"
 version = "0.1.0"
 description = "Reclaim lab-owned Docker storage while preserving eclab workspaces"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
@@ -51,9 +51,9 @@ include = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 files = ["src/engulf_clab_reclaim"]

@@ -1,6 +1,6 @@
 # Repository Instructions
 
-This repository is a Python 3.14 monorepo for an Engulf-based Containerlab
+This repository is a Python 3.12+ monorepo for an Engulf-based Containerlab
 wrapper and separately publishable Engulf plugin packages.
 
 ## Layout
@@ -194,8 +194,9 @@ example `engulf_clab.example`.
 ## Development Notes
 
 - Use the local `.venv` for validation when present.
-- The local `.venv` should contain Python 3.14 plus the installed `engulf` and
-  `engulf-api` packages from `../cliwrap` when testing local runtime changes.
+- The local `.venv` should contain Python 3.12 or newer plus the installed
+  `engulf` and `engulf-api` packages from `../cliwrap` when testing local
+  runtime changes.
 - Keep commits focused. Do not include `.venv`, build outputs, caches, or editor
   metadata.
 - Use `rg` or `rg --files` for repository searches.

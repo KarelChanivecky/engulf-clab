@@ -46,7 +46,7 @@ access only to trusted lab operators.
 ## Prerequisites
 
 - Linux with systemd and a local Unix socket;
-- Python 3.14 for the service virtual environment;
+- Python 3.12 or newer for the service virtual environment;
 - absolute executable paths for `eclab`, `containerlab`, and `docker`;
 - a root-owned service environment that normal users cannot modify;
 - at least one existing, non-symlink topology root;
@@ -101,7 +101,7 @@ by the daemon. The `all-plugins` extra is convenient when labs use the complete
 maintained plugin set.
 
 ```bash
-sudo python3.14 -m venv /opt/eclab-mcp/venv
+sudo python3.12 -m venv /opt/eclab-mcp/venv
 sudo /opt/eclab-mcp/venv/bin/python -m pip install 'engulf-clab-mcp[all-plugins]'
 ```
 

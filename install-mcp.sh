@@ -5,7 +5,7 @@ set -euo pipefail
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 engulf_root="${ENGULF_DIR:-${repository_root}/../engulf}"
 service_venv="${ECLAB_MCP_VENV:-/opt/eclab-mcp/venv}"
-python_command="${PYTHON:-python3.14}"
+python_command="${PYTHON:-python3.12}"
 interactive=1
 declare -a installer_arguments=()
 
@@ -19,7 +19,7 @@ usage() {
         'Installer options:' \
         '  --engulf-dir PATH       Local Engulf checkout (default: ../engulf)' \
         '  --venv PATH             Root-owned service venv (default: /opt/eclab-mcp/venv)' \
-        '  --python PATH           Python 3.14 command (default: python3.14)' \
+        '  --python PATH           Python 3.12+ command (default: python3.12)' \
         '  --noninteractive        Do not prompt; pass --lab-root and --user below' \
         '  -h, --help              Show this help' \
         '' \
@@ -80,11 +80,11 @@ fi
 
 python_path="$(command -v "$python_command" || true)"
 if [[ -z "$python_path" || "$python_path" != /* || ! -x "$python_path" ]]; then
-    echo "error: --python must resolve to an executable Python 3.14 command" >&2
+    echo "error: --python must resolve to an executable Python 3.12+ command" >&2
     exit 2
 fi
-if ! "$python_path" -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 14))'; then
-    echo "error: Python 3.14 is required for the eclab MCP service" >&2
+if ! "$python_path" -c 'import sys; raise SystemExit(sys.version_info[:2] < (3, 12))'; then
+    echo "error: Python 3.12 or newer is required for the eclab MCP service" >&2
     exit 2
 fi
 

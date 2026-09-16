@@ -233,7 +233,7 @@ build-backend = "hatchling.build"
 [project]
 name = "example-engulf-audit"
 version = "0.1.0"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",

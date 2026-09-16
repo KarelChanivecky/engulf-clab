@@ -274,7 +274,7 @@ For executable-wrapper API major 1, package it as:
 [project]
 name = "example-engulf-plugin-inventory"
 version = "0.1.0"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = ["engulf-api>=1.0,<2"]
 
 [project.entry-points."engulf.diagnostics.v1.goal.v1.org_engulf_executable_wrapper"]
