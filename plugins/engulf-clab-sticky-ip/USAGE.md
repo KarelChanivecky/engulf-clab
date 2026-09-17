@@ -41,7 +41,9 @@ historical allocation so existing addresses do not move.
 
 The first deployment sorts node names. Later deployments preserve addresses by
 node name, fill new nodes from the lowest free slot, and allow removed-node
-slots to be reused. Nodes whose effective `network-mode` is `host`, `none`, or
+slots to be reused. `network-mode` follows `defaults < kind < group < node`,
+including kind/group selection inherited from defaults. Nodes whose effective
+`network-mode` is `host`, `none`, or
 `container:*` are not attached to the management network and receive no sticky
 address.
 

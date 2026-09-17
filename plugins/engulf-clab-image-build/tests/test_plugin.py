@@ -103,6 +103,22 @@ class ImageBuildPluginTest(unittest.TestCase):
         self.assertTrue(any("dynamic FROM" in item for item in implications))
 
     @patch("engulf_clab_image_build.plugin.provision_image_graph")
+    def test_inherited_image_and_parameters_are_provisioned_and_policy_is_forced(self, provision: Mock) -> None:
+        session = TopologySession(Path("lab.clab.yml"), {"topology": {
+            "defaults": {"kind": "linux"},
+            "kinds": {"linux": {"image": "example/app", "env": {"ECLAB_IMAGE_PARAM_RELEASE": "42"}}},
+            "nodes": {"app": {}},
+        }})
+        api = Mock()
+        api.require_context.return_value = session
+        api.get_context.return_value = ()
+        ImageBuildPlugin().prepare_call(PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL), api)
+        graph = provision.call_args.args[0]
+        self.assertEqual(graph.roots[0].reference, "example/app")
+        self.assertEqual(graph.roots[0].parameters[0].value, "42")
+        self.assertEqual(session.materialize()["topology"]["nodes"]["app"]["image-pull-policy"], "Never")
+
+    @patch("engulf_clab_image_build.plugin.provision_image_graph")
     def test_materialized_node_images_become_roots_and_disable_later_pulls(
         self, provision: Mock
     ) -> None:

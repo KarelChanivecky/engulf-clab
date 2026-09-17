@@ -13,6 +13,22 @@ from engulf_clab_pki.catalog import (
 
 
 class CatalogTest(unittest.TestCase):
+    def test_requests_inherit_from_kinds_and_groups_with_empty_node_override(self) -> None:
+        catalog = merge_catalogs({"version": 2}, {"version": 2, "authorities": {"root": {}}, "certificates": {
+            "kind-cert": {"issuer": "root"}, "group-cert": {"issuer": "root"},
+        }})
+        bind_topology_requests(catalog, {"topology": {
+            "defaults": {"kind": "linux"},
+            "kinds": {"linux": {"env": {"ECLAB_PKI_CERTIFICATES": "kind-cert", "ECLAB_PKI_TRUST_MODE": "none"}}},
+            "groups": {"clients": {"env": {"ECLAB_PKI_CERTIFICATES": "group-cert", "ECLAB_PKI_PRIVATE_AUTHORITIES": "root"}}},
+            "nodes": {"kind": {}, "group": {"group": "clients"}, "empty": {"group": "clients", "env": {"ECLAB_PKI_CERTIFICATES": ""}}},
+        }})
+        self.assertEqual(catalog.nodes["kind"]["certificates"][0]["name"], "local/kind-cert")
+        self.assertEqual(catalog.nodes["group"]["certificates"][0]["name"], "local/group-cert")
+        self.assertEqual(catalog.nodes["empty"]["certificates"], [])
+        self.assertEqual(catalog.nodes["group"]["authorities"][0]["name"], "local/root")
+        self.assertEqual(catalog.nodes["group"]["trusted_authorities"], [])
+
     def test_local_replaces_whole_object_and_scoped_global_remains_available(self) -> None:
         catalog = merge_catalogs(
             {

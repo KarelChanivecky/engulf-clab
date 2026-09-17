@@ -158,8 +158,33 @@ class BuildRequestsTest(unittest.TestCase):
             }
         }
 
-        with self.assertRaisesRegex(ImageArchiveError, "env must be a YAML mapping"):
+        with self.assertRaisesRegex(ImageArchiveError, "env must be a mapping"):
             build_requests_from_topology(self.topology, document)
+
+    def test_archive_and_image_inherit_at_every_level_with_node_overrides(self) -> None:
+        for level in ("defaults", "kinds", "groups", "nodes"):
+            with self.subTest(level=level):
+                node = {"kind": "linux", "group": "clients"}
+                definition = {"image": "example/router:1.0.0", "env": {
+                    "ECLAB_IMAGE_ARCHIVE": "images/router.tar.gz",
+                    "ECLAB_IMAGE_ARCHIVE_REF": "source:1",
+                    "ECLAB_IMAGE_ARCHIVE_RELOAD": True,
+                }}
+                block = {"nodes": {"router": node}}
+                if level == "defaults":
+                    block[level] = definition
+                elif level == "nodes":
+                    node.update(definition)
+                else:
+                    block[level] = {"linux" if level == "kinds" else "clients": definition}
+                (request,) = build_requests_from_topology(self.topology, {"topology": block})
+                self.assertEqual(request.archive, self.archive)
+                self.assertEqual(request.source, "source:1")
+                self.assertTrue(request.reload)
+                node.setdefault("env", {})["ECLAB_IMAGE_ARCHIVE_RELOAD"] = False
+                self.assertFalse(build_requests_from_topology(self.topology, {"topology": block})[0].reload)
+                node["env"].update({"ECLAB_IMAGE_ARCHIVE": "", "ECLAB_IMAGE_ARCHIVE_REF": ""})
+                self.assertEqual(build_requests_from_topology(self.topology, {"topology": block}), [])
 
     def test_missing_topology_mapping_is_rejected(self) -> None:
         with self.assertRaisesRegex(ImageArchiveError, "missing topology mapping"):

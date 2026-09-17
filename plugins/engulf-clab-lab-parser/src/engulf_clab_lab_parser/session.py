@@ -7,7 +7,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .effective import EffectiveNode
 
 import yaml  # type: ignore[import-untyped]
 from engulf_api import InvocationAPI
@@ -90,10 +93,63 @@ def load_topology(
         # else would let them expand the same document differently.
         effective = topology_environment(path, os.environ if environment is None else environment)
         rendered = expand_environment(source, effective)
-        data = yaml.safe_load(rendered)
+        data = parse_topology_yaml(rendered)
     except (OSError, EnvFileError, EnvironmentExpansionError, yaml.YAMLError) as error: raise TopologyError(f"could not parse topology {path}: {error}") from error
     if not isinstance(data, dict): raise TopologyError("topology file must contain a YAML mapping")
     return data
+
+def parse_topology_yaml(source: str) -> Any:
+    """Keep string-map scalar spellings just as Go's map[string]string does.
+
+    SafeLoader otherwise turns unquoted `yes` into True and loses the original
+    spelling. That would turn a FortiGate launcher's exact `true` opt-in on.
+    Inspect the safe YAML tree without changing its tags (scalar aliases may
+    also be used by native boolean fields).
+    """
+    from .effective import _STRING_FIELDS
+    loader = yaml.SafeLoader(source)
+    try:
+        root = loader.get_single_node()
+        if root is None:
+            return None
+        data = loader.construct_object(root, deep=True)
+        def field(node: Any, key: str) -> Any:
+            if isinstance(node, yaml.MappingNode):
+                for name, value in reversed(node.value):
+                    if isinstance(name, yaml.ScalarNode) and name.value == key:
+                        return value
+            return None
+        topology = field(root, "topology")
+        definitions = [field(topology, "defaults")]
+        for section in ("kinds", "groups", "nodes"):
+            mapping = field(topology, section)
+            if isinstance(mapping, yaml.MappingNode):
+                definitions.extend(value for _, value in mapping.value)
+        for definition in definitions:
+            if not isinstance(definition, yaml.MappingNode):
+                continue
+            decoded = loader.construct_object(definition)
+            for key in _STRING_FIELDS:
+                scalar = field(definition, key)
+                if isinstance(scalar, yaml.ScalarNode):
+                    decoded[key] = "" if scalar.tag == "tag:yaml.org,2002:null" else scalar.value
+            for key in ("env", "labels", "sysctls", "tmpfs"):
+                mapping = field(definition, key)
+                if not isinstance(mapping, yaml.MappingNode):
+                    continue
+                strings = {}
+                for name, value in mapping.value:
+                    parsed_name = loader.construct_object(name)
+                    if isinstance(name, yaml.ScalarNode):
+                        parsed_name = "" if name.tag == "tag:yaml.org,2002:null" else name.value
+                    parsed = loader.construct_object(value)
+                    if isinstance(value, yaml.ScalarNode):
+                        parsed = "" if value.tag == "tag:yaml.org,2002:null" else value.value
+                    strings[parsed_name] = parsed
+                decoded[key] = strings
+        return data
+    finally:
+        loader.dispose()
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, dict): return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -116,6 +172,10 @@ class TopologySession:
         self._operations: list[_Operation] = []
     def editor(self, owner: str) -> TopologyEditor: return TopologyEditor(self, owner)
     def original_document(self) -> dict[str, Any]: return copy.deepcopy(self._data)
+    def effective_nodes(self) -> tuple[EffectiveNode, ...]:
+        """Resolve a fresh immutable snapshot including earlier mutations."""
+        from .effective import effective_nodes
+        return effective_nodes(self.materialize())
     def _record(self, owner: str, kind: str, path: YamlPath, value: Any = None) -> None:
         if not owner or not isinstance(path, tuple) or not path: raise TopologyError("owner and nonempty tuple path are required")
         if any(not isinstance(part, (str, int)) for part in path): raise TopologyError("YAML paths contain only string keys and integer indexes")
@@ -140,7 +200,7 @@ def _parent(root: Any, path: YamlPath, create: bool) -> tuple[Any, PathPart]:
     node = root
     for part in path[:-1]:
         if isinstance(node, dict):
-            if part not in node:
+            if part not in node or create and node[part] is None:
                 if not create: raise TopologyError(f"missing YAML path {path}")
                 node[part] = {}
             node = node[part]

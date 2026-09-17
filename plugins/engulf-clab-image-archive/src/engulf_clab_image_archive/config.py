@@ -115,7 +115,7 @@ def build_requests_from_topology(
         environment = node.data.get("env")
         if environment is None:
             continue
-        if not isinstance(environment, dict):
+        if not isinstance(environment, Mapping):
             raise ImageArchiveError(f"node {node.name} env must be a YAML mapping")
         owner = f"node {node.name}"
         archive_value = _optional_string(environment, ARCHIVE_ENV, owner=owner)

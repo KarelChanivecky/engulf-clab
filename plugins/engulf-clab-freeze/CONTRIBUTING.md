@@ -80,6 +80,11 @@ and atomic so a failure cannot leave a partial output at its requested destinati
 
 ## Validation
 
+Sanitize through the parser's complete declaration-origin inventory, including
+unused and shadowed kind/group entries. Use EffectiveNode for defrost image
+selection and inherited license prompts; flatten recipient license answers to
+node values for license-pool's per-node prompt contract.
+
 Run the narrowest checks that exercise the changed boundary:
 
 ```bash

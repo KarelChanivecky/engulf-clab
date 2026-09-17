@@ -5,6 +5,10 @@ provider, Dockerfile, recursion, and scheduling policy in the neutral API/core
 packages. The adapter may inspect the parser's materialized topology but must
 not parse provider-specific controls or import provider implementations.
 
+Resolve images and per-node parameters through the parser's EffectiveNode API,
+including inherited kind/group selectors. Force derived pull policy using that
+same effective node set; never leave an inherited image outside the build graph.
+
 Run after topology mutators and graph contributors and before the lab writer.
 Analysis remains side-effect free; Docker runs only during preparation. Keep
 the old job option and environment spelling compatible. Node image parameters

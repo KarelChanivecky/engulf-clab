@@ -7,5 +7,7 @@
 - Unwind this attempt in an inner `BaseException` handler and unwind completed preparation through `prepare_failed()`. Never release a previous successful deployment's claim.
 - Keep failed started deployments reserved. Release claims only after successful destroy without `--keep-mgmt-net`.
 - Never edit source topology YAML. Add `mgmt` subnet/network fields and per-node fixed addresses through the shared topology session.
+- Select management-attached nodes through the shared EffectiveNode resolver,
+  including inherited kind/group selectors and network-mode.
 - Keep CLI help, `PluginSchema`, `USAGE.md`, state validation, availability checks, and tests synchronized.
 - Mock Docker, route, traceroute, and Containerlab operations in tests; never mutate host networking.

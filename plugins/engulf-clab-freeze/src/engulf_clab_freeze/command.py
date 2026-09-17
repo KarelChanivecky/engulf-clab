@@ -24,6 +24,7 @@ from engulf_api import PluginLogger, StateStore
 from engulf_clab_ensure_vrnetlab import vrnetlab_image_path_env
 from engulf_clab_freeze_api import FreezeContext, discover_contributors
 from engulf_clab_freeze_api import FreezeError as ContributorError
+from engulf_clab_lab_parser import parse_topology_yaml, topology_declarations
 from engulf_clab_lab_parser.session import (
     TopologyError,
     load_topology,
@@ -460,19 +461,20 @@ def _freeze_topology(
     environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     current_environment = os.environ if environment is None else environment
-    copied = yaml.safe_load(copied_path.read_text(encoding="utf-8"))
+    copied = parse_topology_yaml(copied_path.read_text(encoding="utf-8"))
     if not isinstance(copied, dict):
         raise FreezeError("topology must contain a YAML mapping")
     topology = copied.get("topology")
     nodes = topology.get("nodes") if isinstance(topology, dict) else None
     if not isinstance(nodes, dict):
         raise FreezeError("topology.nodes is required")
-    for node in nodes.values():
-        if not isinstance(node, dict):
-            continue
-        if "license" in node:
-            node["license"] = f"__{_LABEL_PREFIX}_LICENSE_PROMPT__"
-        environment = node.get("env")
+    for declaration in topology_declarations(copied):
+        definition = copied
+        for part in declaration.origin.path:
+            definition = definition[part]
+        if "license" in definition:
+            definition["license"] = f"__{_LABEL_PREFIX}_LICENSE_PROMPT__"
+        environment = definition.get("env")
         if isinstance(environment, dict):
             for key in tuple(environment):
                 if isinstance(key, str) and key.endswith("_LIC_CLAMP"):

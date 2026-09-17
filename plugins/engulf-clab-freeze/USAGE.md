@@ -63,6 +63,11 @@ expressions, and the recipient supplies their own file after defrost. Freeze fai
 legacy `.engulf-clab/licenses` location; successfully destroy the licensed lab
 first or reconcile legacy state deliberately.
 
+License selectors and `*_LIC_CLAMP` values are sanitized at every declaration
+origin: defaults, kinds, groups, and nodes, including shadowed and unused entries.
+Optional site-setting contributors use the same inventory. Defrost resolves
+inherited license prompts per node and respects inherited archive selections.
+
 Built-in exclusions cover the active application's managed lab state, virtual
 environments, caches, likely license files, private `*.env` files, and the
 current `clab-<lab>` runtime directory. Add Git-ignore-style patterns in

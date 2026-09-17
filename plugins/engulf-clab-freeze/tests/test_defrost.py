@@ -166,6 +166,38 @@ class DefrostCommandTestCase(unittest.TestCase):
 
 
 class DefrostTestCase(unittest.TestCase):
+    def test_inherited_license_prompts_are_resolved_for_each_node(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document["topology"] = {
+                "defaults": {"kind": "linux"},
+                "kinds": {"linux": {"license": "__ECLAB_LICENSE_PROMPT__"}},
+                "nodes": {"router": {}, "client": {}},
+            }
+            files["lab.clab.yml"] = yaml.safe_dump(document)
+            archive = build_archive(base / "share.tar.gz", "share", files)
+            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False, environment={"ECLAB_LICENSE_ROUTER": "$POOL"})
+            nodes = yaml.safe_load((base / "demo/lab.clab.yml").read_text())["topology"]["nodes"]
+            self.assertEqual(nodes["router"]["license"], "$POOL")
+            self.assertEqual(nodes["client"]["license"], "__ECLAB_LICENSE_PROMPT__")
+
+    def test_inherited_archive_selection_is_not_replaced_by_a_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document["topology"]["defaults"] = {"kind": "linux"}
+            document["topology"]["kinds"] = {"linux": {"env": {"ECLAB_IMAGE_ARCHIVE": "images/chosen.tar"}}}
+            files["lab.clab.yml"] = yaml.safe_dump(document)
+            archive = build_archive(base / "share.tar.gz", "share", files)
+            with patch("engulf_clab_freeze.defrost._bundled_images", return_value={"example/router:1.0.0": base / "demo/images/bundled.tar"}):
+                defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False, environment={})
+            restored = yaml.safe_load((base / "demo/lab.clab.yml").read_text())["topology"]
+            self.assertNotIn("ECLAB_IMAGE_ARCHIVE", restored["nodes"]["router"].get("env", {}))
+            self.assertEqual(restored["kinds"]["linux"]["env"]["ECLAB_IMAGE_ARCHIVE"], "images/chosen.tar")
+
     def test_defrost_publishes_a_lab_without_freeze_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

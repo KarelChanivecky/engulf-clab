@@ -45,6 +45,47 @@ mutation API. Do not write topology files here.
 
 ## Public mutation API
 
+`effective_nodes(document)` returns a tuple of recursively immutable
+`EffectiveNode` snapshots. `session.effective_nodes()` resolves a fresh
+`materialize()` result, including previous deferred edits. Use this API for
+inherited controls instead of merging definitions in a consumer.
+
+Each node exposes `name`, `data`, `origin(*field)`, and
+`declared_origins(*field)`. Fields use relative tuple paths such as
+`("env", "FEATURE")`. A `FieldOrigin` carries `level`, `name`, and the absolute
+YAML `path`. Winning origins describe values actually returned; declaration
+origins also retain shadowed and empty/null declarations, in precedence order.
+Inputs and snapshots never share mutable maps or lists.
+
+Kind selection follows Go's finite chain: node kind, the explicitly selected
+node group's kind, the defaults group's kind, then defaults kind. Group
+selection uses node group, selected kind's group, then defaults group. Resolve
+these selectors before applying defaults < kind < group < node.
+As in Go, a null node definition uses defaults group directly.
+
+String fields inherit on missing, empty, or null values. String maps (`env`,
+`labels`, `sysctls`, `tmpfs`) merge by key, including empty-string overrides;
+null entries become empty strings and native booleans become boolean strings.
+YAML decoding preserves scalar spellings, so `yes` remains `"yes"` and `False`
+remains `"False"`. Programmatically supplied booleans use lowercase spellings.
+Native boolean fields retain false; null inherits. Additive native string lists
+merge in source order with duplicates removed; empty lists do not clear them.
+Whole-object declarations such as DNS replace the less-specific object.
+Management addresses and aliases are node-only. This is a declaration view;
+native kind runtime defaults, env-file loading, bind-path/target normalization,
+and lifecycle structure compilation remain Containerlab's responsibility.
+
+`topology_declarations(document)` enumerates immutable `TopologyDeclaration`
+values for all defaults, kinds, groups, and nodes, including unused definitions.
+Use `field_origin(*field).path` for redaction: inspecting only winning effective
+values would leak shadowed declarations into an archive. Malformed definitions
+are left to consumers/native validation; effective-node resolution rejects
+malformed selected definitions. No string or object is a special remove marker.
+
+`parse_topology_yaml(source)` safely decodes topology YAML with Go string-field
+spellings but performs no environment expansion. Freeze uses it to preserve
+unresolved recipient expressions and avoid embedding private env-file values.
+
 Consumers obtain a plugin-owned editor from the published topology session:
 
 ```python
@@ -88,7 +129,7 @@ other element type is rejected. An invalid mapping/list transition or an
 out-of-range index fails before the writer publishes a derived topology.
 Deletion ignores a missing target, and deleting a parent suppresses every
 descendant add/modify regardless of plugin order. Modification replaces a mapping value or existing list index and
-may create missing mapping parents. Addition requires a missing mapping key or
+may create missing or null mapping parents. Addition requires a missing mapping key or
 inserts at an index from zero through the current list length. Values are copied
 when recorded. Different operation kinds or values at one path report both
 owners; identical modifications are accepted, while duplicate additions still

@@ -50,8 +50,11 @@ when they resolve. The same expansion applies to the archive path, so
 `ECLAB_IMAGE_ARCHIVE: ${ROUTER_ARCHIVE}` selects a host-specific location
 without editing the lab.
 
-Because Containerlab node environment values are strings, quote the reload
-marker as `"true"`. The accepted boolean spellings are `true`, `false`, `1`,
+Image and archive env fields inherit with `defaults < kind < group < node`.
+An empty or null archive value overrides an inherited selection; clear any
+inherited reference/reload controls too when disabling it. Missing keys inherit.
+Native YAML booleans become strings as in Containerlab; quoting the reload
+marker as `"true"` preserves its spelling. Accepted boolean spellings are `true`, `false`, `1`,
 `0`, `yes`, `no`, `on`, and `off`.
 
 ## Provisioning behavior

@@ -48,6 +48,8 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   exclusion.
 - Redact every node license, remove every `*_LIC_CLAMP`, exclude likely license
   files, and fail when generated lab-local license copies exist.
+- Sanitize every declaration origin, including shadowed and unused kinds/groups.
+  Resolve defrost image/archive selections and license prompts with EffectiveNode.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, defrost's per-node license
   variables and `ECLAB_IMAGE_ARCHIVE` key, and both lease names — never derive

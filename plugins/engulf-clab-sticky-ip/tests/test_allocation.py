@@ -16,6 +16,16 @@ from engulf_clab_sticky_ip.allocation import (
 
 
 class AllocationTest(unittest.TestCase):
+    def test_kind_inherited_from_defaults_skips_non_management_modes(self) -> None:
+        for mode in ("host", "none", "container:other"):
+            with self.subTest(mode=mode):
+                document = {"name": "demo", "topology": {
+                    "defaults": {"kind": "linux"},
+                    "kinds": {"linux": {"network-mode": mode}},
+                    "nodes": {"unattached": {}, "attached": {"network-mode": "bridge"}},
+                }}
+                self.assertEqual(topology_request(document, Family.IPV4).nodes, ("attached",))
+
     def test_logical_blocks_grow_by_powers_of_two(self) -> None:
         cases = {
             1: (1, 24, 120),

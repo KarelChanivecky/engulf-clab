@@ -14,8 +14,10 @@ from engulf_api import (
 )
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
+    TopologyError,
     TopologySession,
     editor,
+    effective_nodes,
     is_topology_mutation_command,
 )
 from engulf_clab_schema_api import (
@@ -194,6 +196,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
         del api
         return (
             "  Docker image providers are resolved recursively before deploy or redeploy.\n"
+            "  Images and env parameters inherit defaults < kind < group < node.\n"
             "  Unclaimed literal images use an exact local tag or pull when missing.\n"
             "  Provisioned roots use image-pull-policy Never in the derived topology.\n"
             "  Node YAML env fields:\n"
@@ -283,19 +286,20 @@ def _topology_image_roots(document: dict[str, Any]) -> tuple[ImageRequirement, .
     if not isinstance(nodes, dict):
         raise DockerImageError("topology file is missing topology.nodes mapping")
     roots: list[ImageRequirement] = []
-    for name, node in nodes.items():
-        if not isinstance(node, dict):
-            raise DockerImageError(f"node {name} must be a YAML mapping")
-        image = node.get("image")
+    try:
+        resolved = effective_nodes(document)
+    except TopologyError as error:
+        raise DockerImageError(str(error)) from error
+    for node in resolved:
+        name = node.name
+        image = node.data.get("image")
         if not isinstance(image, str) or not image.strip():
             continue
         if _VARIABLE_IMAGE.search(image):
             raise DockerImageError(
                 f"node {name} image did not resolve to a literal for end-to-end provisioning: {image}"
             )
-        environment = node.get("env", {})
-        if not isinstance(environment, dict):
-            raise DockerImageError(f"node {name} env must be a YAML mapping")
+        environment = node.data.get("env", {})
         parameters: dict[str, ImageParameter] = {}
         for key, value in environment.items():
             if not isinstance(key, str):
@@ -332,13 +336,12 @@ def _force_local_root_policy(
     if not isinstance(nodes, dict) or not isinstance(original_nodes, dict):
         raise DockerImageError("topology file is missing topology.nodes mapping")
     mutation = editor(api, PLUGIN_ID)
-    for name, node in nodes.items():
-        if not isinstance(node, dict):
-            continue
-        image = node.get("image")
+    for node in effective_nodes(document):
+        name = node.name
+        image = node.data.get("image")
         if not isinstance(image, str) or not image.strip():
             continue
-        if node.get("image-pull-policy") == "Never":
+        if node.data.get("image-pull-policy") == "Never":
             continue
         path = ("topology", "nodes", name, "image-pull-policy")
         original = original_nodes.get(name)

@@ -9,6 +9,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
 
+from engulf_clab_lab_parser import EffectiveNode, TopologyError, effective_nodes
+
 
 class StickyIPError(RuntimeError):
     pass
@@ -234,12 +236,14 @@ def topology_request(document: Mapping[str, Any], family: Family) -> TopologyReq
         raise StickyIPError("topology.nodes must be a mapping")
     nodes: list[str] = []
     node_data: dict[str, Mapping[str, Any]] = {}
-    for node_name, value in raw_nodes.items():
-        if not isinstance(node_name, str) or not isinstance(value, Mapping):
-            raise StickyIPError("topology nodes must map names to mappings")
-        if _management_attached(topology, value):
-            nodes.append(node_name)
-            node_data[node_name] = value
+    try:
+        resolved = effective_nodes(document)
+    except TopologyError as error:
+        raise StickyIPError(str(error)) from error
+    for effective in resolved:
+        if _management_attached(effective):
+            nodes.append(effective.name)
+            node_data[effective.name] = effective.data
 
     mgmt_value = document.get("mgmt", {})
     if not isinstance(mgmt_value, Mapping):
@@ -354,27 +358,8 @@ def _validate_other_family(
         raise StickyIPError("opposite-family management addressing is invalid")
 
 
-def _management_attached(
-    topology: Mapping[str, Any], node: Mapping[str, Any]
-) -> bool:
-    effective: dict[str, Any] = {}
-    defaults = topology.get("defaults")
-    if isinstance(defaults, Mapping):
-        effective.update(defaults)
-    kind_name = node.get("kind")
-    kinds = topology.get("kinds")
-    if isinstance(kind_name, str) and isinstance(kinds, Mapping):
-        kind = kinds.get(kind_name)
-        if isinstance(kind, Mapping):
-            effective.update(kind)
-    group_name = node.get("group")
-    groups = topology.get("groups")
-    if isinstance(group_name, str) and isinstance(groups, Mapping):
-        group = groups.get(group_name)
-        if isinstance(group, Mapping):
-            effective.update(group)
-    effective.update(node)
-    mode = effective.get("network-mode")
+def _management_attached(node: EffectiveNode) -> bool:
+    mode = node.data.get("network-mode")
     return not (
         mode in {"host", "none"}
         or isinstance(mode, str)

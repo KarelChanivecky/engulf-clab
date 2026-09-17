@@ -25,6 +25,10 @@ mutation API. Do not write topology files here.
   detection, and deterministic materialization phases.
 - Do not expose mutable internal source data or retain callback-bound API/session
   handles beyond an invocation.
+- Keep EffectiveNode inheritance centralized, with Go-compatible kind/group
+  selection, defaults < kind < group < node precedence, immutable winning and
+  shadowed origins, and a declaration inventory including unused kinds/groups.
+  Preserve string-map YAML scalar spellings; do not invent removal markers.
 - Declare the hard schema-plugin dependency only in the distribution entry-point
   metadata, with the schema dependency after this plugin in preprocessing. Never
   restore a code-level `plugin_dependencies` declaration.

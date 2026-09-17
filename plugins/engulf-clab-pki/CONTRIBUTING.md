@@ -8,6 +8,12 @@ owns translation from resolved material and views into `engulf-clab-pki-api`
 values. `freeze.py` is an optional freeze-API contributor and must not be
 imported by the freeze package.
 
+Resolve node requests, trust, mount targets, kinds, and inherited bind collisions
+through the parser's `EffectiveNode`; do not maintain private inheritance rules.
+Read materialized topology in preparation. Remove consumed controls using the
+complete declaration-origin inventory, including shadowed/unused kind/group
+definitions, before writer serialization. Manifest selection stays defaults-only.
+
 Keep `analyze_call()` pure. All filesystem work belongs in `prepare_call()` and
 must record attempt-created paths before later work can fail. Catch
 `BaseException` inside preparation, because Engulf does not dispatch

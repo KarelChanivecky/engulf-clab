@@ -144,6 +144,7 @@ class ImageArchivePlugin(SchemaBackedPlugin):
         del api
         return (
             "  Node YAML env fields (paths are relative to the topology file):\n"
+            "    Values inherit defaults < kind < group < node.\n"
             f"    {ARCHIVE_ENV}         Saved Docker image archive to load\n"
             f"    {ARCHIVE_REF_ENV}     Archive reference retagged as the node image\n"
             f"    {ARCHIVE_RELOAD_ENV}  Load again even when the tag exists locally\n"

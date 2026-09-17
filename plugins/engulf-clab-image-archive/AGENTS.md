@@ -33,6 +33,8 @@ across editions.
 - Read `TopologySession.materialize()` during preparation so earlier topology
   mutators affect declarations, and so the recorded tags match the roots
   `engulf_clab.image_build` derives from the same document.
+- Read inherited image/env fields through parser EffectiveNode snapshots;
+  never duplicate defaults/kind/group merging or discard declaration origins.
 - Keep `provide()` a pure, lock-guarded lookup. It runs on resolver worker
   threads with no invocation api; all filesystem work belongs to
   `refresh_requests` and analysis.

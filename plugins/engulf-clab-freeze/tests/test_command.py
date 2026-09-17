@@ -131,10 +131,13 @@ class FreezeCommandTestCase(unittest.TestCase):
             original = {
                 "name": "demo",
                 "topology": {
+                    "defaults": {"license": "/private/default.lic", "env": {"ECLAB_LIC_CLAMP": "default.lic"}},
+                    "kinds": {"unused": {"license": "/private/kind.lic", "env": {"ECLAB_LIC_CLAMP": "kind.lic"}}},
+                    "groups": {"unused": {"license": "/private/group.lic", "env": {"ECLAB_LIC_CLAMP": "group.lic"}}},
                     "nodes": {
                         "router": {
                             "license": "$PERSONAL_POOL",
-                            "env": {"ECLAB_LIC_CLAMP": "personal.lic"},
+                            "env": {"ECLAB_LIC_CLAMP": "personal.lic", "KEEP": "yes"},
                         }
                     }
                 },
@@ -154,6 +157,10 @@ class FreezeCommandTestCase(unittest.TestCase):
             router = frozen["topology"]["nodes"]["router"]
             self.assertEqual(router["license"], "__ECLAB_LICENSE_PROMPT__")
             self.assertNotIn("ECLAB_LIC_CLAMP", router["env"])
+            self.assertEqual(router["env"]["KEEP"], "yes")
+            for definition in (frozen["topology"]["defaults"], frozen["topology"]["kinds"]["unused"], frozen["topology"]["groups"]["unused"]):
+                self.assertEqual(definition["license"], "__ECLAB_LICENSE_PROMPT__")
+                self.assertNotIn("ECLAB_LIC_CLAMP", definition["env"])
             self.assertEqual(frozen["x-engulf-clab-freeze"]["licenses"], "prompt")
 
     def test_freeze_refuses_generated_license_copies(self) -> None:

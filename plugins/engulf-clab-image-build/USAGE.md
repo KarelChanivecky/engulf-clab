@@ -47,6 +47,10 @@ These are build-time controls visible in the source topology; never put secrets
 in them. The `ECLAB` prefix is fixed across editions so the same valid
 Containerlab file is portable between compatible launchers.
 
+Image and parameter env values inherit with `defaults < kind < group < node`.
+The dispatcher resolves the same immutable effective node as archive providers,
+and forces the node's derived pull policy even when the image is inherited.
+
 `--eclab-image-build-jobs COUNT` limits independent concurrent builds and
 defaults to `2`. `ECLAB_IMAGE_BUILD_JOBS` is its persistent environment default.
 The former `--eclab-docker-build-jobs` spelling remains an alias, and

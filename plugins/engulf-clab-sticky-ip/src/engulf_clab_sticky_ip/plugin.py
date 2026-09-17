@@ -230,7 +230,8 @@ class StickyIPPlugin(SchemaBackedPlugin):
             "  --eclab-no-sticky-ip  Disable sticky addressing and availability checks\n"
             "  ECLAB_STICKY_IP_MAX_LABS controls concurrency (default 64); "
             "ECLAB_STICKY_IPV4_POOL, ECLAB_STICKY_IPV6_POOL, and "
-            "ECLAB_STICKY_IP_EXCLUDES configure private allocation space."
+            "ECLAB_STICKY_IP_EXCLUDES configure private allocation space.\n"
+            "  Inherited host/none/container network-mode nodes receive no address slot."
         )
 
     def analyze_call(

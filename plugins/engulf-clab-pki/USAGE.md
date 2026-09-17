@@ -36,15 +36,19 @@ topology:
         ECLAB_PKI_PRIVATE_AUTHORITIES: inspection-ca
 ```
 
-Both lists accept `local/name`, `global/name`, or unqualified references. Node scope replaces
-the complete defaults list. References are resolved before duplicate checking. Local named
+Both lists accept `local/name`, `global/name`, or unqualified references. Request,
+trust, and mount-target env values inherit with `defaults < kind < group < node`.
+The winning list replaces the complete lower-level list; an empty or null request
+value requests nothing. The manifest selector remains a defaults-only lab opt-in.
+References are resolved before duplicate checking. Local named
 objects shadow global objects by whole object; global certificate declarations may refer only
 to global profiles and authorities. Omitted certificate CNs retain the requesting node-name
 default. Use distinct declarations for distinct fixed SANs. When `not_before` is omitted,
 generated certificates start two days before generation time to tolerate clock skew; set
 `not_before` explicitly for a different validity start.
 
-The request variables are removed from the derived container environment. PKI injects
+The request variables are removed from every declaration level in the derived
+topology, including shadowed and unused kind/group definitions. PKI injects
 `ECLAB_PKI_ROOT` with the resolved read-only mount target and rejects a user-authored collision.
 `ECLAB_PKI_MOUNT_TARGET` changes that normalized absolute target and is also consumed.
 

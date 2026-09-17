@@ -1,6 +1,8 @@
 # Agent instructions
 
 - Preserve explicit topology opt-in and topology-relative selector resolution.
+- Use shared EffectiveNode values for node controls and kinds; remove consumed
+  controls at all declaration origins. Keep manifest selection defaults-only.
 - Treat YAML as the sole catalog source of truth; malformed files fail closed.
 - Preserve whole-object named merge and global-only resolution inside global definitions.
 - Generate and stage only in deploy or single-source redeploy preparation and journal work. Unwind preparation and pre-spawn failures; retain views after a started deployment fails so partial containers remain safe until destroy.

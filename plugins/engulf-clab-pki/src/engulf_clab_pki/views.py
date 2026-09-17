@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -196,18 +197,18 @@ def _extended_key_usage(certificate: x509.Certificate) -> list[str]:
     return [names.get(value, value.dotted_string) for value in values]
 
 
-def incompatible_mount(node: dict[str, Any], target: str = MOUNT_TARGET) -> bool:
+def incompatible_mount(node: Mapping[str, Any], target: str = MOUNT_TARGET) -> bool:
     binds = node.get("binds", [])
     if binds is None:
         return False
-    if not isinstance(binds, list):
+    if not isinstance(binds, (list, tuple)):
         raise CatalogError("node binds must be a list")
     for bind in binds:
         if isinstance(bind, str):
             parts = bind.split(":")
             if len(parts) >= 2 and parts[1] == target:
                 return True
-        elif isinstance(bind, dict) and bind.get("target") == target:
+        elif isinstance(bind, Mapping) and bind.get("target") == target:
             return True
     return False
 

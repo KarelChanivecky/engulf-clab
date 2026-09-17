@@ -25,6 +25,28 @@ before downstream processing. Expansion occurs in the raw YAML, so quote an
 expression when its rendered value must remain a YAML string rather than a
 boolean, number, or null.
 
+## Inherited node settings
+
+Feature plugins use a shared immutable node view with Containerlab precedence:
+`defaults < kind < group < node`. Kind/group selection also honors their native
+fallbacks. Standard YAML remains governed by the upstream
+[Containerlab schema](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json).
+
+| Declaration | String fields such as image/network-mode | An individual env value | Native boolean fields |
+| --- | --- | --- | --- |
+| Missing key | Inherit | Inherit | Inherit |
+| Empty string | Inherit | Override with empty string | Invalid native boolean |
+| String `"false"` | Literal string | Literal string; boolean consumers interpret it | Invalid native boolean |
+| Native `false` | String `"false"` | String `"false"` | Override with false |
+| Null | Inherit | Override with empty string | Inherit |
+| `"remove"` | Literal string | Literal string | Invalid native boolean |
+
+There is no explicit removal marker. An empty or null entire `env` mapping
+inherits its keys; an empty or null value inside that mapping overrides one key.
+Feature validators still enforce their path, reference, and enum contracts.
+Quote strings when their exact spelling matters; YAML string-map scalars retain
+their source spelling, including `yes`, `False`, and numeric values.
+
 ## Lab environment file
 
 A topology may sit beside a private env file that supplies the variables it

@@ -59,11 +59,11 @@ class SessionTest(unittest.TestCase):
                 "EMPTY_WITHOUT_COLON": "$EMPTY",
                 "EMPTY_WITH_COLON": "fallback",
                 "SET_ALTERNATIVE": "alternative",
-                "UNSET_ALTERNATIVE": None,
+                "UNSET_ALTERNATIVE": "",
                 "UNRESOLVED": "$MISSING",
                 "ESCAPED": "$FGT_IMAGE",
                 "POSITIONAL": "$1-not-a-variable",
-                "YAML_BOOLEAN": True,
+                "YAML_BOOLEAN": "true",
             },
         )
 

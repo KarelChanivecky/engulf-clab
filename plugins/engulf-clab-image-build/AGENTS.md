@@ -3,6 +3,8 @@
 - Keep this plugin a thin eclab adapter around `engulf-docker-image-core`.
 - Do not import any concrete provider or parse provider-owned node controls.
 - Use only valid Containerlab node `image` fields as implicit roots.
+- Resolve inherited images and env parameters with shared EffectiveNode values,
+  and force derived pull policy for inherited roots as well as explicit ones.
 - Keep `ECLAB_IMAGE_PARAM_*` local to its node image; do not introduce controls
   that copy parameters into recursive dependencies.
 - Merge materialized topology roots with invocation graph fragments after

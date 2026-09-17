@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from engulf_clab_lab_parser import effective_nodes
 from engulf_clab_pki_api import (
     AuthorityClassification,
     IssuedIdentityProjection,
@@ -25,22 +26,15 @@ def build_node_projections(
     views: dict[str, Path],
     mount_targets: dict[str, PurePosixPath],
 ) -> PkiNodeProjections:
-    topology_block = topology.get("topology", {})
-    defaults = topology_block.get("defaults", {}) if isinstance(topology_block, dict) else {}
-    nodes = topology_block.get("nodes", {}) if isinstance(topology_block, dict) else {}
-    if not isinstance(nodes, dict):
-        raise CatalogError("topology.nodes must be a mapping")
     projected: list[NodePkiProjection] = []
-    for node_name, node_value in sorted(nodes.items(), key=lambda item: str(item[0])):
-        name = str(node_name)
-        if not isinstance(node_value, dict):
-            raise CatalogError(f"topology node {name!r} must be a mapping")
+    for node in sorted(effective_nodes(topology), key=lambda item: item.name):
+        name = node.name
         view = views[name].absolute()
         mount = mount_targets[name]
         projected.append(
             NodePkiProjection(
                 node_name=name,
-                node_kind=_node_kind(node_value, defaults),
+                node_kind=_node_kind(node.data),
                 staged_view=view,
                 mount_target=mount,
                 public_authorities=_public_authorities(catalog, material, view, mount),
@@ -56,10 +50,8 @@ def build_node_projections(
     return PkiNodeProjections(tuple(projected))
 
 
-def _node_kind(node: dict[str, Any], defaults: Any) -> str:
+def _node_kind(node: Mapping[str, Any]) -> str:
     value = node.get("kind")
-    if value is None and isinstance(defaults, dict):
-        value = defaults.get("kind")
     if value is None:
         return "linux"
     if not isinstance(value, str) or not value:

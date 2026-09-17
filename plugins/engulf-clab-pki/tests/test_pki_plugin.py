@@ -147,7 +147,11 @@ class PkiPluginTest(unittest.TestCase):
                             "env": {MOUNT_TARGET_ENVIRONMENT: "/node/pki"},
                         },
                         "observer": {"kind": "linux"},
+                        "kind-only": {"kind": "fortinet_fortigate", "binds": None, "env": None},
+                        "group-only": {"group": "clients"},
                     },
+                    "kinds": {"fortinet_fortigate": {"env": {MOUNT_TARGET_ENVIRONMENT: "/kind/pki"}}},
+                    "groups": {"clients": {"kind": "fortinet_fortigate", "env": {MOUNT_TARGET_ENVIRONMENT: "/group/pki"}}},
                 }
             }
             session = TopologySession(topology, document)
@@ -157,6 +161,10 @@ class PkiPluginTest(unittest.TestCase):
             rendered = session.materialize()
             self.assertNotIn(MOUNT_TARGET_ENVIRONMENT, rendered["topology"]["defaults"]["env"])
             self.assertNotIn(MOUNT_TARGET_ENVIRONMENT, rendered["topology"]["nodes"]["fgt"]["env"])
+            self.assertNotIn(MOUNT_TARGET_ENVIRONMENT, rendered["topology"]["kinds"]["fortinet_fortigate"]["env"])
+            self.assertNotIn(MOUNT_TARGET_ENVIRONMENT, rendered["topology"]["groups"]["clients"]["env"])
+            self.assertTrue(rendered["topology"]["nodes"]["kind-only"]["binds"][0].endswith(":/kind/pki:ro"))
+            self.assertTrue(rendered["topology"]["nodes"]["group-only"]["binds"][0].endswith(":/group/pki:ro"))
             self.assertTrue(
                 rendered["topology"]["nodes"]["fgt"]["binds"][0].endswith(":/node/pki:ro")
             )
@@ -170,6 +178,8 @@ class PkiPluginTest(unittest.TestCase):
             )
             fgt = next(node for node in published.nodes if node.node_name == "fgt")
             self.assertEqual(fgt.mount_target, PurePosixPath("/node/pki"))
+            group = next(node for node in published.nodes if node.node_name == "group-only")
+            self.assertEqual(group.node_kind, "fortinet_fortigate")
 
     def test_mount_target_rejects_relative_non_normalized_and_delimited_paths(self) -> None:
         for value in (

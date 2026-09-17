@@ -130,9 +130,9 @@ without asking an injector to understand the catalog.
 
 ## Mount target control
 
-`ECLAB_PKI_MOUNT_TARGET` is an eclab-only convention accepted in either
-`topology.defaults.env` or `topology.nodes.<name>.env`. A node value overrides
-the topology default. If neither is present, the effective target remains
+`ECLAB_PKI_MOUNT_TARGET` is an eclab-only convention accepted in defaults,
+kind, group, or node env. It follows `defaults < kind < group < node` through
+the shared effective-node API. If absent, the effective target remains
 `/mnt/eclab/pki`.
 
 PKI, not an injector, resolves and validates the value. The effective value must

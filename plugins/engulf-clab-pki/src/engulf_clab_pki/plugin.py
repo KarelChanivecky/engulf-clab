@@ -18,9 +18,13 @@ import yaml  # type: ignore[import-untyped]
 from engulf_api import BeforeGoalAPI, GoalResult, Invocation, InvocationAPI, StateScope
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
+    TopologyError,
     TopologySession,
     editor,
+    effective_nodes,
     is_topology_mutation_command,
+    load_topology,
+    topology_declarations,
 )
 from engulf_clab_pki_api import PKI_NODE_PROJECTIONS_CONTEXT
 from engulf_clab_schema_api import (
@@ -174,7 +178,7 @@ class PkiPlugin(SchemaBackedPlugin):
                 cwd=invocation.cwd,
                 environment=invocation.environment,
             )
-        except (CatalogError, OSError, subprocess.SubprocessError) as error:
+        except (CatalogError, TopologyError, OSError, subprocess.SubprocessError) as error:
             api.logger.error("pki: %s", error)
             code = 1
         return GoalResult.completed(exit_code=code)
@@ -185,9 +189,9 @@ class PkiPlugin(SchemaBackedPlugin):
             "  pki global path|init|edit|validate   Manage the user PKI catalog\n"
             "  pki effective -t TOPOLOGY           Print merged origin-labelled PKI\n"
             f"  topology.defaults.env.{MANIFEST_ENVIRONMENT}: ./pki.yaml\n"
-            f"  [defaults|node].env.{MOUNT_TARGET_ENVIRONMENT}: {MOUNT_TARGET}\n"
-            f"  [defaults|node].env.{CERTIFICATES_ENVIRONMENT}: REF,...\n"
-            f"  [defaults|node].env.{PRIVATE_AUTHORITIES_ENVIRONMENT}: REF,...\n"
+            f"  [defaults|kind|group|node].env.{MOUNT_TARGET_ENVIRONMENT}: {MOUNT_TARGET}\n"
+            f"  [defaults|kind|group|node].env.{CERTIFICATES_ENVIRONMENT}: REF,...\n"
+            f"  [defaults|kind|group|node].env.{PRIVATE_AUTHORITIES_ENVIRONMENT}: REF,...\n"
             "  ECLAB_PKI_TRUST_MODE=all|none with TRUST_INCLUDE/EXCLUDE=REF,...\n"
             "      Request named v2 identities and mount a node-specific read-only inventory\n"
             "  freeze --include-pki-secrets [--pki-passphrase-file FILE]\n"
@@ -204,7 +208,7 @@ class PkiPlugin(SchemaBackedPlugin):
         session = api.require_context(TOPOLOGY_CONTEXT)
         if not isinstance(session, TopologySession):
             raise CatalogError("invalid shared topology session")
-        topology = session.original_document()
+        topology = session.materialize()
         selected = _manifest_selection(topology)
         if selected is None:
             return
@@ -224,15 +228,15 @@ class PkiPlugin(SchemaBackedPlugin):
             raise CatalogError(f"topology defaults define PKI-owned variable {ROOT_ENVIRONMENT}")
         for warning in catalog.warnings:
             api.logger.warning("%s", warning)
-        for name, node in topology_nodes.items():
-            if not isinstance(node, dict):
-                raise CatalogError(f"topology node {name!r} must be a mapping")
-            environment = node.get("env", {})
-            if isinstance(environment, dict) and ROOT_ENVIRONMENT in environment:
+        resolved_nodes = {node.name: node for node in effective_nodes(topology)}
+        for name, effective in resolved_nodes.items():
+            environment = effective.data.get("env", {})
+            if ROOT_ENVIRONMENT in environment:
+                origin = effective.origin("env", ROOT_ENVIRONMENT)
                 raise CatalogError(
-                    f"node {name!r} defines PKI-owned variable {ROOT_ENVIRONMENT}"
+                    f"node {name!r} inherits PKI-owned variable {ROOT_ENVIRONMENT} at {origin.path if origin else name}"
                 )
-            if incompatible_mount(node, str(mount_targets[str(name)])):
+            if incompatible_mount(effective.data, str(mount_targets[str(name)])):
                 raise CatalogError(
                     f"node {name!r} already has an incompatible mount at {mount_targets[str(name)]}"
                 )
@@ -253,12 +257,12 @@ class PkiPlugin(SchemaBackedPlugin):
                 )
             views, created_views = build_views(catalog, material, workspace)
             mutation = editor(api, self.plugin_id)
-            mutation.delete(("topology", "defaults", "env", MANIFEST_ENVIRONMENT))
-            mutation.delete(("topology", "defaults", "env", MOUNT_TARGET_ENVIRONMENT))
-            for variable in (CERTIFICATES_ENVIRONMENT, PRIVATE_AUTHORITIES_ENVIRONMENT, *TRUST_ENVIRONMENTS):
-                mutation.delete(("topology", "defaults", "env", variable))
+            for declaration in topology_declarations(topology):
+                for variable in (MANIFEST_ENVIRONMENT, MOUNT_TARGET_ENVIRONMENT, CERTIFICATES_ENVIRONMENT, PRIVATE_AUTHORITIES_ENVIRONMENT, *TRUST_ENVIRONMENTS):
+                    mutation.delete(declaration.field_origin("env", variable).path)
             for name, node in topology_nodes.items():
-                binds = list(node.get("binds", []))
+                node = node or {}
+                binds = list(node.get("binds") or ())
                 target = mount_targets[str(name)]
                 binds.append(f"{views[str(name)]}:{target}:ro")
                 mutation.modify(("topology", "nodes", name, "binds"), binds)
@@ -361,20 +365,12 @@ def _default_mount_target(topology: dict[str, Any]) -> PurePosixPath:
 
 
 def _mount_targets(topology: dict[str, Any], nodes: dict[str, Any]) -> dict[str, PurePosixPath]:
-    default = _default_mount_target(topology)
+    del nodes  # The shared resolver owns selection and inheritance.
     result: dict[str, PurePosixPath] = {}
-    for name, node in nodes.items():
-        if not isinstance(node, dict):
-            raise CatalogError(f"topology node {name!r} must be a mapping")
-        environment = node.get("env", {})
-        if environment is None:
-            environment = {}
-        if not isinstance(environment, dict):
-            raise CatalogError(f"topology node {name!r} env must be a mapping")
+    for node in effective_nodes(topology):
+        environment = node.data.get("env", {})
         value = environment.get(MOUNT_TARGET_ENVIRONMENT)
-        result[str(name)] = (
-            _validate_mount_target(value, owner=f"node {name!r}") if value is not None else default
-        )
+        result[node.name] = _validate_mount_target(value, owner=f"node {node.name!r}")
     return result
 
 
@@ -443,9 +439,7 @@ def _pki_command(argv: list[str], *, user_root: Path, cwd: Path, environment: An
         return 0
     topology = Path(args.topology).expanduser()
     topology = (topology if topology.is_absolute() else cwd / topology).resolve()
-    document = yaml.safe_load(topology.read_text(encoding="utf-8"))
-    if not isinstance(document, dict):
-        raise CatalogError("topology must contain a YAML mapping")
+    document = load_topology(topology, environment)
     selector = _manifest_selection(document)
     if selector is None:
         raise CatalogError("topology has not opted into PKI")

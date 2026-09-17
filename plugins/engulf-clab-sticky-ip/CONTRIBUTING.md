@@ -5,6 +5,9 @@ observation (`host.py`), versioned state (`registry.py`), and Engulf lifecycle
 integration (`plugin.py`). The source topology is immutable; the plugin runs at
 priority `-90` after current node-producing mutators and before the writer.
 
+Use parser `EffectiveNode` snapshots for network-mode and kind/group selection.
+Do not rebuild inheritance here; management addresses remain node-only.
+
 `analyze_call()` validates only normalized options. `prepare_call()` reads the
 final materialized node set, holds the allocator lease, inspects Docker and all
 host route tables, runs bounded probes, records a pending claim, and adds

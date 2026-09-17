@@ -20,6 +20,7 @@ import yaml  # type: ignore[import-untyped]
 from engulf_api import PluginLogger
 from engulf_clab_freeze_api import DefrostContext, discover_contributors
 from engulf_clab_freeze_api import FreezeError as ContributorError
+from engulf_clab_lab_parser import effective_nodes, parse_topology_yaml
 from engulf_clab_lab_parser.session import WRITER_TEMP_PREFIX
 from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
@@ -365,7 +366,7 @@ def _archive_topology(root: Path) -> Path:
 
 def _carries_freeze_key(path: Path) -> bool:
     try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        document = parse_topology_yaml(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError):
         return False
     return isinstance(document, dict) and _FREEZE_KEY in document
@@ -373,7 +374,7 @@ def _carries_freeze_key(path: Path) -> bool:
 
 def _load_document(path: Path) -> dict[str, Any]:
     try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        document = parse_topology_yaml(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as error:
         raise DefrostError(f"could not read the frozen topology: {error}") from error
     if not isinstance(document, dict):
@@ -562,11 +563,14 @@ def _select_image_archives(
     available = _bundled_images(root)
     if not available:
         return selected
-    for name, node in _nodes(document).items():
-        if not isinstance(node, dict):
-            continue
-        declared = node.get("env")
-        if isinstance(declared, dict):
+    nodes = _nodes(document)
+    for effective in effective_nodes(document):
+        name = effective.name
+        node = nodes[name]
+        if node is None:
+            node = nodes[name] = {}
+        declared = effective.data.get("env")
+        if isinstance(declared, Mapping):
             if _IMAGE_ARCHIVE_ENV in declared:
                 continue
             if any(
@@ -574,7 +578,7 @@ def _select_image_archives(
                 for key in declared
             ):
                 continue
-        reference = _resolved_image(node.get("image"), environment)
+        reference = _resolved_image(effective.data.get("image"), environment)
         if reference is None:
             continue
         archive = available.get(_canonical_reference(reference))
@@ -719,9 +723,17 @@ def _resolve_licenses(
     engulf-clab-license-pool keeps pool paths out of its own diagnostics.
     """
     assigned = 0
-    for name, node in _nodes(document).items():
-        if not isinstance(node, dict) or node.get("license") != _LICENSE_PROMPT:
+    nodes = _nodes(document)
+    for effective in effective_nodes(document):
+        name = effective.name
+        if effective.data.get("license") != _LICENSE_PROMPT:
             continue
+        node = nodes[name]
+        if node is None:
+            node = nodes[name] = {}
+        # Leave a per-node marker even without an answer: license-pool consumes
+        # recipient prompts per node, never a shared inherited claim identity.
+        node["license"] = _LICENSE_PROMPT
         variable = _node_license_environment(name)
         answer = answers.get(name) or answers.get("*")
         if answer is None:

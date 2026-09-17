@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import copy
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
+from engulf_clab_lab_parser import TopologyError, effective_nodes
 
 Scope = Literal["global", "local"]
 _ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
@@ -289,34 +291,30 @@ def validate_references(catalog: EffectiveCatalog) -> None:
 
 def bind_topology_requests(catalog: EffectiveCatalog, topology: dict[str, Any]) -> None:
     """Resolve v2 topology PKI lists and attach immutable declaration copies per node."""
-    block = topology.get("topology", {})
-    defaults = block.get("defaults", {}) if isinstance(block, dict) else {}
-    nodes = block.get("nodes", {}) if isinstance(block, dict) else {}
-    if not isinstance(nodes, dict):
-        raise CatalogError("topology.nodes must be a mapping")
-    default_env = _environment(defaults, "topology defaults")
+    try:
+        nodes = effective_nodes(topology)
+    except TopologyError as error:
+        raise CatalogError(str(error)) from error
     bound: dict[str, dict[str, Any]] = {}
-    for raw_name, raw_node in nodes.items():
-        node_name = str(raw_name)
-        if not isinstance(raw_node, dict):
-            raise CatalogError(f"topology node {node_name!r} must be a mapping")
-        node_env = _environment(raw_node, f"topology node {node_name!r}")
+    for node in nodes:
+        node_name = node.name
+        node_env = node.data.get("env", {})
         certificate_refs = _selected_list(
-            node_env, default_env, "ECLAB_PKI_CERTIFICATES", node_name
+            node_env, "ECLAB_PKI_CERTIFICATES", node_name
         )
         authority_refs = _selected_list(
-            node_env, default_env, "ECLAB_PKI_PRIVATE_AUTHORITIES", node_name
+            node_env, "ECLAB_PKI_PRIVATE_AUTHORITIES", node_name
         )
         trust_mode = node_env.get(
-            "ECLAB_PKI_TRUST_MODE", default_env.get("ECLAB_PKI_TRUST_MODE", "all")
+            "ECLAB_PKI_TRUST_MODE", "all"
         )
         if trust_mode not in {"all", "none"}:
             raise CatalogError(f"node {node_name!r} ECLAB_PKI_TRUST_MODE must be all or none")
         trust_include = _selected_list(
-            node_env, default_env, "ECLAB_PKI_TRUST_INCLUDE", node_name
+            node_env, "ECLAB_PKI_TRUST_INCLUDE", node_name
         )
         trust_exclude = _selected_list(
-            node_env, default_env, "ECLAB_PKI_TRUST_EXCLUDE", node_name
+            node_env, "ECLAB_PKI_TRUST_EXCLUDE", node_name
         )
         certificates: list[dict[str, Any]] = []
         seen_certificates: set[str] = set()
@@ -388,23 +386,10 @@ def bind_topology_requests(catalog: EffectiveCatalog, topology: dict[str, Any]) 
     catalog.nodes.update(bound)
 
 
-def _environment(value: Any, owner: str) -> dict[str, Any]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise CatalogError(f"{owner} must be a mapping")
-    environment = value.get("env", {})
-    if environment is None:
-        return {}
-    if not isinstance(environment, dict):
-        raise CatalogError(f"{owner} env must be a mapping")
-    return environment
-
-
 def _selected_list(
-    node: dict[str, Any], defaults: dict[str, Any], variable: str, node_name: str
+    node: Mapping[str, Any], variable: str, node_name: str
 ) -> tuple[str, ...]:
-    value = node[variable] if variable in node else defaults.get(variable)
+    value = node.get(variable)
     if value is None:
         return ()
     if not isinstance(value, str):
