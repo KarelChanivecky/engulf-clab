@@ -10,4 +10,7 @@
 - Select management-attached nodes through the shared EffectiveNode resolver,
   including inherited kind/group selectors and network-mode.
 - Keep CLI help, `PluginSchema`, `USAGE.md`, state validation, availability checks, and tests synchronized.
-- Mock Docker, route, traceroute, and Containerlab operations in tests; never mutate host networking.
+- Hide OS probe logic behind `TraceStrategy` and import implementations only when selected. Keep Windows as a stub raising `ProbeUnavailableError`.
+- Skip only unavailable probe verification, logging through the callback-bound logger at info level; preserve Docker, route, and claim checks and other probe failure behavior.
+- Keep Linux probes on nonblocking Python UDP sockets with ICMP error queues, at most eight hops, and one deadline per trace. Do not use raw sockets or an external trace tool.
+- Mock Docker, routes, probe sockets/polling/time, and Containerlab operations in tests; never mutate host networking.

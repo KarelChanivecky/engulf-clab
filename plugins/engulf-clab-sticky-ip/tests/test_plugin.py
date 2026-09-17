@@ -3,16 +3,19 @@ from __future__ import annotations
 import ipaddress
 import tomllib
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from engulf_api import ApplicationMetadata, InvocationAPI, RegistrationAPI
+from engulf_api import ApplicationMetadata, InvocationAPI, PluginLogger, RegistrationAPI, StateScope
 from engulf_clab_lab_parser import TopologySession
+from engulf_clab_schema_api import RequirementKind
 from engulf_executable_wrapper_api import (
     ArgumentRegistry,
     BeforeCallEvent,
     CallMode,
     CompletionContext,
+    PreparedCallEvent,
     Shell,
 )
 
@@ -22,12 +25,15 @@ from engulf_clab_sticky_ip.allocation import (
     TopologyRequest,
     parse_config,
 )
-from engulf_clab_sticky_ip.host import HostInventory
+from engulf_clab_sticky_ip.errors import HostCheckError, ProbeUnavailableError
+from engulf_clab_sticky_ip.host import HostInventory, ObservedRoute
 from engulf_clab_sticky_ip.plugin import (
+    PLUGIN_SCHEMA,
     StickyIPPlugin,
     _allocation_plan,
     _mode,
     _Plan,
+    _probe_candidate,
     _publish,
 )
 from engulf_clab_sticky_ip.registry import Allocation, Registry
@@ -43,6 +49,104 @@ _APPLICATION = ApplicationMetadata(
 
 
 class PluginTest(unittest.TestCase):
+    def test_unavailable_probe_allows_managed_and_explicit_subnets_with_info(self) -> None:
+        subnet = ipaddress.ip_network("10.70.0.0/24")
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit):
+                request = TopologyRequest(
+                    "lab",
+                    Family.IPV4,
+                    ("a",),
+                    None,
+                    subnet if explicit else None,
+                    {"a": ipaddress.ip_address("10.70.0.10")} if explicit else {},
+                )
+                logger = Mock(spec=PluginLogger)
+                unavailable = ProbeUnavailableError("not supported")
+                with patch("engulf_clab_sticky_ip.plugin.probe_candidate", side_effect=unavailable):
+                    plan = _allocation_plan(
+                        Registry.empty(),
+                        parse_config({"ECLAB_STICKY_IPV4_POOL": "10.70.0.0/23"}),
+                        request,
+                        Path("/tmp/lab"),
+                        "lab-key",
+                        HostInventory((), ()),
+                        destructive=False,
+                        logger=logger,
+                    )
+                self.assertEqual(plan.subnet, subnet)
+                logger.info.assert_called_once_with(
+                    "Skipping sticky IP network probe verification: %s", unavailable
+                )
+                logger.warning.assert_not_called()
+                logger.error.assert_not_called()
+
+    def test_windows_stub_logs_info_through_preparation_callback(self) -> None:
+        api = Mock(spec=InvocationAPI)
+        api.require_context.return_value = TopologySession(
+            Path("/tmp/lab/lab.clab.yml"), {"name": "lab", "topology": {"nodes": {"a": {}}}}
+        )
+        api.lease.return_value = nullcontext()
+        workspace_state = Mock(root=Path("/tmp/lab"))
+        user_state = Mock()
+        api.state.side_effect = lambda scope: (
+            workspace_state if scope is StateScope.WORKSPACE else user_state
+        )
+        with (
+            patch("engulf_clab_sticky_ip.plugin.read_locked", return_value=Registry.empty()),
+            patch("engulf_clab_sticky_ip.plugin.inspect_host", return_value=HostInventory((), ())),
+            patch("engulf_clab_sticky_ip.plugin.record_pending") as record,
+            patch("engulf_clab_sticky_ip.plugin._publish"),
+            patch("engulf_clab_sticky_ip.probes.sys.platform", "win32"),
+        ):
+            StickyIPPlugin().prepare_call(
+                PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL), api
+            )
+        record.assert_called_once()
+        api.logger.info.assert_called_once()
+        self.assertIn("Windows", str(api.logger.info.call_args.args[1]))
+        api.logger.warning.assert_not_called()
+
+    def test_unavailable_probe_keeps_host_route_checks(self) -> None:
+        request = TopologyRequest("lab", Family.IPV4, ("a",), None, None, {})
+        logger = Mock(spec=PluginLogger)
+        with patch(
+            "engulf_clab_sticky_ip.plugin.probe_candidate",
+            side_effect=ProbeUnavailableError("not supported"),
+        ):
+            plan = _allocation_plan(
+                Registry.empty(),
+                parse_config({"ECLAB_STICKY_IPV4_POOL": "10.70.0.0/23"}),
+                request,
+                Path("/tmp/lab"),
+                "lab-key",
+                HostInventory((), (ObservedRoute(ipaddress.ip_network("10.70.0.0/24"), "eth0"),)),
+                destructive=False,
+                logger=logger,
+            )
+        self.assertEqual(str(plan.subnet), "10.70.1.0/24")
+        logger.info.assert_called_once()
+
+    def test_unexpected_probe_failure_is_not_skipped(self) -> None:
+        logger = Mock(spec=PluginLogger)
+        with (
+            patch(
+                "engulf_clab_sticky_ip.plugin.probe_candidate", side_effect=HostCheckError("failed")
+            ),
+            self.assertRaises(HostCheckError),
+        ):
+            _probe_candidate(ipaddress.ip_network("10.70.0.0/24"), own_addresses=(), logger=logger)
+        logger.info.assert_not_called()
+        logger.warning.assert_not_called()
+
+
+    def test_host_requirements_only_declare_docker_and_ip(self) -> None:
+        schema = PLUGIN_SCHEMA.snapshot(_APPLICATION)
+        self.assertEqual(
+            {item.name for item in schema.requirements if item.kind is RequirementKind.HOST_TOOL},
+            {"docker", "ip"},
+        )
+
     @staticmethod
     def allocation(
         identifier: str,

@@ -86,11 +86,17 @@ opposite family is preserved when the plugin adds the selected family.
 
 Before publication, eclab holds a user-wide allocator lease and checks its own
 claims, all Docker network IPAM subnets and endpoints, and every IPv4 and IPv6
-host route table. Two traceroutes run concurrently against spread addresses in
-the candidate. Each trace is stopped after 100 ms and the entire candidate
-search stops after one second. A responding destination or a router address
-inside the candidate rejects that block. Silence is only an extra signal;
-Docker and route overlap checks remain authoritative.
+host route table. When network probing is supported, two Python UDP traces run
+concurrently against spread addresses in the candidate, with at most eight hops
+per trace. Each trace is stopped after 100 ms and the entire candidate search
+stops after one second. Linux delivers
+ICMP replies through each UDP socket's error queue. A responding destination or
+a router address inside the candidate rejects that block. Silence is only an
+extra signal; Docker and route overlap checks remain authoritative. Probe
+implementations are selected by operating system. The Windows implementation
+is a stub that reports probing unavailable, as do other unsupported platforms.
+If probing is unavailable, eclab skips this verification and emits an info
+message. Docker, route, and allocation claim checks still run.
 
 An unchanged address held by containers proven to belong to this exact lab is
 allowed for repeat deployment and redeploy. A subnet change for a live lab
@@ -107,6 +113,11 @@ all claims, while `--keep-mgmt-net` keeps them reserved. If a failed deployment
 left an uncertain claim, run a successful destroy for that topology before
 expecting the block to recycle.
 
-Docker, `ip`, and `traceroute` must be available through the service-controlled
-PATH. Failure to inspect any required source is fatal; the plugin never guesses
-that a subnet is free.
+Docker and `ip` must be available through the service-controlled PATH. The Linux
+probe strategy uses UDP error-queue support for the selected address family.
+Missing kernel support makes this verification unavailable and skips it with
+an info message. Probes use only Python's standard library and require no raw
+sockets or extra privileges. No local route to a candidate is an ordinary
+unreachable result. Permission and other unexpected probe failures reject the
+candidate. Failure to inspect Docker or host routes is fatal. The Windows probe
+stub does not replace these required host checks.

@@ -3,12 +3,19 @@ from __future__ import annotations
 import ipaddress
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_api import BeforeGoalAPI, GoalResult, Invocation, InvocationAPI, StateScope
+from engulf_api import (
+    BeforeGoalAPI,
+    GoalResult,
+    Invocation,
+    InvocationAPI,
+    PluginLogger,
+    StateScope,
+)
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
     TopologyError,
@@ -40,6 +47,7 @@ from .allocation import (
     DEFAULT_IPV4_POOL,
     DEFAULT_IPV6_POOL,
     DEFAULT_MAX_LABS,
+    Address,
     Config,
     Family,
     Network,
@@ -56,7 +64,8 @@ from .allocation import (
     parse_config,
     topology_request,
 )
-from .host import HostCheckError, HostInventory, inspect_host, probe_candidate
+from .errors import HostCheckError, ProbeUnavailableError
+from .host import HostInventory, inspect_host, probe_candidate
 from .registry import (
     RESERVED_STATUSES,
     Allocation,
@@ -125,6 +134,10 @@ PLUGIN_SCHEMA = (
         values=ValueType.STRING,
     )
     .use_case("Give each lab stable fixed management addresses in a private per-lab subnet.")
+    .use_case(
+        "Unavailable OS network probes are skipped with an info message; "
+        "Docker, route, and claim checks remain required."
+    )
     .reject("Do not combine sticky mode with Containerlab management-network CLI overrides.")
     .annotate(
         "--eclab-sticky-ipv6",
@@ -164,11 +177,6 @@ PLUGIN_SCHEMA = (
     .require_host_tool(
         "ip",
         "Inspect every host route table before selecting a management subnet.",
-        commands=("deploy", "redeploy"),
-    )
-    .require_host_tool(
-        "traceroute",
-        "Probe two candidate addresses with a bounded deadline before deployment.",
         commands=("deploy", "redeploy"),
     )
     .require_privilege(
@@ -231,7 +239,9 @@ class StickyIPPlugin(SchemaBackedPlugin):
             "  ECLAB_STICKY_IP_MAX_LABS controls concurrency (default 64); "
             "ECLAB_STICKY_IPV4_POOL, ECLAB_STICKY_IPV6_POOL, and "
             "ECLAB_STICKY_IP_EXCLUDES configure private allocation space.\n"
-            "  Inherited host/none/container network-mode nodes receive no address slot."
+            "  Inherited host/none/container network-mode nodes receive no address slot.\n"
+            "  Python UDP probes use the Linux ICMP error queue; unavailable probes "
+            "are skipped with an info message."
         )
 
     def analyze_call(
@@ -317,6 +327,7 @@ class StickyIPPlugin(SchemaBackedPlugin):
                     key,
                     inventory,
                     destructive=destructive and not keep_network,
+                    logger=api.logger,
                 )
                 sequence = registry.sequence + 1
                 attempt_id = uuid.uuid4().hex
@@ -420,6 +431,7 @@ def _allocation_plan(
     inventory: HostInventory,
     *,
     destructive: bool,
+    logger: PluginLogger | None = None,
 ) -> _Plan:
     if any(
         item.lab_key == key and item.status == "pending"
@@ -470,7 +482,7 @@ def _allocation_plan(
             owned_names=owned_names,
             destructive=destructive,
         )
-        if probe_candidate(request.explicit_subnet, own_addresses=own):
+        if _probe_candidate(request.explicit_subnet, own_addresses=own, logger=logger):
             raise StickyIPError(
                 f"explicit subnet {request.explicit_subnet} responded to an availability probe"
             )
@@ -521,6 +533,7 @@ def _allocation_plan(
             network_name,
             owned_names,
             destructive=destructive,
+            logger=logger,
         ):
             return _Plan(
                 subnet,
@@ -551,6 +564,7 @@ def _allocation_plan(
             network_name,
             owned_names,
             destructive=destructive,
+            logger=logger,
         ):
             evicted = _displaced_inactive(registry, key, expanded)
             return _Plan(
@@ -578,6 +592,7 @@ def _allocation_plan(
             units,
             prefix,
             destructive,
+            logger=logger,
         )
         if plan is not None:
             return plan
@@ -593,6 +608,7 @@ def _allocation_plan(
         units,
         prefix,
         destructive,
+        logger=logger,
     )
     if plan is not None:
         return plan
@@ -614,6 +630,8 @@ def _find_new_plan(
     units: int,
     prefix: int,
     destructive: bool,
+    *,
+    logger: PluginLogger | None = None,
 ) -> _Plan | None:
     pools = config.pools(request.family)
     cursor_pool, cursor_address = registry.cursors[request.family.value]
@@ -651,6 +669,7 @@ def _find_new_plan(
             owned_names,
             destructive=destructive,
             probe_timeout=min(0.1, max(0.01, deadline - time.monotonic())),
+            logger=logger,
         ):
             return _Plan(
                 candidate,
@@ -678,6 +697,8 @@ def _find_recycled_plan(
     units: int,
     prefix: int,
     destructive: bool,
+    *,
+    logger: PluginLogger | None = None,
 ) -> _Plan | None:
     cursor_address = registry.cursors[request.family.value][1]
     histories = sorted(
@@ -714,6 +735,7 @@ def _find_recycled_plan(
             owned_names,
             destructive=destructive,
             probe_timeout=min(0.1, max(0.01, deadline - time.monotonic())),
+            logger=logger,
         ):
             continue
         evicted = _displaced_inactive(registry, key, candidate)
@@ -741,6 +763,7 @@ def _candidate_usable(
     *,
     destructive: bool,
     probe_timeout: float = 0.1,
+    logger: PluginLogger | None = None,
 ) -> bool:
     try:
         _validate_state_conflicts(registry, key, candidate)
@@ -752,10 +775,25 @@ def _candidate_usable(
             owned_names=owned_names,
             destructive=destructive,
         )
-        return not probe_candidate(
-            candidate, own_addresses=own, timeout=probe_timeout
+        return not _probe_candidate(
+            candidate, own_addresses=own, timeout=probe_timeout, logger=logger
         )
     except HostCheckError:
+        return False
+
+
+def _probe_candidate(
+    candidate: Network,
+    *,
+    own_addresses: Iterable[Address],
+    timeout: float = 0.1,
+    logger: PluginLogger | None = None,
+) -> bool:
+    try:
+        return probe_candidate(candidate, own_addresses=own_addresses, timeout=timeout)
+    except ProbeUnavailableError as error:
+        if logger is not None:
+            logger.info("Skipping sticky IP network probe verification: %s", error)
         return False
 
 

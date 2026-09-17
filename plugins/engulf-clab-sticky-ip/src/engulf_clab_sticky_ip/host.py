@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ipaddress
 import json
-import re
 import subprocess
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -10,11 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .allocation import Address, Network, StickyIPError, node_slots
-
-
-class HostCheckError(StickyIPError):
-    pass
+from .allocation import Address, Network, node_slots
+from .errors import HostCheckError
+from .probes import TraceStrategy, select_trace_strategy
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,8 +277,10 @@ def probe_candidate(
     *,
     own_addresses: Iterable[Address] = (),
     timeout: float = 0.1,
+    strategy: TraceStrategy | None = None,
 ) -> bool:
     """Return true when either trace proves the candidate is in use."""
+    strategy = strategy if strategy is not None else select_trace_strategy()
     if candidate.prefixlen <= (24 if candidate.version == 4 else 120):
         slots = node_slots(candidate)
         targets = (slots[0], slots[-1])
@@ -299,65 +298,13 @@ def probe_candidate(
                 ipaddress.ip_address(first + min(span - 1, max(2, (span * 2) // 3))),
             )
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="sticky-ip-trace") as executor:
-        outputs = tuple(executor.map(lambda target: _trace(target, timeout), targets))
+        outputs = tuple(executor.map(lambda target: strategy.trace(target, timeout), targets))
     allowed = set(own_addresses)
-    for target, output in zip(targets, outputs, strict=True):
-        for address in _trace_hops(output):
-            if address == target and address not in allowed:
-                return True
+    for output in outputs:
+        for address in output:
             if address in candidate and address not in allowed:
                 return True
     return False
-
-
-def _trace(target: Address, timeout: float) -> str:
-    try:
-        process = subprocess.Popen(
-            ["traceroute", "-q", "1", "-w", "1", "-m", "8", str(target)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    except OSError as error:
-        raise HostCheckError(f"could not run traceroute: {error}") from error
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
-            return ""
-    detail = stderr.strip()
-    if process.returncode not in (0, -9) and detail and not _ordinary_unreachable(detail):
-        raise HostCheckError(f"traceroute failed: {detail}")
-    return stdout
-
-
-def _ordinary_unreachable(value: str) -> bool:
-    lowered = value.casefold()
-    return "network is unreachable" in lowered or "no route to host" in lowered
-
-
-_HOP_LINE = re.compile(r"^\s*\d+\s+(.*)$")
-
-
-def _trace_hops(output: str) -> tuple[Address, ...]:
-    result: list[Address] = []
-    for line in output.splitlines():
-        match = _HOP_LINE.match(line)
-        if match is None:
-            continue
-        for token in match.group(1).replace("(", " ").replace(")", " ").split():
-            try:
-                result.append(ipaddress.ip_address(token.rstrip("!,")))
-            except ValueError:
-                continue
-    return tuple(result)
 
 
 def _run(arguments: Sequence[str]) -> str:
