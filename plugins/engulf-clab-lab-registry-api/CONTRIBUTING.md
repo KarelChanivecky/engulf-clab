@@ -3,7 +3,15 @@
 Keep this package independent of the registry implementation and individual
 consumers. Public records are immutable, validate their identity and path
 invariants, and contain only generic lab inventory—not resource measurements or
-feature-specific state. Keep the context name and plugin ID stable.
+feature-specific state. Keep the context names and plugin ID stable.
+
+The registry protocol carries a persistence flag and a load-time revision so a
+consumer can fence a decision against a concurrent writer, and the commit
+outcome is the shared vocabulary for "did my intent reach durable storage". Both
+belong here rather than in one implementation: `engulf-clab-reclaim` must be
+able to run its delete-after-commit ordering against any registry that honors
+the contract. Adding a protocol member is a breaking change for providers, so
+bump the minor version, update `USAGE.md`, and update direct consumers together.
 
 Add API fields or methods only when multiple consumers need them. Evolve
 incompatible contracts with a new major version and update direct consumers.

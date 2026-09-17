@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-reclaim"
-version = "0.1.0"
+version = "0.2.0"
 description = "Reclaim lab-owned Docker storage while preserving eclab workspaces"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -26,7 +26,7 @@ dependencies = [
 "engulf_clab.reclaim" = "engulf_clab_reclaim:plugin"
 
 [project.entry-points."engulf.plugins.v1.dependency.engulf_clab_reclaim"]
-"engulf_clab.lab_registry" = "preprocess=before; postprocess=none"
+"engulf_clab.lab_registry" = "preprocess=before; postprocess=before"
 "engulf_clab.schema" = "preprocess=after; postprocess=none"
 
 [tool.hatch.build.targets.wheel]

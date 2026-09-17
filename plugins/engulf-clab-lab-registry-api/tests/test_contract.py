@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from engulf_api import InvocationAPI
 
 from engulf_clab_lab_registry_api import (
+    LAB_REGISTRY_COMMIT_CONTEXT,
     LAB_REGISTRY_CONTEXT,
     LabRecord,
+    LabRegistry,
     LabRegistryError,
+    RegistryCommit,
     lab_registry,
 )
 
 
 class Registry:
+    persistent = True
+    revision = 0
+
     def records(self) -> tuple[LabRecord, ...]:
         return ()
 
@@ -41,6 +48,43 @@ class ContractTest(unittest.TestCase):
 
         with self.assertRaisesRegex(LabRegistryError, "install and activate"):
             lab_registry(api)
+
+    def test_registry_without_fence_members_is_not_a_registry(self) -> None:
+        """A stale provider lacking the durability members must not match."""
+
+        class Stale:
+            def records(self) -> tuple[LabRecord, ...]:
+                return ()
+
+            def upsert(self, records: tuple[LabRecord, ...]) -> None:
+                del records
+
+        api = MagicMock(spec=InvocationAPI)
+        api.get_context.return_value = Stale()
+
+        with self.assertRaisesRegex(LabRegistryError, "install and activate"):
+            lab_registry(api)
+
+    def test_protocol_exposes_fence_and_persistence(self) -> None:
+        self.assertTrue(isinstance(Registry(), LabRegistry))
+
+    def test_commit_context_is_namespaced_and_outcome_is_immutable(self) -> None:
+        self.assertEqual(
+            LAB_REGISTRY_COMMIT_CONTEXT, "engulf_clab.lab_registry.commit"
+        )
+        record = LabRecord("demo", Path("/labs/demo"), None, frozenset(), False)
+        outcome = RegistryCommit(True, 4, (record,))
+        self.assertTrue(outcome.committed)
+        self.assertEqual(outcome.revision, 4)
+        self.assertEqual(outcome.records, (record,))
+        self.assertIsNone(outcome.error)
+        with self.assertRaises(FrozenInstanceError):
+            outcome.committed = False  # type: ignore[misc]
+
+    def test_uncommitted_outcome_defaults_to_no_records(self) -> None:
+        outcome = RegistryCommit(committed=False, revision=2, error="unavailable")
+        self.assertEqual(outcome.records, ())
+        self.assertEqual(outcome.error, "unavailable")
 
 
 if __name__ == "__main__":

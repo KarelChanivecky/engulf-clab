@@ -3,12 +3,23 @@ from __future__ import annotations
 import json
 import tomllib
 import unittest
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 from unittest.mock import MagicMock, patch
 
-from engulf_api import ApplicationMetadata, BeforeGoalAPI, GoalResultStatus, Invocation
-from engulf_clab_lab_registry_api import LabRecord, LabRegistryError
+from engulf_api import (
+    AfterGoalAPI,
+    ApplicationMetadata,
+    BeforeGoalAPI,
+    GoalResult,
+    GoalResultStatus,
+    Invocation,
+    StateStore,
+)
+from engulf_clab_lab_registry_api import LabRecord, RegistryCommit
 from engulf_clab_schema_api import LifecycleStage
 
 from engulf_clab_reclaim.command import (
@@ -24,10 +35,14 @@ from engulf_clab_reclaim.plugin import PLUGIN_SCHEMA, ReclaimPlugin
 
 
 class FakeRegistry:
-    def __init__(self, records: tuple[LabRecord, ...] = ()) -> None:
+    def __init__(
+        self, records: tuple[LabRecord, ...] = (), *, persistent: bool = True
+    ) -> None:
         self.record_values = records
         self.updates: list[tuple[LabRecord, ...]] = []
         self.error: RuntimeError | None = None
+        self.persistent = persistent
+        self.revision = 0
 
     def records(self) -> tuple[LabRecord, ...]:
         return self.record_values
@@ -36,6 +51,61 @@ class FakeRegistry:
         if self.error is not None:
             raise self.error
         self.updates.append(records)
+
+
+def committed(revision: int = 0, records: tuple[LabRecord, ...] = ()) -> RegistryCommit:
+    return RegistryCommit(committed=True, revision=revision, records=records)
+
+
+class MemoryState:
+    """Minimal writable user store, shared by the two real plugins."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    def exists(self, filename: str) -> bool:
+        return filename in self.values
+
+    def read_text(self, filename: str, **_kwargs: object) -> str:
+        return self.values[filename]
+
+    def write_text(self, filename: str, data: str, **_kwargs: object) -> None:
+        self.values[filename] = data
+
+    @contextmanager
+    def transaction(self, **_kwargs: object) -> Iterator[MemoryState]:
+        yield self
+
+
+class SharedAPI:
+    """One shared context table plus the plugin-owned store, as the runtime."""
+
+    def __init__(self, table: dict[str, object], store: MemoryState) -> None:
+        self._table = table
+        self._store = store
+        self.logger = MagicMock()
+        self.application = ApplicationMetadata(
+            application_id="engulf-clab",
+            display_name="ECLAB",
+            vendor="Engulf",
+            product="ECLAB",
+            version="1",
+            short_product_name="eclab",
+        )
+
+    def get_context(
+        self, context_id: str, default: object | None = None
+    ) -> object | None:
+        return self._table.get(context_id, default)
+
+    def set_context(self, context_id: str, value: object, **_kwargs: object) -> None:
+        self._table[context_id] = value
+
+    def state(self, _scope: object) -> MemoryState:
+        return self._store
+
+    def leases(self, _names: object, **_kwargs: object) -> AbstractContextManager[None]:
+        return nullcontext()
 
 
 class FakeDocker:
@@ -233,13 +303,8 @@ class PlanningTest(unittest.TestCase):
 
 
 class ExecutionTest(unittest.TestCase):
-    def test_persists_before_removing_objects(self) -> None:
+    def test_deletes_after_a_committed_registry(self) -> None:
         events: list[str] = []
-
-        class Registry(FakeRegistry):
-            def upsert(self, records: tuple[LabRecord, ...]) -> None:
-                events.append("registry")
-                super().upsert(records)
 
         class Docker(FakeDocker):
             def remove_container(self, container_id: str) -> None:
@@ -260,35 +325,59 @@ class ExecutionTest(unittest.TestCase):
             (),
             (record,),
         )
-        logger = MagicMock()
-        registry = Registry()
 
         code = execute(
             reclaim_plan,
-            registry=registry,
+            commit=committed(records=(record,)),
             docker=Docker(),
-            logger=logger,
+            logger=MagicMock(),
         )
 
         self.assertEqual(code, 0)
-        self.assertEqual(events, ["registry", "container:c", "image:sha256:image"])
+        self.assertEqual(events, ["container:c", "image:sha256:image"])
 
-    def test_registry_failure_aborts_before_deletion(self) -> None:
-        registry = FakeRegistry()
-        registry.error = LabRegistryError("unavailable")
+    def test_uncommitted_registry_aborts_with_zero_deletes(self) -> None:
+        """durability-000: a failed durable write stops every delete."""
         docker = FakeDocker()
         reclaim_plan = ReclaimPlan((), ("c",), ("sha256:image",), (), ())
+        logger = MagicMock()
 
         code = execute(
             reclaim_plan,
-            registry=registry,
+            commit=RegistryCommit(committed=False, revision=0, error="unavailable"),
             docker=docker,
-            logger=MagicMock(),
+            logger=logger,
         )
 
         self.assertEqual(code, 1)
         self.assertEqual(docker.removed_containers, [])
         self.assertEqual(docker.removed_images, [])
+        logger.error.assert_called_once()
+
+    def test_crash_before_delete_leaves_observations_committed(self) -> None:
+        """durability-001: the commit precedes any delete request."""
+        from engulf_clab_lab_registry.storage import (
+            SessionLabRegistry,
+            StateLabRegistry,
+        )
+
+        record = LabRecord(
+            "one", Path("/labs/one"), None, frozenset({"sha256:image"}), False
+        )
+        store = MemoryState()
+        # The owner loads, the visitor records intent, the owner commits: this is
+        # exactly the pre-delete half of the chain.
+        session = SessionLabRegistry(
+            StateLabRegistry(cast(StateStore, store)).records()
+        )
+        session.upsert((record,))
+        StateLabRegistry(cast(StateStore, store)).commit(session)
+
+        # The process dies here, before execute(). A fresh invocation
+        # (a new store handle over the same files) still sees the observation.
+        fresh = StateLabRegistry(cast(StateStore, store))
+        self.assertEqual(fresh.revision(), 1)
+        self.assertEqual(fresh.records()[0].image_ids, frozenset({"sha256:image"}))
 
     def test_deletion_failures_do_not_stop_independent_attempts(self) -> None:
         docker = FakeDocker()
@@ -303,7 +392,7 @@ class ExecutionTest(unittest.TestCase):
 
         code = execute(
             reclaim_plan,
-            registry=FakeRegistry(),
+            commit=committed(),
             docker=docker,
             logger=MagicMock(),
         )
@@ -319,7 +408,7 @@ class ExecutionTest(unittest.TestCase):
 
         code = execute(
             ReclaimPlan((), (), (), (), ()),
-            registry=FakeRegistry(),
+            commit=committed(),
             docker=docker,
             logger=logger,
         )
@@ -333,7 +422,7 @@ class ExecutionTest(unittest.TestCase):
 
         code = execute(
             ReclaimPlan((), ("container",), ("sha256:image",), (), ()),
-            registry=FakeRegistry(),
+            commit=committed(),
             docker=docker,
             logger=MagicMock(),
         )
@@ -351,7 +440,7 @@ class ExecutionTest(unittest.TestCase):
 
         code = execute(
             ReclaimPlan((), ("container",), (), (), ()),
-            registry=FakeRegistry(),
+            commit=committed(),
             docker=docker,
             logger=logger,
         )
@@ -359,6 +448,115 @@ class ExecutionTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(docker.removed_containers, ["container"])
         self.assertEqual(logger.info.call_args.args[-1], "unavailable")
+
+
+class RevalidationTest(unittest.TestCase):
+    """The revision fence that guards a plan against a concurrent writer."""
+
+    def test_new_identity_owner_preserves_the_image(self) -> None:
+        """ownership-new-identity: a newly owning lab keeps its image."""
+        target = LabRecord(
+            "one", Path("/labs/one"), None, frozenset({"sha256:shared"}), True
+        )
+        newcomer = LabRecord(
+            "two", Path("/labs/two"), None, frozenset({"sha256:shared"}), True
+        )
+        reclaim_plan = ReclaimPlan(
+            (LabUse("one", target.directory, None, target.image_ids, ("c",), True),),
+            ("c",),
+            ("sha256:shared",),
+            (),
+            (target,),
+            base_revision=3,
+        )
+        docker = FakeDocker()
+        logger = MagicMock()
+
+        code = execute(
+            reclaim_plan,
+            commit=committed(revision=4, records=(target, newcomer)),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(docker.removed_images, [])
+        self.assertEqual(docker.removed_containers, ["c"])
+
+    def test_changed_target_record_aborts_with_zero_deletes(self) -> None:
+        """ownership-same-identity: a moved target record invalidates the plan."""
+        target = LabRecord(
+            "one", Path("/labs/one"), None, frozenset({"sha256:old"}), True
+        )
+        changed = LabRecord(
+            "one", Path("/labs/one"), None, frozenset({"sha256:new"}), True
+        )
+        reclaim_plan = ReclaimPlan(
+            (LabUse("one", target.directory, None, target.image_ids, ("c",), True),),
+            ("c",),
+            ("sha256:old",),
+            (),
+            (target,),
+            base_revision=3,
+        )
+        docker = FakeDocker()
+        logger = MagicMock()
+
+        code = execute(
+            reclaim_plan,
+            commit=committed(revision=4, records=(changed,)),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, [])
+        self.assertEqual(docker.removed_images, [])
+        self.assertIn("re-run reclaim", logger.error.call_args.args[1])
+
+    def test_moved_revision_without_inventory_aborts(self) -> None:
+        """A fence that moved but carries no records must never delete blind."""
+        reclaim_plan = ReclaimPlan(
+            (),
+            ("c",),
+            ("sha256:image",),
+            (),
+            (),
+            base_revision=3,
+        )
+        docker = FakeDocker()
+
+        code = execute(
+            reclaim_plan,
+            commit=committed(revision=4),
+            docker=docker,
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(docker.removed_containers, [])
+        self.assertEqual(docker.removed_images, [])
+
+    def test_unchanged_revision_deletes_the_planned_set(self) -> None:
+        reclaim_plan = ReclaimPlan(
+            (),
+            (),
+            ("sha256:image",),
+            (),
+            (),
+            base_revision=7,
+        )
+        docker = FakeDocker()
+
+        code = execute(
+            reclaim_plan,
+            commit=committed(revision=7),
+            docker=docker,
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(docker.removed_images, ["sha256:image"])
 
 
 class DockerTest(unittest.TestCase):
@@ -405,6 +603,42 @@ class DockerTest(unittest.TestCase):
             docker.remove_image("sha256:image")
         run.assert_called_once_with(("image", "rm", "sha256:image"))
 
+    def test_already_removed_objects_are_tolerated_on_retry(self) -> None:
+        """durability-002: a retry after a mid-delete crash must not fail."""
+        docker = DockerClient()
+        with patch.object(
+            docker,
+            "_run",
+            side_effect=DockerError(
+                "docker container rm failed: Error response from daemon: "
+                "No such container: gone"
+            ),
+        ):
+            docker.remove_container("gone")
+        with patch.object(
+            docker,
+            "_run",
+            side_effect=DockerError(
+                "docker image rm failed: Error response from daemon: "
+                "No such image: sha256:gone"
+            ),
+        ):
+            docker.remove_image("sha256:gone")
+
+    def test_genuine_removal_failures_still_raise(self) -> None:
+        docker = DockerClient()
+        with (
+            patch.object(
+                docker,
+                "_run",
+                side_effect=DockerError(
+                    "docker image rm failed: conflict: image is being used"
+                ),
+            ),
+            self.assertRaises(DockerError),
+        ):
+            docker.remove_image("sha256:busy")
+
 
 class PluginTest(unittest.TestCase):
     def test_package_declares_registry_before_reclaim(self) -> None:
@@ -419,7 +653,7 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(
             group,
             {
-                "engulf_clab.lab_registry": "preprocess=before; postprocess=none",
+                "engulf_clab.lab_registry": "preprocess=before; postprocess=before",
                 "engulf_clab.schema": "preprocess=after; postprocess=none",
             },
         )
@@ -449,27 +683,35 @@ class PluginTest(unittest.TestCase):
         }
         self.assertEqual(
             annotations["reclaim"].lifecycle,
-            (LifecycleStage.BEFORE_GOAL,),
+            (LifecycleStage.BEFORE_GOAL, LifecycleStage.AFTER_GOAL),
         )
         self.assertIn("are deleted", " ".join(annotations["reclaim"].implies))
         self.assertIn("storage saved", " ".join(annotations["reclaim"].implies))
+        self.assertIn(
+            "committed to the lab registry before any deletion",
+            " ".join(annotations["reclaim"].implies),
+        )
 
-    def test_reclaim_preempts_and_holds_mutation_lease(self) -> None:
+    def _before_goal_api(self) -> MagicMock:
         api = MagicMock(spec=BeforeGoalAPI)
         api.get_context.return_value = None
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "eclab"
+        return api
+
+    def test_before_goal_stages_the_plan_without_deleting(self) -> None:
+        api = self._before_goal_api()
         invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
         registry = FakeRegistry()
-        reclaim_plan = ReclaimPlan((), (), (), (), ())
+        reclaim_plan = ReclaimPlan((), (), (), (), (), base_revision=2)
 
         with (
             patch("engulf_clab_reclaim.plugin.lab_registry", return_value=registry),
-            patch("engulf_clab_reclaim.plugin.DockerClient") as docker,
+            patch("engulf_clab_reclaim.plugin.DockerClient"),
             patch(
                 "engulf_clab_reclaim.plugin.plan", return_value=reclaim_plan
             ) as planner,
-            patch("engulf_clab_reclaim.plugin.execute", return_value=0) as executor,
+            patch("engulf_clab_reclaim.plugin.execute") as executor,
         ):
             result = ReclaimPlugin().before_goal(invocation, api)
 
@@ -478,18 +720,112 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         api.leases.assert_called_once_with(("eclab-reclaim:docker",))
         planner.assert_called_once()
+        executor.assert_not_called()
+        # The intent the registry owner commits, staged for its own after_goal.
+        self.assertEqual(registry.updates, [()])
+        contexts = {call.args[0]: call.args[1] for call in api.set_context.call_args_list}
+        self.assertIs(contexts["engulf_clab.reclaim.plan"], reclaim_plan)
+
+    def test_before_goal_refuses_an_unreadable_registry(self) -> None:
+        """durability-003: an unreadable registry stops before planning."""
+        api = self._before_goal_api()
+        invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
+        registry = FakeRegistry(persistent=False)
+
+        with (
+            patch("engulf_clab_reclaim.plugin.lab_registry", return_value=registry),
+            patch("engulf_clab_reclaim.plugin.DockerClient"),
+            patch("engulf_clab_reclaim.plugin.plan") as planner,
+            patch("engulf_clab_reclaim.plugin.execute") as executor,
+        ):
+            result = ReclaimPlugin().before_goal(invocation, api)
+
+        assert result is not None
+        self.assertEqual(result.exit_code, 1)
+        planner.assert_not_called()
+        executor.assert_not_called()
+        api.leases.assert_not_called()
+        api.logger.error.assert_called_once()
+
+    def test_after_goal_executes_under_lease_with_the_commit_outcome(self) -> None:
+        api = MagicMock(spec=AfterGoalAPI)
+        api.application = MagicMock(spec=ApplicationMetadata)
+        api.application.short_product_name = "eclab"
+        reclaim_plan = ReclaimPlan((), (), (), (), (), base_revision=2)
+        outcome = RegistryCommit(True, 3, ())
+        api.get_context.side_effect = lambda context_id: {
+            "engulf_clab.reclaim.plan": reclaim_plan,
+            "engulf_clab.lab_registry.commit": outcome,
+        }.get(context_id)
+        invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
+
+        with (
+            patch("engulf_clab_reclaim.plugin.DockerClient") as docker,
+            patch("engulf_clab_reclaim.plugin.execute", return_value=0) as executor,
+        ):
+            result = ReclaimPlugin().after_goal(
+                invocation, GoalResult.completed(), api
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        api.leases.assert_called_once_with(("eclab-reclaim:docker",))
         executor.assert_called_once_with(
             reclaim_plan,
-            registry=registry,
+            commit=outcome,
             docker=docker.return_value,
             logger=api.logger,
         )
 
-    def test_help_exits_before_registry_or_lease(self) -> None:
-        api = MagicMock(spec=BeforeGoalAPI)
-        api.get_context.return_value = None
+    def test_after_goal_revises_the_exit_code_when_execution_fails(self) -> None:
+        api = MagicMock(spec=AfterGoalAPI)
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "eclab"
+        reclaim_plan = ReclaimPlan((), (), (), (), ())
+        api.get_context.side_effect = lambda context_id: {
+            "engulf_clab.reclaim.plan": reclaim_plan,
+            "engulf_clab.lab_registry.commit": RegistryCommit(False, 0, error="no"),
+        }.get(context_id)
+        invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
+
+        with (
+            patch("engulf_clab_reclaim.plugin.DockerClient"),
+            patch("engulf_clab_reclaim.plugin.execute", return_value=1),
+        ):
+            result = ReclaimPlugin().after_goal(
+                invocation, GoalResult.completed(), api
+            )
+
+        self.assertEqual(result.exit_code, 1)
+
+    def test_after_goal_passes_through_without_a_staged_plan(self) -> None:
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = None
+        invocation = Invocation(("deploy",), Path("/labs"), {})
+
+        with patch("engulf_clab_reclaim.plugin.execute") as executor:
+            result = ReclaimPlugin().after_goal(
+                invocation, GoalResult.completed(), api
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        executor.assert_not_called()
+        api.leases.assert_not_called()
+
+    def test_after_goal_ignores_a_failed_before_goal(self) -> None:
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = ReclaimPlan((), (), (), (), ())
+        invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
+
+        with patch("engulf_clab_reclaim.plugin.execute") as executor:
+            result = ReclaimPlugin().after_goal(
+                invocation, GoalResult.completed(exit_code=1), api
+            )
+
+        self.assertEqual(result.exit_code, 1)
+        executor.assert_not_called()
+
+    def test_help_exits_before_registry_or_lease(self) -> None:
+        api = self._before_goal_api()
         invocation = Invocation(("reclaim", "--help"), Path("/labs"), {})
 
         with (
@@ -501,6 +837,72 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(stopped.exception.code, 0)
         registry.assert_not_called()
         api.leases.assert_not_called()
+
+
+class IntegrationOrderingTest(unittest.TestCase):
+    """The full two-callback chain across the real registry and reclaim plugins."""
+
+    def test_a_commit_never_overwrites_b_entry_and_never_deletes_b_image(self) -> None:
+        """ownership-same-identity-A-fails: A's stale plan cannot harm B."""
+        from engulf_clab_lab_registry.plugin import LabRegistryPlugin
+        from engulf_clab_lab_registry.storage import (
+            SessionLabRegistry,
+            StateLabRegistry,
+        )
+        from engulf_clab_lab_registry_api import (
+            LAB_REGISTRY_COMMIT_CONTEXT,
+            LAB_REGISTRY_CONTEXT,
+        )
+
+        from engulf_clab_reclaim.plugin import RECLAIM_PLAN_CONTEXT
+
+        store = MemoryState()
+        state_api = StateLabRegistry(cast(StateStore, store))
+        one = LabRecord(
+            "one", Path("/labs/one"), None, frozenset({"sha256:one"}), True
+        )
+        state_api.upsert((one,))
+        base_revision = state_api.revision()
+
+        # A loads the snapshot and plans against it.
+        session = SessionLabRegistry(state_api.records(), revision=base_revision)
+        session.upsert((one,))
+        table: dict[str, object] = {LAB_REGISTRY_CONTEXT: session}
+        reclaim_plan = ReclaimPlan(
+            (LabUse("one", one.directory, None, one.image_ids, ("one-c",), True),),
+            ("one-c",),
+            ("sha256:one",),
+            (),
+            (one,),
+            base_revision=base_revision,
+        )
+        table[RECLAIM_PLAN_CONTEXT] = reclaim_plan
+
+        # B registers a new lab with its own image while A is between phases.
+        two = LabRecord("two", Path("/labs/two"), None, frozenset({"sha256:two"}), True)
+        state_api.upsert((two,))
+        self.assertNotEqual(state_api.revision(), base_revision)
+
+        invocation = Invocation(("reclaim", "--all"), Path("/labs"), {})
+        result = GoalResult.completed()
+        # Phase order: the registry owner commits first, then reclaim deletes.
+        LabRegistryPlugin().after_goal(invocation, result, SharedAPI(table, store))
+        docker = FakeDocker()
+        with patch("engulf_clab_reclaim.plugin.DockerClient", return_value=docker):
+            final = ReclaimPlugin().after_goal(
+                invocation, GoalResult.completed(), SharedAPI(table, store)
+            )
+
+        self.assertEqual(final.exit_code, 0)
+        # A deleted only its own lab's image and container.
+        self.assertEqual(docker.removed_images, ["sha256:one"])
+        self.assertEqual(docker.removed_containers, ["one-c"])
+        # B's entry and B's image were never touched.
+        stored = {item.name: item for item in state_api.records()}
+        self.assertEqual(set(stored), {"one", "two"})
+        self.assertEqual(stored["two"].image_ids, frozenset({"sha256:two"}))
+        outcome = table[LAB_REGISTRY_COMMIT_CONTEXT]
+        self.assertTrue(cast(RegistryCommit, outcome).committed)
 
 
 if __name__ == "__main__":

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 from engulf_api import StateStore
-from engulf_clab_lab_registry_api import LabRecord, LabRegistryError
+from engulf_clab_lab_registry_api import (
+    LabRecord,
+    LabRegistryError,
+    RegistryCommit,
+)
 
 _FILENAME = "labs.json"
 _VERSION = 1
@@ -23,19 +27,34 @@ class SessionLabRegistry:
     ``engulf_clab.lab_registry`` therefore loads the snapshot and writes pending
     updates back from its own callbacks, exactly as Docker image providers keep
     capability-free provider objects in shared context.
+
+    The load-time snapshot is kept apart from the visitor view (``_base``) so
+    that later upserts cannot move the fence base the owner compares against on
+    commit.
     """
 
     def __init__(
-        self, snapshot: tuple[LabRecord, ...] = (), *, persistent: bool = True
+        self,
+        snapshot: tuple[LabRecord, ...] = (),
+        *,
+        persistent: bool = True,
+        revision: int = 0,
     ) -> None:
         self._records = {item.key: item for item in snapshot}
+        self._base = dict(self._records)
         self._pending: dict[tuple[str, Path], LabRecord] = {}
         self._persistent = persistent
+        self._revision = revision
 
     @property
     def persistent(self) -> bool:
         """Whether pending updates may be written back to user state."""
         return self._persistent
+
+    @property
+    def revision(self) -> int:
+        """Registry revision this session was loaded from (0 when unknown)."""
+        return self._revision
 
     def records(self) -> tuple[LabRecord, ...]:
         return _sorted(self._records.values())
@@ -51,6 +70,10 @@ class SessionLabRegistry:
         """Return updates accumulated since load, for the owner to persist."""
         return _sorted(self._pending.values())
 
+    def base(self) -> dict[tuple[str, Path], LabRecord]:
+        """Return the load-time snapshot the fenced commit compares against."""
+        return self._base
+
 
 class StateLabRegistry:
     """Lab registry backed by one plugin-owned Engulf user-state store.
@@ -63,24 +86,55 @@ class StateLabRegistry:
         self._state = state
 
     def records(self) -> tuple[LabRecord, ...]:
-        return _read_records(self._state)
+        return _read_payload(self._state)[0]
+
+    def revision(self) -> int:
+        return _read_payload(self._state)[1]
 
     def upsert(self, updates: tuple[LabRecord, ...]) -> None:
         _validate_updates(updates)
         if not updates:
             return
         with self._state.transaction() as locked:
-            merged = {item.key: item for item in _read_records(locked)}
+            records, revision = _read_payload(locked)
+            merged = {item.key: item for item in records}
             for update in updates:
                 merged[update.key] = _merge_record(merged.get(update.key), update)
-            payload = {
-                "version": _VERSION,
-                "labs": [_serialize(item) for item in _sorted(merged.values())],
-            }
-            rendered = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
-            if locked.exists(_FILENAME) and locked.read_text(_FILENAME) == rendered:
-                return
-            locked.write_text(_FILENAME, rendered)
+            _persist(locked, records, merged, revision)
+
+    def commit(self, session: SessionLabRegistry) -> RegistryCommit:
+        """Persist a session's pending updates under one fenced transaction.
+
+        A session that was served from an unreadable file is never written, so
+        the offending file survives for inspection. Otherwise every pending
+        update is applied against the current on-disk entry for its key: when
+        the entry still matches the session's load-time base, the normal merge
+        runs; when another actor changed it concurrently, the newer on-disk
+        entry wins and only monotone fields (topology, deployment history) are
+        merged in. A concurrent writer therefore never loses its record to a
+        stale flush.
+        """
+        if not session.persistent:
+            return RegistryCommit(
+                committed=False,
+                revision=session.revision,
+                error="lab registry is not persistent",
+            )
+        updates = session.pending()
+        base = session.base()
+        with self._state.transaction() as locked:
+            records, revision = _read_payload(locked)
+            merged = {item.key: item for item in records}
+            for update in updates:
+                current = merged.get(update.key)
+                # Unchanged, or absent on disk entirely: apply the update
+                # normally. Otherwise another actor moved this key.
+                if current is None or current == base.get(update.key):
+                    merged[update.key] = _merge_record(current, update)
+                else:
+                    merged[update.key] = _concurrent_win(current, update)
+            revision, stored = _persist(locked, records, merged, revision)
+        return RegistryCommit(True, revision, stored)
 
 
 def _validate_updates(updates: tuple[LabRecord, ...]) -> None:
@@ -108,14 +162,20 @@ def _sorted(records: Iterable[LabRecord]) -> tuple[LabRecord, ...]:
     )
 
 
-def _read_records(state: StateStore) -> tuple[LabRecord, ...]:
+def _read_payload(
+    state: StateStore,
+) -> tuple[tuple[LabRecord, ...], int]:
+    """Return the stored records and revision, or empty ones when absent."""
     if not state.exists(_FILENAME):
-        return ()
+        return (), 0
     try:
         value = json.loads(state.read_text(_FILENAME))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise LabRegistryError("invalid lab registry") from error
     if not isinstance(value, dict) or value.get("version") != _VERSION:
+        raise LabRegistryError("invalid lab registry")
+    revision = value.get("revision", 0)
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
         raise LabRegistryError("invalid lab registry")
     records = value.get("labs")
     if not isinstance(records, list):
@@ -126,7 +186,45 @@ def _read_records(state: StateStore) -> tuple[LabRecord, ...]:
         raise LabRegistryError("invalid lab registry record") from error
     if len({item.key for item in parsed}) != len(parsed):
         raise LabRegistryError("lab registry contains duplicate labs")
-    return _sorted(parsed)
+    return _sorted(parsed), revision
+
+
+def _concurrent_win(current: LabRecord, update: LabRecord) -> LabRecord:
+    """Keep a concurrently written entry, merging only monotone fields."""
+    return LabRecord(
+        current.name,
+        current.directory,
+        current.topology or update.topology,
+        current.image_ids,
+        current.ever_deployed or update.ever_deployed,
+    )
+
+
+def _persist(
+    state: StateStore,
+    records: tuple[LabRecord, ...],
+    merged: Mapping[tuple[str, Path], LabRecord],
+    revision: int,
+) -> tuple[int, tuple[LabRecord, ...]]:
+    """Write merged records, bumping the revision only on a content change.
+
+    The comparison ignores the revision itself: two writes that produce the same
+    lab set are the same registry state, so an idempotent retry (a crash before
+    deletion, a re-run) must not advance the fence and invalidate a concurrent
+    reader's plan. Returns the revision now in effect and the stored records.
+    """
+    stored = _sorted(merged.values())
+    if stored == records:
+        return revision, stored
+    next_revision = revision + 1
+    payload = {
+        "version": _VERSION,
+        "revision": next_revision,
+        "labs": [_serialize(item) for item in stored],
+    }
+    rendered = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    state.write_text(_FILENAME, rendered)
+    return next_revision, stored
 
 
 def _parse_record(value: Any) -> LabRecord:

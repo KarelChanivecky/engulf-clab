@@ -137,12 +137,26 @@ class DockerClient:
         return total
 
     def remove_container(self, container_id: str) -> None:
-        self._run(("container", "rm", "--force", "--volumes", container_id))
+        self._run_removal(("container", "rm", "--force", "--volumes", container_id))
 
     def remove_image(self, image_id: str) -> None:
         # Deliberately omit --force: Docker must protect non-lab consumers that
         # are outside the registry's ownership model.
-        self._run(("image", "rm", image_id))
+        self._run_removal(("image", "rm", image_id))
+
+    def _run_removal(self, arguments: Sequence[str]) -> None:
+        """Run one removal, tolerating an object that is already gone.
+
+        A crashed earlier attempt can leave a container or image removed after
+        its record was written, so a retry must treat "no such object" as
+        success instead of failing the run.
+        """
+        try:
+            self._run(arguments)
+        except DockerError as error:
+            if _already_gone(str(error)):
+                return
+            raise
 
     def _run(self, arguments: Sequence[str]) -> str:
         try:
@@ -162,6 +176,11 @@ class DockerClient:
             )
             raise DockerError(f"docker {' '.join(arguments[:2])} failed: {detail}")
         return result.stdout
+
+
+def _already_gone(detail: str) -> bool:
+    folded = detail.casefold()
+    return "no such container" in folded or "no such image" in folded
 
 
 def _json(value: str, source: str) -> Any:

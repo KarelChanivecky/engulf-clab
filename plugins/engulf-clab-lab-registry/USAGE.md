@@ -27,6 +27,24 @@ topology contents, resource measurements, or container output. A tracking error
 is logged and never changes the result of a successful deployment. Docker access
 is used only to observe completed deployments; no container or image is changed.
 
+The stored payload carries a monotonic `revision`. Every write that changes the
+recorded labs advances it by one; a write that reproduces the recorded labs
+exactly does not, so an idempotent retry (for example re-running reclaim after a
+crash) leaves the revision — and any plan fenced to it — valid.
+
+The `after_goal` flush is fenced against a concurrent writer. Inside one
+cross-process transaction it re-reads the current entry for each pending update:
+when the entry still matches the session's load-time snapshot the normal merge
+runs, and when another actor changed it meanwhile the newer on-disk entry wins,
+with only monotone fields (topology, deployment history) merged in. A stale
+flush therefore never replaces a record registered by another invocation.
+
+After that flush the plugin publishes a `RegistryCommit` under
+`engulf_clab.lab_registry.commit` describing whether the write happened and the
+revision now in effect, and acknowledges its own publication so invocations with
+no reader stay quiet. `engulf-clab-reclaim` reads this outcome to delete only
+after its observations are durably recorded.
+
 There are no leases or explicit cleanup steps. Removing the plugin stops future
 tracking but does not alter labs. Removing its Engulf-managed user state forgets
 inventory history and should be done only when no installed consumer needs it.

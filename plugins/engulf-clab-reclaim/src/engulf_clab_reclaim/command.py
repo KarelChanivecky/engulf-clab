@@ -8,7 +8,11 @@ from typing import Any
 
 from engulf_api import PluginLogger
 from engulf_clab_lab_parser import load_topology, topology_path_from_args
-from engulf_clab_lab_registry_api import LabRecord, LabRegistry, LabRegistryError
+from engulf_clab_lab_registry_api import (
+    LabRecord,
+    LabRegistry,
+    RegistryCommit,
+)
 
 from .docker import DockerClient, DockerError
 from .model import Container, LabUse, ReclaimPlan
@@ -142,23 +146,37 @@ def plan(
         image_ids,
         tuple(sorted(representative[item] for item in shared)),
         observations,
+        registry.revision,
     )
 
 
 def execute(
     reclaim_plan: ReclaimPlan,
     *,
-    registry: LabRegistry,
+    commit: RegistryCommit,
     docker: DockerClient,
     logger: PluginLogger,
 ) -> int:
-    try:
-        registry.upsert(reclaim_plan.observations)
-    except (OSError, RuntimeError, LabRegistryError) as error:
+    """Delete the planned objects once the registry owner has committed.
+
+    Runs only after ``engulf_clab.lab_registry`` persisted this invocation's
+    observations, so a delete is never attempted against intent that was not
+    durably recorded. A commit that did not happen stops the run outright, and a
+    registry that advanced past the plan's snapshot is re-validated: an image
+    that gained an owner outside the planned targets is preserved, and a target
+    whose committed record moved is treated as a changed plan the operator must
+    re-run.
+    """
+    if not commit.committed:
         logger.error(
             "could not preserve labs in the registry before storage reclamation: %s",
-            error,
+            commit.error or "the lab registry did not commit",
         )
+        return 1
+
+    image_ids, preserved, reason = _revalidate(reclaim_plan, commit)
+    if reason is not None:
+        logger.error("%s", reason)
         return 1
 
     try:
@@ -176,7 +194,7 @@ def execute(
             removed_containers += 1
         except DockerError as error:
             failures.append(str(error))
-    for image_id in reclaim_plan.image_ids:
+    for image_id in image_ids:
         try:
             docker.remove_image(image_id)
             removed_images += 1
@@ -199,10 +217,50 @@ def execute(
         len(reclaim_plan.labs),
         removed_containers,
         removed_images,
-        len(reclaim_plan.preserved_shared_image_ids),
+        len(reclaim_plan.preserved_shared_image_ids) + preserved,
         _bytes(storage_saved),
     )
     return 1 if failures else 0
+
+
+def _revalidate(
+    reclaim_plan: ReclaimPlan, commit: RegistryCommit
+) -> tuple[tuple[str, ...], int, str | None]:
+    """Re-derive the deletable image set from the committed registry state.
+
+    Returns the images still eligible for removal, how many planned images were
+    newly preserved because another lab now owns them, and an abort reason when
+    the committed state invalidates the plan entirely.
+    """
+    if commit.revision == reclaim_plan.base_revision:
+        return reclaim_plan.image_ids, 0, None
+    # Past this point the fence moved, so the plan must be re-confirmed.
+    changed = "lab registry changed during reclamation; re-run reclaim"
+    if not commit.records:
+        # The revision moved but there is no inventory to re-derive ownership
+        # from, so the plan cannot be confirmed. Never delete blind.
+        return (), 0, changed
+    stored = {record.key: record for record in commit.records}
+    for lab in reclaim_plan.labs:
+        if lab.directory is None:
+            continue
+        record = stored.get((lab.name, lab.directory))
+        committed_images = record.image_ids if record is not None else frozenset()
+        if frozenset(lab.image_ids) != frozenset(committed_images):
+            return (), 0, changed
+    target_keys = {lab.key for lab in reclaim_plan.labs}
+    owners: dict[str, set[tuple[str, Path | None]]] = defaultdict(set)
+    for record in commit.records:
+        for image_id in record.image_ids:
+            owners[_normalized(image_id)].add(record.key)
+    preserved = 0
+    remaining: list[str] = []
+    for image_id in reclaim_plan.image_ids:
+        if owners[_normalized(image_id)] - target_keys:
+            preserved += 1
+            continue
+        remaining.append(image_id)
+    return tuple(remaining), preserved, None
 
 
 def _bytes(value: int | None) -> str:

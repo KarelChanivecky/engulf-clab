@@ -18,9 +18,11 @@ from engulf_api import (
     StateStore,
 )
 from engulf_clab_lab_registry_api import (
+    LAB_REGISTRY_COMMIT_CONTEXT,
     LAB_REGISTRY_CONTEXT,
     LabRecord,
     LabRegistryError,
+    RegistryCommit,
 )
 
 from engulf_clab_lab_registry.observe import observe_deployed_lab
@@ -32,6 +34,7 @@ class MemoryState:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
         self.fail = False
+        self.write_fail = False
 
     def _check(self) -> None:
         if self.fail:
@@ -47,6 +50,8 @@ class MemoryState:
 
     def write_text(self, filename: str, data: str, **_kwargs: object) -> None:
         self._check()
+        if self.write_fail:
+            raise OSError("state is not writable")
         self.values[filename] = data
 
     @contextmanager
@@ -262,12 +267,13 @@ class PluginTest(unittest.TestCase):
             ),
             patch("engulf_clab_lab_registry.plugin.StateLabRegistry") as registry,
         ):
-            api.get_context.return_value = SessionLabRegistry()
+            session = SessionLabRegistry()
+            api.get_context.return_value = session
             result = GoalResult.completed()
             returned = LabRegistryPlugin().after_goal(invocation, result, api)
 
         self.assertIs(returned, result)
-        registry.return_value.upsert.assert_called_once_with((record,))
+        registry.return_value.commit.assert_called_once_with(session)
 
     def test_failed_deploy_does_not_update_registry(self) -> None:
         api = MagicMock(spec=AfterGoalAPI)
@@ -284,6 +290,8 @@ class PluginTest(unittest.TestCase):
     def test_tracking_failure_does_not_change_successful_deploy(self) -> None:
         api = MagicMock(spec=AfterGoalAPI)
         api.get_context.return_value = SessionLabRegistry()
+        # A working store, so the only failure under test is the observation.
+        api.state.return_value = state(MemoryState())
         invocation = Invocation(("deploy",), Path("/labs"), {})
 
         with patch(
@@ -295,6 +303,232 @@ class PluginTest(unittest.TestCase):
 
         self.assertIs(returned, result)
         api.logger.warning.assert_called_once()
+
+
+def _published_commit(api: MagicMock) -> RegistryCommit:
+    writes = [
+        call
+        for call in api.set_context.call_args_list
+        if call.args[0] == LAB_REGISTRY_COMMIT_CONTEXT
+    ]
+    if len(writes) != 1:
+        raise AssertionError(f"expected one commit publication, saw {len(writes)}")
+    return cast(RegistryCommit, writes[0].args[1])
+
+
+class CommitTest(unittest.TestCase):
+    """Durability and ownership-fence behavior of the registry owner."""
+
+    def test_revision_bumps_only_on_content_change(self) -> None:
+        memory = MemoryState()
+        registry = StateLabRegistry(state(memory))
+        record = _record()
+        self.assertEqual(registry.revision(), 0)
+
+        registry.upsert((record,))
+        self.assertEqual(registry.revision(), 1)
+
+        # An idempotent retry renders identical content: no bump.
+        registry.upsert((record,))
+        self.assertEqual(registry.revision(), 1)
+
+        registry.upsert(
+            (
+                LabRecord(
+                    record.name,
+                    record.directory,
+                    record.topology,
+                    frozenset({"sha256:changed"}),
+                    record.ever_deployed,
+                ),
+            )
+        )
+        self.assertEqual(registry.revision(), 2)
+
+    def test_payload_without_revision_stays_readable(self) -> None:
+        memory = MemoryState()
+        memory.values["labs.json"] = json.dumps(
+            {
+                "version": 1,
+                "labs": [
+                    {
+                        "name": "demo",
+                        "directory": "/labs/demo",
+                        "topology": None,
+                        "image_ids": [],
+                        "ever_deployed": False,
+                    }
+                ],
+            }
+        )
+
+        registry = StateLabRegistry(state(memory))
+
+        self.assertEqual(registry.revision(), 0)
+        self.assertEqual(registry.records()[0].name, "demo")
+
+    def test_commit_of_a_nonpersistent_session_writes_nothing(self) -> None:
+        memory = MemoryState()
+        memory.values["labs.json"] = '{"version":1,"labs":"bad"}'
+        session = SessionLabRegistry(persistent=False)
+        session.upsert((_record(),))
+
+        outcome = StateLabRegistry(state(memory)).commit(session)
+
+        self.assertFalse(outcome.committed)
+        self.assertIsNotNone(outcome.error)
+        # The unparsable file survives for inspection.
+        self.assertEqual(memory.values["labs.json"], '{"version":1,"labs":"bad"}')
+
+    def test_commit_read_only_when_nothing_is_pending(self) -> None:
+        memory = MemoryState()
+        StateLabRegistry(state(memory)).upsert((_record(),))
+        session = SessionLabRegistry(
+            StateLabRegistry(state(memory)).records(),
+            revision=StateLabRegistry(state(memory)).revision(),
+        )
+
+        outcome = StateLabRegistry(state(memory)).commit(session)
+
+        self.assertTrue(outcome.committed)
+        self.assertEqual(outcome.revision, 1)
+        self.assertEqual(outcome.records, (_record(),))
+
+    def test_commit_surfaces_a_write_failure(self) -> None:
+        memory = MemoryState()
+        session = SessionLabRegistry()
+        session.upsert((_record(),))
+        memory.write_fail = True
+
+        with self.assertRaises(OSError):
+            StateLabRegistry(state(memory)).commit(session)
+
+    def test_stale_same_identity_update_keeps_the_newer_entry(self) -> None:
+        """A's stale pending update must not replace B's newer entry."""
+        memory = MemoryState()
+        store = StateLabRegistry(state(memory))
+        base = _record()
+        store.upsert((base,))
+        # A loads revision 1, planning to refresh its image ownership.
+        session = SessionLabRegistry(store.records(), revision=store.revision())
+        # B registers a newer same-identity entry first.
+        newer = LabRecord(
+            base.name,
+            base.directory,
+            None,
+            frozenset({"sha256:bee"}),
+            False,
+        )
+        store.upsert((newer,))
+
+        session.upsert(
+            (
+                LabRecord(
+                    base.name,
+                    base.directory,
+                    None,
+                    frozenset({"sha256:aye"}),
+                    True,
+                ),
+            )
+        )
+        outcome = store.commit(session)
+
+        self.assertTrue(outcome.committed)
+        record = {item.name: item for item in outcome.records}[base.name]
+        # Image ownership is B's; the monotone deployment history is or-merged.
+        self.assertEqual(record.image_ids, frozenset({"sha256:bee"}))
+        self.assertTrue(record.ever_deployed)
+        self.assertEqual(record.topology, base.topology)
+
+    def test_commit_keeps_entries_from_both_writers(self) -> None:
+        memory = MemoryState()
+        store = StateLabRegistry(state(memory))
+        base = _record()
+        store.upsert((base,))
+        session = SessionLabRegistry(store.records(), revision=store.revision())
+        other = LabRecord("other", Path("/labs/other"), None, frozenset({"sha256:o"}), False)
+        store.upsert((other,))
+
+        session.upsert(
+            (LabRecord(base.name, base.directory, None, frozenset({"sha256:a"}), True),)
+        )
+        outcome = store.commit(session)
+
+        names = {item.name for item in outcome.records}
+        self.assertEqual(names, {"demo", "other"})
+
+    def test_committed_snapshot_is_visible_to_a_new_invocation(self) -> None:
+        """A crash after commit but before deletion still preserves state."""
+        memory = MemoryState()
+        session = SessionLabRegistry()
+        session.upsert(
+            (LabRecord("demo", Path("/labs/demo"), None, frozenset({"sha256:a"}), True),)
+        )
+
+        outcome = StateLabRegistry(state(memory)).commit(session)
+
+        self.assertTrue(outcome.committed)
+        fresh = StateLabRegistry(state(memory))
+        self.assertEqual(fresh.records()[0].image_ids, frozenset({"sha256:a"}))
+        self.assertEqual(fresh.revision(), outcome.revision)
+
+    def test_after_goal_publishes_commit_outcome_on_success(self) -> None:
+        memory = MemoryState()
+        record = _record()
+        session = SessionLabRegistry()
+        session.upsert((record,))
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = session
+        api.state.return_value = state(memory)
+        invocation = Invocation(("consumption", "--all"), Path("/labs"), {})
+
+        LabRegistryPlugin().after_goal(invocation, GoalResult.completed(), api)
+
+        outcome = _published_commit(api)
+        self.assertTrue(outcome.committed)
+        self.assertEqual(outcome.revision, 1)
+        self.assertIn(record, outcome.records)
+        # The publication is acknowledged so non-reclaim runs stay quiet.
+        reads = [
+            call
+            for call in api.get_context.call_args_list
+            if call.args == (LAB_REGISTRY_COMMIT_CONTEXT,)
+        ]
+        self.assertTrue(reads)
+
+    def test_after_goal_publishes_failure_when_the_write_fails(self) -> None:
+        memory = MemoryState()
+        session = SessionLabRegistry(revision=3)
+        session.upsert((_record(),))
+        memory.write_fail = True
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = session
+        api.state.return_value = state(memory)
+        invocation = Invocation(("consumption",), Path("/labs"), {})
+
+        LabRegistryPlugin().after_goal(invocation, GoalResult.completed(), api)
+
+        outcome = _published_commit(api)
+        self.assertFalse(outcome.committed)
+        self.assertEqual(outcome.revision, 3)
+        api.logger.warning.assert_called_once()
+
+    def test_after_goal_publishes_failure_for_an_unpersistable_session(self) -> None:
+        memory = MemoryState()
+        memory.values["labs.json"] = '{"version":1,"labs":"bad"}'
+        session = SessionLabRegistry(persistent=False)
+        session.upsert((_record(),))
+        api = MagicMock(spec=AfterGoalAPI)
+        api.get_context.return_value = session
+        api.state.return_value = state(memory)
+        invocation = Invocation(("consumption",), Path("/labs"), {})
+
+        LabRegistryPlugin().after_goal(invocation, GoalResult.completed(), api)
+
+        outcome = _published_commit(api)
+        self.assertFalse(outcome.committed)
+        self.assertEqual(memory.values["labs.json"], '{"version":1,"labs":"bad"}')
 
 
 if __name__ == "__main__":

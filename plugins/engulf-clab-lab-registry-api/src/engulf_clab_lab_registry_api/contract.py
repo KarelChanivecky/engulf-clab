@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 from engulf_api import InvocationAPI
 
 LAB_REGISTRY_CONTEXT = "engulf_clab.lab_registry.registry"
+LAB_REGISTRY_COMMIT_CONTEXT = "engulf_clab.lab_registry.commit"
 LAB_REGISTRY_PLUGIN_ID = "engulf_clab.lab_registry"
 
 
@@ -45,6 +46,29 @@ class LabRecord:
         return self.name, self.directory
 
 
+@dataclass(frozen=True, slots=True)
+class RegistryCommit:
+    """Outcome of persisting one invocation's registry observations.
+
+    ``engulf_clab.lab_registry`` publishes this under
+    ``LAB_REGISTRY_COMMIT_CONTEXT`` from its ``after_goal``. A destructive
+    consumer that ordered itself to run later in the same phase reads it to
+    learn whether its intent reached durable storage before it deletes anything.
+
+    ``committed`` is false when nothing could be written, and then no delete may
+    be attempted. ``revision`` is the revision the registry holds afterwards (or
+    the session's load-time revision when nothing was written), and fences a
+    decision that was planned against an earlier snapshot. ``records`` is the
+    complete stored inventory when known, so a reader can re-derive ownership
+    without a second read.
+    """
+
+    committed: bool
+    revision: int
+    records: tuple[LabRecord, ...] = ()
+    error: str | None = None
+
+
 @runtime_checkable
 class LabRegistry(Protocol):
     """Capability-free view of the lab inventory for one invocation.
@@ -53,8 +77,20 @@ class LabRegistry(Protocol):
     behind ``LAB_REGISTRY_CONTEXT`` is read by plugins in their own callbacks,
     where a handle captured by ``engulf_clab.lab_registry`` is no longer active.
     ``upsert`` therefore records intent in memory; ``engulf_clab.lab_registry``
-    persists it from its own ``after_goal``.
+    persists it from its own ``after_goal`` and publishes a ``RegistryCommit``.
+
+    ``persistent`` reports whether the backing registry could be read and may be
+    written at all; a destructive consumer must refuse to run when it is false
+    rather than delete against an inventory it cannot confirm or preserve.
+    ``revision`` is the registry revision the session was loaded from (``0``
+    when unknown) and fences a decision planned against that snapshot.
     """
+
+    @property
+    def persistent(self) -> bool: ...
+
+    @property
+    def revision(self) -> int: ...
 
     def records(self) -> tuple[LabRecord, ...]: ...
 

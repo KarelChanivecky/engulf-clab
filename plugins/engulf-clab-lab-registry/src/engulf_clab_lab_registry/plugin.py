@@ -10,9 +10,11 @@ from engulf_api import (
 )
 from engulf_clab_lab_parser import topology_path_from_args
 from engulf_clab_lab_registry_api import (
+    LAB_REGISTRY_COMMIT_CONTEXT,
     LAB_REGISTRY_CONTEXT,
     LabRecord,
     LabRegistryError,
+    RegistryCommit,
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
@@ -60,8 +62,12 @@ class LabRegistryPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.lab_registry"
     schema = PLUGIN_SCHEMA
     priority = 190
-    context_reads = SCHEMA_CONTEXTS | frozenset({LAB_REGISTRY_CONTEXT})
-    context_writes = SCHEMA_CONTEXTS | frozenset({LAB_REGISTRY_CONTEXT})
+    context_reads = SCHEMA_CONTEXTS | frozenset(
+        {LAB_REGISTRY_CONTEXT, LAB_REGISTRY_COMMIT_CONTEXT}
+    )
+    context_writes = SCHEMA_CONTEXTS | frozenset(
+        {LAB_REGISTRY_CONTEXT, LAB_REGISTRY_COMMIT_CONTEXT}
+    )
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
@@ -74,8 +80,8 @@ class LabRegistryPlugin(SchemaBackedPlugin):
         # the store: readers run in their own callbacks, where a state handle
         # published here would already be deactivated.
         try:
-            snapshot = StateLabRegistry(api.state(StateScope.USER)).records()
-            session = SessionLabRegistry(snapshot)
+            store = StateLabRegistry(api.state(StateScope.USER))
+            session = SessionLabRegistry(store.records(), revision=store.revision())
         except (LabRegistryError, OSError) as problem:
             # An unreadable registry must not fail every command. Serve an empty
             # inventory and refuse to persist, so the unparsed file survives for
@@ -108,13 +114,21 @@ class LabRegistryPlugin(SchemaBackedPlugin):
                 problem,
             )
         # Writes from every reader land here, in the one callback whose state
-        # handle is live and owned by this plugin.
+        # handle is live and owned by this plugin. The commit is fenced: it
+        # merges each pending update against the entry as it is on disk now, so
+        # a concurrent writer's newer record is never replaced by this session's
+        # stale view. The outcome is published for destructive consumers that
+        # ordered themselves to run later in this same phase.
         try:
-            pending = session.pending()
-            if pending and session.persistent:
-                StateLabRegistry(api.state(StateScope.USER)).upsert(pending)
+            outcome = StateLabRegistry(api.state(StateScope.USER)).commit(session)
         except Exception as problem:  # noqa: BLE001 - inventory must not change the goal.
+            outcome = RegistryCommit(committed=False, revision=session.revision, error=str(problem))
             api.logger.warning("could not persist lab registry: %s", problem)
+        api.set_context(LAB_REGISTRY_COMMIT_CONTEXT, outcome)
+        # Acknowledge the publication: most invocations have no consumer for it,
+        # and an unread context would otherwise raise the unused-context
+        # diagnostic on every non-reclaim command.
+        api.get_context(LAB_REGISTRY_COMMIT_CONTEXT)
         return result
 
     @staticmethod
