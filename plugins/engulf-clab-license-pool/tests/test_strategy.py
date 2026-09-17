@@ -878,6 +878,20 @@ class PoolReferenceTestCase(unittest.TestCase):
 
         self.assertEqual(self._requests_for(marker, {}), [])
 
+    def test_missing_null_and_empty_license_values_are_not_pools(self) -> None:
+        contract = license_contract(self._APPLICATION)
+
+        for description, node in (
+            ("missing", {}),
+            ("null", {"license": None}),
+            ("empty", {"license": ""}),
+        ):
+            with self.subTest(description=description):
+                topology = {"topology": {"nodes": {"router": node}}}
+                self.assertEqual(
+                    _requests(topology, {}, Path("/ws"), contract), []
+                )
+
     def test_a_path_that_does_not_exist_is_left_to_containerlab(self) -> None:
         self.assertEqual(self._requests_for("/nonexistent/pool/FGT", {}), [])
 

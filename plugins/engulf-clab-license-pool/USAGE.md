@@ -20,6 +20,8 @@ entry fails as unavailable rather than selecting it.
 Any `license` naming a directory is a pool, so a literal path and the
 `${POOL_NAME:-/default}` forms Containerlab expands during parsing work the
 same way; a `license` naming a regular file stays Containerlab's own:
+an unset, `null`, or empty-string `license` is also left unhandled by this
+plugin.
 
 The `license`, `FOS_UUID`, and `ECLAB_LIC_CLAMP` values inherit through
 Containerlab's `defaults < kind < group < node` scopes. Put a shared selector

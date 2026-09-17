@@ -504,7 +504,10 @@ def _pool(
     that does not exist -- is not this plugin's to allocate and is left for
     Containerlab or `_prompt_requests` to handle.
     """
-    if value == contract.prompt_marker:
+    # An empty YAML string is not a path selector.  Path("") resolves to the
+    # current directory, which would otherwise make an omitted-looking value
+    # claim licenses from the process working directory.
+    if not value or value == contract.prompt_marker:
         return None
     if value.startswith("$"):
         pool_name = value[1:].strip("{}")
