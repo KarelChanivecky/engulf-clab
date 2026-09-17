@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from engulf_clab_lab_registry_api import LabRecord
+from engulf_clab_lab_registry_api import LabRecord, Workspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +24,10 @@ class LabUse:
     container_ids: tuple[str, ...]
     ever_deployed: bool
     has_running_containers: bool = False
+
+    def __post_init__(self) -> None:
+        if self.directory is not None:
+            object.__setattr__(self, "directory", Workspace(self.directory).path)
 
     @property
     def key(self) -> tuple[str, Path | None]:

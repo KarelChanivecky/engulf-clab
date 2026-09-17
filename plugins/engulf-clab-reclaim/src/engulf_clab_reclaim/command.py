@@ -12,6 +12,7 @@ from engulf_clab_lab_registry_api import (
     LabRecord,
     LabRegistry,
     RegistryCommit,
+    Workspace,
 )
 
 from .docker import DockerClient, DockerError
@@ -130,7 +131,7 @@ def plan(
     observations = tuple(
         LabRecord(
             lab.name,
-            lab.directory,
+            Workspace(lab.directory),
             lab.topology,
             lab.image_ids,
             lab.ever_deployed,
@@ -292,7 +293,7 @@ def _known_labs(
     labs = [
         LabUse(
             record.name,
-            record.directory,
+            record.workspace.path,
             record.topology,
             record.image_ids,
             (),
@@ -340,13 +341,17 @@ def _selected_lab(
         item
         for item in containers
         if item.lab == name
-        and (item.topology is None or item.topology.parent == topology.parent)
+        and (
+            item.topology is None
+            or Workspace(item.topology.parent).path == Workspace(topology.parent).path
+        )
     )
     record = next(
         (
             item
             for item in records
-            if item.name == name and item.directory == topology.parent
+            if item.name == name
+            and item.workspace.path == Workspace(topology.parent).path
         ),
         None,
     )

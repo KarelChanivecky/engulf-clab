@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from engulf_clab_lab_registry_api import Workspace
+
 
 def canonical_image_id(image_id: str) -> str:
     """Return one digest spelling while leaving image references untouched."""
@@ -49,6 +51,10 @@ class Lab:
     running_container_ids: tuple[str, ...]
     state: LabState = LabState.DEPLOYED
     topology: Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.directory is not None:
+            object.__setattr__(self, "directory", Workspace(self.directory).path)
 
 
 @dataclass(frozen=True)

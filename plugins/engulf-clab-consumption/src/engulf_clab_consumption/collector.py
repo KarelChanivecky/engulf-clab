@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from engulf_clab_lab_parser import load_topology
-from engulf_clab_lab_registry_api import LabRecord
+from engulf_clab_lab_registry_api import LabRecord, Workspace
 
 from .docker import DockerClient, DockerError
 from .model import (
@@ -42,7 +42,10 @@ def selected_lab(
         item
         for item in containers
         if item.lab == name
-        and (item.topology is None or item.topology.parent == topology.parent)
+        and (
+            item.topology is None
+            or Workspace(item.topology.parent).path == Workspace(topology.parent).path
+        )
     )
     image_ids = {canonical_image_id(item.image_id) for item in matching}
     if not image_ids:

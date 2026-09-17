@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from engulf_clab_lab_parser import load_topology
-from engulf_clab_lab_registry_api import LabRecord, LabRegistryError
+from engulf_clab_lab_registry_api import LabRecord, LabRegistryError, Workspace
 
 
 def observe_deployed_lab(
     topology: Path,
     environment: Mapping[str, str],
 ) -> LabRecord:
+    topology = topology.resolve()
     document = load_topology(topology, environment)
     name = document.get("name")
     if not isinstance(name, str) or not name:
@@ -35,7 +36,7 @@ def observe_deployed_lab(
             images.add(image_id)
     if not images:
         raise LabRegistryError(f"deployed lab {name!r} has no observable containers")
-    return LabRecord(name, topology.parent, topology, frozenset(images), True)
+    return LabRecord(name, Workspace(topology.parent), topology, frozenset(images), True)
 
 
 def _containers() -> tuple[dict[str, Any], ...]:

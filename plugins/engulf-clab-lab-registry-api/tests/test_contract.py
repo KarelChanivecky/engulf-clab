@@ -14,6 +14,7 @@ from engulf_clab_lab_registry_api import (
     LabRegistry,
     LabRegistryError,
     RegistryCommit,
+    Workspace,
     lab_registry,
 )
 
@@ -32,7 +33,24 @@ class Registry:
 class ContractTest(unittest.TestCase):
     def test_record_requires_absolute_paths(self) -> None:
         with self.assertRaisesRegex(ValueError, "absolute Path"):
-            LabRecord("demo", Path("relative"), None, frozenset(), False)
+            Workspace(Path("relative"))
+
+    def test_workspace_canonicalizes_the_path_and_record_key_uses_it(self) -> None:
+        workspace = Workspace(Path("/labs/child/.."))
+        record = LabRecord("demo", workspace, None, frozenset(), False)
+
+        self.assertEqual(workspace.path, Path("/labs"))
+        self.assertIs(record.workspace, workspace)
+        self.assertEqual(record.directory, Path("/labs"))
+        self.assertEqual(record.key, ("demo", Path("/labs")))
+
+    def test_record_converts_legacy_path_input_at_the_boundary(self) -> None:
+        record = LabRecord(
+            "demo", Path("/labs/child/.."), None, frozenset(), False
+        )
+
+        self.assertIsInstance(record.workspace, Workspace)
+        self.assertEqual(record.workspace.path, Path("/labs"))
 
     def test_context_returns_structural_registry(self) -> None:
         api = MagicMock(spec=InvocationAPI)

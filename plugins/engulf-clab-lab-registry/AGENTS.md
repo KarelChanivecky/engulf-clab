@@ -5,6 +5,8 @@
 - Expose records only through `engulf-clab-lab-registry-api`.
 - Publish records, never a state handle; do every read and write in own callbacks.
 - Keep transactions short and never change a goal result because tracking failed.
+- Canonicalize every workspace through the registry API's `Workspace` value and
+  derive all record keys from it; path spellings must not create duplicate labs.
 - Bump the stored revision only when the recorded labs change; an idempotent
   retry must leave it, and any plan fenced to it, valid.
 - Fence the commit per key against the load-time snapshot so a concurrent

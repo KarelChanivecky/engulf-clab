@@ -11,6 +11,7 @@ from engulf_clab_lab_registry_api import (
     LabRecord,
     LabRegistryError,
     RegistryCommit,
+    Workspace,
 )
 
 _FILENAME = "labs.json"
@@ -149,7 +150,7 @@ def _merge_record(previous: LabRecord | None, update: LabRecord) -> LabRecord:
         return update
     return LabRecord(
         update.name,
-        update.directory,
+        update.workspace,
         update.topology or previous.topology,
         update.image_ids,
         update.ever_deployed or previous.ever_deployed,
@@ -193,7 +194,7 @@ def _concurrent_win(current: LabRecord, update: LabRecord) -> LabRecord:
     """Keep a concurrently written entry, merging only monotone fields."""
     return LabRecord(
         current.name,
-        current.directory,
+        current.workspace,
         current.topology or update.topology,
         current.image_ids,
         current.ever_deployed or update.ever_deployed,
@@ -247,7 +248,7 @@ def _parse_record(value: Any) -> LabRecord:
         raise LabRegistryError("invalid lab registry record")
     return LabRecord(
         name,
-        Path(directory),
+        Workspace(Path(directory)),
         Path(topology) if topology is not None else None,
         frozenset(image_ids),
         ever_deployed,
@@ -257,7 +258,7 @@ def _parse_record(value: Any) -> LabRecord:
 def _serialize(record: LabRecord) -> dict[str, object]:
     return {
         "name": record.name,
-        "directory": os.fspath(record.directory),
+        "directory": os.fspath(record.workspace.path),
         "topology": os.fspath(record.topology) if record.topology is not None else None,
         "image_ids": sorted(record.image_ids),
         "ever_deployed": record.ever_deployed,

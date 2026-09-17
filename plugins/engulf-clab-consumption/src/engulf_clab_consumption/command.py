@@ -10,7 +10,12 @@ from typing import TextIO
 
 from engulf_api import PluginLogger
 from engulf_clab_lab_parser import topology_path_from_args
-from engulf_clab_lab_registry_api import LabRecord, LabRegistry, LabRegistryError
+from engulf_clab_lab_registry_api import (
+    LabRecord,
+    LabRegistry,
+    LabRegistryError,
+    Workspace,
+)
 
 from .collector import (
     ConsumptionError,
@@ -193,7 +198,7 @@ def _overlay_labs(labs: Sequence[Lab]) -> tuple[Lab, ...]:
 def _lab_from_record(record: LabRecord) -> Lab:
     return Lab(
         record.name,
-        record.directory,
+        record.workspace.path,
         frozenset(canonical_image_id(item) for item in record.image_ids),
         (),
         LabState.RECLAIMED,
@@ -206,7 +211,7 @@ def _find_record(records: Sequence[LabRecord], lab: Lab) -> LabRecord | None:
         (
             record
             for record in records
-            if record.name == lab.name and record.directory == lab.directory
+            if record.name == lab.name and record.workspace.path == lab.directory
         ),
         None,
     )
@@ -224,7 +229,7 @@ def _record_for_lab(
         )
     return LabRecord(
         lab.name,
-        lab.directory,
+        Workspace(lab.directory),
         topology
         or (previous.topology if previous is not None else None)
         or lab.topology,

@@ -8,6 +8,7 @@ from .contract import (
     LabRegistry,
     LabRegistryError,
     RegistryCommit,
+    Workspace,
     lab_registry,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "LabRegistry",
     "LabRegistryError",
     "RegistryCommit",
+    "Workspace",
     "lab_registry",
 ]

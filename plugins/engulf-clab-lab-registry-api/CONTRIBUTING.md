@@ -3,7 +3,9 @@
 Keep this package independent of the registry implementation and individual
 consumers. Public records are immutable, validate their identity and path
 invariants, and contain only generic lab inventory—not resource measurements or
-feature-specific state. Keep the context names and plugin ID stable.
+feature-specific state. `Workspace` owns absolute-path validation and
+canonicalization at the API boundary; derive record identity from it rather than
+comparing raw paths. Keep the context names and plugin ID stable.
 
 The registry protocol carries a persistence flag and a load-time revision so a
 consumer can fence a decision against a concurrent writer, and the commit

@@ -4,17 +4,19 @@ Install `engulf-clab-lab-registry` beside `engulf-clab`. The plugin publishes a
 shared inventory snapshot through `engulf-clab-lab-registry-api`; it has no
 operator command or topology extension.
 
-The registry automatically records the canonical lab name, topology directory,
+The registry automatically records the canonical lab name, canonical workspace,
 topology path, and exact deployed Docker image IDs after successful `deploy` and
 `redeploy` commands. Registry consumers may contribute complete observations,
 which lets commands such as `eclab consumption -t ...` and
 `eclab consumption --all` seed labs installed before registry activation.
 
-Records are keyed by lab name plus canonical topology directory. Upserts replace
-image IDs with the newest complete observation while preserving a known topology
-path and deployment history. Destroy does not remove a record because lab files
-and images can remain on disk. Consumers decide whether a retained record still
-owns resources; the registry does not recursively scan or delete lab files.
+Records are keyed by lab name plus the canonical workspace path. Workspace
+spellings that resolve to the same directory therefore cannot create duplicate
+lab records. Upserts replace image IDs with the newest complete observation while
+preserving a known topology path and deployment history. Destroy does not remove
+a record because lab files and images can remain on disk. Consumers decide
+whether a retained record still owns resources; the registry does not recursively
+scan or delete lab files.
 
 The versioned registry is stored in Engulf-managed user state. This plugin owns
 every read and write: it loads the snapshot before consumers run and applies

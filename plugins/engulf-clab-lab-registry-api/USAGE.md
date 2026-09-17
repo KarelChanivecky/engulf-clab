@@ -6,11 +6,15 @@ Install this package with `engulf-clab-lab-registry`. Consumers obtain the
 `upsert()`. Both are in-memory operations that touch no Engulf capability, so
 they are safe in any consumer callback.
 
-`LabRecord` identifies a lab by its nonempty name and absolute canonical lab
-directory. It optionally retains an absolute topology path, exact Docker image
-IDs, and whether the lab has ever been observed as deployed. Upserts preserve a
-known topology and deployment history while replacing image IDs with the newest
-complete observation.
+`Workspace` is the immutable path value used at the API boundary. Constructing
+`Workspace(path)` requires an absolute `Path` and canonicalizes it with
+`Path.resolve()`. `LabRecord.workspace` stores that value; its read-only
+`directory` view is the canonical `Path` for filesystem consumers. The record
+key is derived from the name and canonical workspace, so spellings such as
+`/a/child/..` and `/a` identify the same lab. A `LabRecord` optionally retains
+an absolute topology path, exact Docker image IDs, and whether the lab has ever
+been observed as deployed. Upserts preserve a known topology and deployment
+history while replacing image IDs with the newest complete observation.
 
 Two properties describe the backing registry. `persistent` is true when the
 file could be read and may be written; a destructive consumer must refuse to run

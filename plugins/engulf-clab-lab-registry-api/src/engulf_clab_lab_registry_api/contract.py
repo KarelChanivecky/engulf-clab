@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -16,11 +17,31 @@ class LabRegistryError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class Workspace:
+    """An immutable, absolute and canonical lab workspace path."""
+
+    path: Path
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.path, Path) or not self.path.is_absolute():
+            raise ValueError("workspace path must be an absolute Path")
+        object.__setattr__(self, "path", self.path.resolve())
+
+    @property
+    def directory(self) -> Path:
+        """Return the canonical filesystem path represented by this value."""
+        return self.path
+
+    def __fspath__(self) -> str:
+        return os.fspath(self.path)
+
+
+@dataclass(frozen=True, slots=True)
 class LabRecord:
     """One persistent lab identity and its last observed image ownership."""
 
     name: str
-    directory: Path
+    workspace: Workspace
     topology: Path | None
     image_ids: frozenset[str]
     ever_deployed: bool
@@ -28,8 +49,12 @@ class LabRecord:
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name:
             raise ValueError("lab name must be a nonempty string")
-        if not isinstance(self.directory, Path) or not self.directory.is_absolute():
-            raise ValueError("lab directory must be an absolute Path")
+        if isinstance(self.workspace, Path):
+            # Accept the former constructor spelling at the boundary while
+            # ensuring every stored record contains the value type.
+            object.__setattr__(self, "workspace", Workspace(self.workspace))
+        elif not isinstance(self.workspace, Workspace):
+            raise TypeError("lab workspace must be a Workspace or Path")
         if self.topology is not None and (
             not isinstance(self.topology, Path) or not self.topology.is_absolute()
         ):
@@ -42,8 +67,13 @@ class LabRecord:
             raise TypeError("lab ever_deployed must be a boolean")
 
     @property
+    def directory(self) -> Path:
+        """Return the canonical workspace path for filesystem consumers."""
+        return self.workspace.path
+
+    @property
     def key(self) -> tuple[str, Path]:
-        return self.name, self.directory
+        return self.name, self.workspace.path
 
 
 @dataclass(frozen=True, slots=True)

@@ -23,6 +23,7 @@ from engulf_clab_lab_registry_api import (
     LabRecord,
     LabRegistryError,
     RegistryCommit,
+    Workspace,
 )
 
 from engulf_clab_lab_registry.observe import observe_deployed_lab
@@ -72,6 +73,36 @@ def state(value: MemoryState) -> StateStore:
 
 
 class StorageTest(unittest.TestCase):
+    def test_workspace_spellings_share_one_registry_record(self) -> None:
+        registry = SessionLabRegistry()
+        registry.upsert(
+            (
+                LabRecord(
+                    "demo",
+                    Workspace(Path("/labs/child/..")),
+                    None,
+                    frozenset({"sha256:first"}),
+                    False,
+                ),
+            )
+        )
+        registry.upsert(
+            (
+                LabRecord(
+                    "demo",
+                    Workspace(Path("/labs")),
+                    None,
+                    frozenset({"sha256:second"}),
+                    False,
+                ),
+            )
+        )
+
+        records = registry.records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].workspace.path, Path("/labs"))
+        self.assertEqual(records[0].image_ids, frozenset({"sha256:second"}))
+
     def test_round_trip_preserves_deployment_history_and_topology(self) -> None:
         memory = MemoryState()
         registry = StateLabRegistry(state(memory))
