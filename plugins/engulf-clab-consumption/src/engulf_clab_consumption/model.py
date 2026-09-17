@@ -5,6 +5,11 @@ from enum import StrEnum
 from pathlib import Path
 
 
+def canonical_image_id(image_id: str) -> str:
+    """Return one digest spelling while leaving image references untouched."""
+    return f"sha256:{image_id.removeprefix('sha256:')}"
+
+
 class LabState(StrEnum):
     DEPLOYED = "DEPLOYED"
     STOPPED = "STOPPED"

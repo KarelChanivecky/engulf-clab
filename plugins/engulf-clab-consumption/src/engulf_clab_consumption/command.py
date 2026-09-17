@@ -22,7 +22,7 @@ from .collector import (
     totals,
 )
 from .docker import DockerClient, DockerError
-from .model import Consumption, Lab, LabState
+from .model import Consumption, Lab, LabState, canonical_image_id
 
 
 @dataclass(frozen=True)
@@ -194,7 +194,7 @@ def _lab_from_record(record: LabRecord) -> Lab:
     return Lab(
         record.name,
         record.directory,
-        record.image_ids,
+        frozenset(canonical_image_id(item) for item in record.image_ids),
         (),
         LabState.RECLAIMED,
         record.topology,

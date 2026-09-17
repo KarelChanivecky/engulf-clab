@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from .model import Container, ImageUsage, RuntimeStats
+from .model import Container, ImageUsage, RuntimeStats, canonical_image_id
 
 _SIZE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kmgtpe]?i?b)\s*$", re.IGNORECASE)
 _DECIMAL = {
@@ -122,7 +122,7 @@ class DockerClient:
                     container_id,
                     lab,
                     topology,
-                    image_id,
+                    canonical_image_id(image_id),
                     image_ref if isinstance(image_ref, str) else "",
                     bool(state.get("Running")) if isinstance(state, dict) else False,
                     retained_image_bytes,
@@ -142,7 +142,7 @@ class DockerClient:
             if isinstance(payload, list) and payload and isinstance(payload[0], dict):
                 image_id = payload[0].get("Id")
                 if isinstance(image_id, str) and image_id:
-                    result[reference] = image_id
+                    result[reference] = canonical_image_id(image_id)
         return result
 
     def image_usage(
@@ -166,20 +166,21 @@ class DockerClient:
                 size = shared + unique
             if size is None:
                 continue
-            result[image_id] = ImageUsage(image_id, size, shared, unique)
-            result[image_id.removeprefix("sha256:")] = result[image_id]
+            canonical = canonical_image_id(image_id)
+            result[canonical] = ImageUsage(canonical, size, shared, unique)
+            result[image_id.removeprefix("sha256:")] = result[canonical]
         retained: dict[str, int] = {}
         for container in containers:
             if container.retained_image_bytes is None:
                 continue
-            normalized = container.image_id.removeprefix("sha256:")
+            normalized = canonical_image_id(container.image_id).removeprefix("sha256:")
             retained[normalized] = max(
                 retained.get(normalized, 0), container.retained_image_bytes
             )
         for normalized, size in retained.items():
             if _usage_for_id(normalized, result) is not None:
                 continue
-            fallback = ImageUsage(f"sha256:{normalized}", size, None, None)
+            fallback = ImageUsage(canonical_image_id(normalized), size, None, None)
             result[fallback.image_id] = fallback
             result[normalized] = fallback
         return result

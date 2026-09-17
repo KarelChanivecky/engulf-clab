@@ -43,14 +43,15 @@ the same image ID; otherwise its full size is `IMAGES UNIQUE`. Docker's
 daemon-wide shared-layer values are deliberately not used because layers shared
 with unrelated images do not represent storage shared between the reported
 labs. `STORAGE` is lab-directory bytes plus image sizes. The `TOTAL` row counts
-an identical image ID once across displayed labs and does not claim reclaimable
-bytes.
+an identical canonical image ID once across displayed labs and does not claim
+reclaimable bytes. Docker tags remain image references and are never treated as
+image IDs during accounting.
 
-A no-container lab uses the exact image IDs saved from its last
-successful deploy or redeploy, so later tag movement does not change its
-ownership. A never-deployed lab records the image IDs resolved by its explicit
-query. If Docker confirms that a recorded no-container image ID is gone, it
-contributes zero image bytes; a Docker measurement failure remains `N/A`.
+A no-container lab uses the canonical image IDs saved from its last successful
+deploy or redeploy, so later tag movement does not change its ownership. A
+never-deployed lab records the canonical IDs resolved by its explicit query. If
+Docker confirms that a recorded no-container image ID is gone, it contributes
+zero image bytes; a Docker measurement failure remains `N/A`.
 
 An image can be removed or retagged while a container created from it remains
 running. Docker then omits the old image ID from its image disk-usage report.

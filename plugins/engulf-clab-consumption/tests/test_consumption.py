@@ -115,6 +115,23 @@ class AccountingTest(unittest.TestCase):
         self.assertEqual(total.shared_image_bytes, 1000)
         self.assertIsNone(total.storage_bytes)
 
+    def test_total_canonicalizes_prefixed_and_unprefixed_image_ids(self) -> None:
+        usage = {
+            "sha256:abc": ImageUsage("sha256:abc", 100, 0, 100),
+            "abc": ImageUsage("sha256:abc", 100, 0, 100),
+        }
+        labs = (
+            Lab("a", None, frozenset({"sha256:abc"}), ()),
+            Lab("b", None, frozenset({"abc"}), ()),
+        )
+
+        classified = classify_image_usage(usage, labs)
+        rows = collect(labs, FakeDocker(), image_usage=classified)
+        total = totals(rows, classified)
+
+        self.assertEqual(total.image_ids, frozenset({"sha256:abc"}))
+        self.assertEqual(total.shared_image_bytes, 100)
+
     def test_single_lab_owns_complete_image_despite_daemon_layer_sharing(self) -> None:
         usage = {"image": ImageUsage("image", 1000, 900, 100)}
         labs = (Lab("only", None, frozenset({"image"}), ()),)
@@ -203,7 +220,7 @@ class SelectionTest(unittest.TestCase):
         labs = deployed_labs(containers)
 
         self.assertEqual([lab.name for lab in labs], ["demo", "other"])
-        self.assertEqual(labs[0].image_ids, frozenset({"one", "two"}))
+        self.assertEqual(labs[0].image_ids, frozenset({"sha256:one", "sha256:two"}))
         self.assertEqual(labs[0].running_container_ids, ("a",))
         self.assertIs(labs[0].state, LabState.DEPLOYED)
 

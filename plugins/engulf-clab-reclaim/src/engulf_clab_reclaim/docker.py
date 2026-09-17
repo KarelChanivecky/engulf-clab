@@ -136,15 +136,15 @@ class DockerClient:
             raise DockerError("docker system df returned no storage records")
         return total
 
-    def remove_container(self, container_id: str) -> None:
-        self._run_removal(("container", "rm", "--force", "--volumes", container_id))
+    def remove_container(self, container_id: str) -> bool:
+        return self._run_removal(("container", "rm", "--force", "--volumes", container_id))
 
-    def remove_image(self, image_id: str) -> None:
+    def remove_image(self, image_id: str) -> bool:
         # Deliberately omit --force: Docker must protect non-lab consumers that
         # are outside the registry's ownership model.
-        self._run_removal(("image", "rm", image_id))
+        return self._run_removal(("image", "rm", image_id))
 
-    def _run_removal(self, arguments: Sequence[str]) -> None:
+    def _run_removal(self, arguments: Sequence[str]) -> bool:
         """Run one removal, tolerating an object that is already gone.
 
         A crashed earlier attempt can leave a container or image removed after
@@ -155,8 +155,9 @@ class DockerClient:
             self._run(arguments)
         except DockerError as error:
             if _already_gone(str(error)):
-                return
+                return False
             raise
+        return True
 
     def _run(self, arguments: Sequence[str]) -> str:
         try:

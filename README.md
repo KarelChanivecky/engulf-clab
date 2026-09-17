@@ -91,6 +91,7 @@ for a particular environment or edition.
 | [Inspect CPU and RAM consumption for one or all known labs][consumption] | [Inspect lab-directory and Docker-image storage consumption][consumption] |
 | [Compare unique and shared image storage by lab][consumption] | [Poll live lab resource consumption][consumption] |
 | [Distinguish deployed, stopped, and reclaimed labs][consumption] | [Reclaim Docker storage for one lab][reclaim] |
+| [Destroy one lab and reclaim its Docker resources][reclaim] | [Destroy every lab and reclaim with `destroy --all --reclaim`][reclaim] |
 | [Reclaim every known lab after all labs are destroyed][reclaim] | [Reclaim only labs whose containers are stopped][reclaim] |
 | [Remove lab containers, writable layers, and anonymous volumes][reclaim] | [Remove Docker images used exclusively by reclaimed labs][reclaim] |
 | [Report the amount of Docker storage reclaimed][reclaim] | [Generate a topology schema for the installed eclab feature set][schema] |
@@ -473,7 +474,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
 | `engulf-clab-lab-registry-api` | Contract only | Typed access to the shared persistent lab inventory. |
 | `engulf-clab-lab-registry` | `engulf_clab.lab_registry` | Tracks deployed and explicitly discovered labs for inventory consumers. |
-| `engulf-clab-reclaim` | `engulf_clab.reclaim` | Reclaims Docker storage for selected, destroyed, or stopped labs and reports the amount saved. |
+| `engulf-clab-reclaim` | `engulf_clab.reclaim` | Reclaims Docker storage for selected, destroyed, or stopped labs, including `destroy --reclaim`, and reports resources and storage reclaimed. |
 | `engulf-clab-consumption` | `engulf_clab.consumption` | Reports deployed, stopped, and reclaimed state with CPU, RAM, lab-directory, and image storage. |
 | `engulf-clab-freeze-api` | Contract only | Typed extension hooks for optional freeze and defrost contributors. |
 | `engulf-clab-pki-api` | Contract only | Immutable authorized node-PKI projections for independent consumers. |

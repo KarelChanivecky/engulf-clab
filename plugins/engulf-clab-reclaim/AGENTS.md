@@ -9,12 +9,20 @@
   crash mid-deletion is idempotent and never over-deletes.
 - Preserve lab directories and registry history.
 - Delete only selected lab containers, anonymous volumes, and planned image IDs.
+- Log each resource successfully removed, including its Docker ID, in addition
+  to the aggregate storage summary.
 - Preserve cross-lab shared images unless `--all` selects every known lab.
 - Reject plain `--all` if any lab has containers; `--all --stopped` selects only
   labs with stopped containers and preserves images owned outside that subset.
+  Images shared only by labs in the selected subset are reclaimable.
 - Never force Docker image removal or add broad prune behavior.
 - Use callback logging, keep the reclamation lease around planning and mutation,
   and require no MCP.
 - Measure Docker image, container, and local-volume storage before and after
-  deletion, and report the nonnegative reduction in IEC units.
+  deletion, and report the nonnegative reclaimed amount in IEC units. For
+  `destroy --reclaim`, the starting snapshot must precede native destroy so the
+  report covers the complete operation.
 - Declare ordering in packaging and run package, consumer, and skill tests.
+- `destroy --reclaim` must plan before the native destroy call and execute only
+  after a successful destroy. `destroy --all --reclaim` may plan deployed labs;
+  plain `reclaim --all` retains its safety guard.

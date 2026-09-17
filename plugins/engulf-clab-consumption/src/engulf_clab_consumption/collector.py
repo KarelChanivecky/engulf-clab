@@ -10,7 +10,14 @@ from engulf_clab_lab_parser import load_topology
 from engulf_clab_lab_registry_api import LabRecord
 
 from .docker import DockerClient, DockerError
-from .model import Consumption, Container, ImageUsage, Lab, LabState
+from .model import (
+    Consumption,
+    Container,
+    ImageUsage,
+    Lab,
+    LabState,
+    canonical_image_id,
+)
 
 
 class ConsumptionError(RuntimeError):
@@ -37,13 +44,16 @@ def selected_lab(
         if item.lab == name
         and (item.topology is None or item.topology.parent == topology.parent)
     )
-    image_ids = {item.image_id for item in matching}
+    image_ids = {canonical_image_id(item.image_id) for item in matching}
     if not image_ids:
         if record is not None and record.ever_deployed:
-            image_ids.update(record.image_ids)
+            image_ids.update(canonical_image_id(item) for item in record.image_ids)
         else:
             references = _topology_images(document)
-            image_ids.update(docker.resolve_images(references).values())
+            image_ids.update(
+                canonical_image_id(item)
+                for item in docker.resolve_images(references).values()
+            )
     return Lab(
         name,
         topology.parent,
@@ -69,7 +79,7 @@ def deployed_labs(containers: Sequence[Container]) -> tuple[Lab, ...]:
         Lab(
             name,
             directory,
-            frozenset(item.image_id for item in members),
+            frozenset(canonical_image_id(item.image_id) for item in members),
             tuple(item.container_id for item in members if item.running),
             (
                 LabState.DEPLOYED
@@ -119,7 +129,8 @@ def collect(
         if not lab.running_container_ids:
             cpu, memory = 0.0, 0
         directory = directory_size(lab.directory) if lab.directory is not None else None
-        images = [_usage_for(image_id, usage) for image_id in lab.image_ids]
+        image_ids = frozenset(canonical_image_id(item) for item in lab.image_ids)
+        images = [_usage_for(image_id, usage) for image_id in image_ids]
         missing_images_are_absent = (
             image_usage_available and lab.state is LabState.RECLAIMED
         )
@@ -140,7 +151,7 @@ def collect(
             if split_available
             else None
         )
-        if not lab.image_ids:
+        if not image_ids:
             unique, shared = 0, 0
             complete_images = True
         storage = (
@@ -164,7 +175,7 @@ def collect(
                 unique,
                 shared,
                 storage,
-                lab.image_ids,
+                image_ids,
                 state,
             )
         )
@@ -181,7 +192,7 @@ def classify_image_usage(
         for image_id in lab.image_ids:
             item = _usage_for(image_id, usage)
             if item is not None:
-                owners[item.image_id].add(identity)
+                owners[canonical_image_id(item.image_id)].add(identity)
     result = dict(usage)
     for image_id, identities in owners.items():
         item = _usage_for(image_id, usage)
@@ -193,7 +204,7 @@ def classify_image_usage(
             else ImageUsage(item.image_id, item.size, 0, item.size)
         )
         for key, candidate in tuple(result.items()):
-            if candidate.image_id == item.image_id:
+            if canonical_image_id(candidate.image_id) == image_id:
                 result[key] = classified
     return result
 
@@ -204,7 +215,9 @@ def totals(
     *,
     image_usage_available: bool = True,
 ) -> Consumption:
-    image_ids = frozenset(identifier for row in rows for identifier in row.image_ids)
+    image_ids = frozenset(
+        canonical_image_id(identifier) for row in rows for identifier in row.image_ids
+    )
     images = [_usage_for(identifier, image_usage) for identifier in image_ids]
     absent_images = {
         identifier
@@ -215,7 +228,7 @@ def totals(
         row.state is LabState.RECLAIMED
         for identifier in absent_images
         for row in rows
-        if identifier in row.image_ids
+        if identifier in {canonical_image_id(item) for item in row.image_ids}
     )
     complete_images = image_usage_available and (not absent_images or safely_absent)
     split_available = complete_images and all(
@@ -293,7 +306,8 @@ def has_retained_resources(
         lab.directory.lstat()
     except FileNotFoundError:
         return not image_usage_available or any(
-            _usage_for(image_id, image_usage) is not None for image_id in lab.image_ids
+            _usage_for(canonical_image_id(image_id), image_usage) is not None
+            for image_id in lab.image_ids
         )
     except OSError:
         return True
@@ -301,15 +315,16 @@ def has_retained_resources(
 
 
 def _usage_for(image_id: str, usage: Mapping[str, ImageUsage]) -> ImageUsage | None:
-    normalized = image_id.removeprefix("sha256:")
-    direct = usage.get(image_id) or usage.get(normalized)
+    canonical = canonical_image_id(image_id)
+    normalized = canonical.removeprefix("sha256:")
+    direct = usage.get(image_id) or usage.get(canonical) or usage.get(normalized)
     if direct is not None:
         return direct
     matches = {
         id(item): item
         for key, item in usage.items()
-        if key.removeprefix("sha256:").startswith(normalized)
-        or normalized.startswith(key.removeprefix("sha256:"))
+        if canonical_image_id(key).startswith(canonical)
+        or canonical.startswith(canonical_image_id(key))
     }
     return next(iter(matches.values())) if len(matches) == 1 else None
 

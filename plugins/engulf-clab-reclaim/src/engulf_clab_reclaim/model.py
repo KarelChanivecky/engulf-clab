@@ -38,3 +38,4 @@ class ReclaimPlan:
     preserved_shared_image_ids: tuple[str, ...]
     observations: tuple[LabRecord, ...]
     base_revision: int = 0
+    storage_before: int | None = None

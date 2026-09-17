@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from engulf_api import (
     AfterGoalAPI,
     BeforeGoalAPI,
     GoalResult,
     GoalResultStatus,
     Invocation,
+    InvocationAPI,
 )
 from engulf_clab_lab_registry_api import (
     LAB_REGISTRY_COMMIT_CONTEXT,
@@ -24,7 +27,12 @@ from engulf_clab_schema_api import (
     ValueType,
     record_plugin_schema,
 )
-from engulf_executable_wrapper_api import HelpAPI
+from engulf_executable_wrapper_api import (
+    BeforeCallEvent,
+    CallContribution,
+    CallMode,
+    HelpAPI,
+)
 
 from .command import ReclaimError, execute, parse_options, plan
 from .docker import DockerClient, DockerError
@@ -33,6 +41,7 @@ from .model import ReclaimPlan
 # The plan this invocation staged in before_goal for its own after_goal to
 # execute. Module-local: it is the plugin's private handoff between callbacks.
 RECLAIM_PLAN_CONTEXT = "engulf_clab.reclaim.plan"
+_RECLAIM_FLAG = "--reclaim"
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.reclaim", package="engulf_clab_reclaim")
@@ -56,6 +65,10 @@ PLUGIN_SCHEMA = (
         "With --all, reclaim only labs whose containers exist but are stopped.",
         command="reclaim",
     )
+    .add_cli_flag(
+        _RECLAIM_FLAG,
+        "After a successful destroy, reclaim this lab's Docker resources.",
+    )
     .annotate(
         "reclaim",
         lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.AFTER_GOAL),
@@ -66,7 +79,7 @@ PLUGIN_SCHEMA = (
             "a registry that changed past the plan is re-validated before deletion",
             "lab containers, writable layers, anonymous volumes, and selected images are deleted",
             "lab directories and registry records are preserved",
-            "Docker-reported storage saved is measured and logged",
+            "Docker-reported storage reclaimed is measured and logged",
         ),
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
@@ -93,6 +106,16 @@ PLUGIN_SCHEMA = (
         commands=("reclaim",),
         requires=("--all",),
         implies=("running and destroyed labs are not selected",),
+    )
+    .annotate(
+        _RECLAIM_FLAG,
+        commands=("destroy",),
+        lifecycle=(
+            LifecycleStage.ANALYZE_CALL,
+            LifecycleStage.BEFORE_GOAL,
+            LifecycleStage.AFTER_GOAL,
+        ),
+        implies=("reclaim the selected lab after a successful destroy",),
     )
     .require_host_tool(
         "docker",
@@ -125,10 +148,11 @@ class ReclaimPlugin(SchemaBackedPlugin):
         self, invocation: Invocation, api: BeforeGoalAPI
     ) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
-        if not invocation.arguments or invocation.arguments[0] != "reclaim":
+        if not _reclaim_invocation(invocation.arguments):
             return None
+        destroy_reclaim = _destroy_reclaim(invocation.arguments)
         application_name = api.application.short_product_name or api.application.product
-        arguments = invocation.arguments[1:]
+        arguments = _reclaim_arguments(invocation.arguments)
         options = parse_options(arguments, f"{application_name} reclaim")
         registry = lab_registry(api)
         # A registry that could not be read cannot confirm what this run should
@@ -151,15 +175,34 @@ class ReclaimPlugin(SchemaBackedPlugin):
                     docker=docker,
                     program=f"{application_name} reclaim",
                     options=options,
+                    allow_deployed_all=(
+                        invocation.arguments[0] == "destroy" and options.all
+                    ),
                 )
             except (DockerError, ReclaimError, LabRegistryError) as error:
                 api.logger.error("%s reclaim: %s", application_name, error)
                 return GoalResult.completed(exit_code=1)
+            if destroy_reclaim:
+                try:
+                    storage_before = docker.storage_bytes()
+                except DockerError as error:
+                    api.logger.error(
+                        "%s reclaim: could not measure Docker storage before destroy: %s",
+                        application_name,
+                        error,
+                    )
+                    return GoalResult.completed(exit_code=1)
+                reclaim_plan = replace(
+                    reclaim_plan,
+                    storage_before=storage_before,
+                )
             # Record the intent the registry owner commits in its own after_goal,
             # which runs before this plugin's deletion step. Deleting here would
             # race that durable write; the plan is staged instead.
             registry.upsert(reclaim_plan.observations)
         api.set_context(RECLAIM_PLAN_CONTEXT, reclaim_plan)
+        if destroy_reclaim:
+            return None
         return GoalResult.completed()
 
     def after_goal(
@@ -170,7 +213,7 @@ class ReclaimPlugin(SchemaBackedPlugin):
     ) -> GoalResult[object]:
         if (
             not invocation.arguments
-            or invocation.arguments[0] != "reclaim"
+            or not _reclaim_invocation(invocation.arguments)
             or result.status is not GoalResultStatus.COMPLETED
             or result.exit_code != 0
         ):
@@ -196,11 +239,49 @@ class ReclaimPlugin(SchemaBackedPlugin):
             api.logger.error(
                 "%s reclaim: reclamation did not complete", application_name
             )
+        if exit_code == 0 and _destroy_reclaim(invocation.arguments):
+            return result
         return GoalResult.completed(exit_code=exit_code)
+
+    def analyze_call(
+        self, event: BeforeCallEvent, api: InvocationAPI
+    ) -> CallContribution | None:
+        del api
+        if (
+            event.mode is CallMode.HELP
+            or not event.wrapper_args
+            or not _destroy_reclaim(event.wrapper_args)
+        ):
+            return None
+        return CallContribution(
+            removals=frozenset(
+                index
+                for index, argument in enumerate(event.wrapper_args)
+                if argument == _RECLAIM_FLAG
+            )
+        )
 
     def help(self, api: HelpAPI) -> str:
         del api
         return (
             "  reclaim [-t TOPOLOGY | --all [--stopped]]  "
-            "Remove lab containers, reclaim images, and report storage saved"
+            "Remove lab containers, reclaim images, and report storage reclaimed\n"
+            "  destroy [--all] --reclaim                 "
+            "Destroy the lab, then reclaim its Docker resources"
         )
+
+
+def _destroy_reclaim(arguments: tuple[str, ...]) -> bool:
+    return bool(arguments) and arguments[0] == "destroy" and _RECLAIM_FLAG in arguments[1:]
+
+
+def _reclaim_invocation(arguments: tuple[str, ...]) -> bool:
+    return bool(arguments) and (
+        arguments[0] == "reclaim" or _destroy_reclaim(arguments)
+    )
+
+
+def _reclaim_arguments(arguments: tuple[str, ...]) -> tuple[str, ...]:
+    if arguments[0] == "reclaim":
+        return arguments[1:]
+    return tuple(argument for argument in arguments[1:] if argument != _RECLAIM_FLAG)

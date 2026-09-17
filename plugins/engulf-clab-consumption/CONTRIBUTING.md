@@ -18,7 +18,8 @@ Preserve these accounting invariants:
 - sum current CPU and RAM for each lab's running containers;
 - count allocated directory bytes without following symlinks or duplicating
   hard links;
-- deduplicate image IDs within a lab and across the total;
+- deduplicate canonical image IDs within a lab and across the total; keep image
+  tags in `Container.image_ref` rather than treating them as IDs;
 - classify complete image sizes as shared only across distinct lab owners;
 - use retained container root-filesystem size only when an image record is gone;
 - distinguish Docker-confirmed absence for no-container images from measurement

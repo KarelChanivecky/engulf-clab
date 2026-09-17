@@ -17,10 +17,12 @@ from engulf_api import (
     GoalResult,
     GoalResultStatus,
     Invocation,
+    InvocationAPI,
     StateStore,
 )
 from engulf_clab_lab_registry_api import LabRecord, RegistryCommit
 from engulf_clab_schema_api import LifecycleStage
+from engulf_executable_wrapper_api import BeforeCallEvent, CallMode
 
 from engulf_clab_reclaim.command import (
     ReclaimError,
@@ -251,6 +253,31 @@ class PlanningTest(unittest.TestCase):
                 docker=docker,
             )
 
+    def test_destroy_reclaim_all_can_plan_before_containers_are_destroyed(self) -> None:
+        lab = Path("/labs/one/lab.clab.yml")
+        other = Path("/labs/two/lab.clab.yml")
+        docker = FakeDocker()
+        docker.container_values = (
+            Container("one-container", "one", lab, "sha256:shared", True),
+            Container("two-container", "two", other, "sha256:shared", True),
+        )
+        docker.images = {"shared": "sha256:shared"}
+
+        reclaim_plan = plan(
+            ("--all",),
+            cwd=Path("/labs"),
+            environment={},
+            registry=FakeRegistry(),
+            docker=docker,
+            allow_deployed_all=True,
+        )
+
+        self.assertEqual(
+            reclaim_plan.container_ids, ("one-container", "two-container")
+        )
+        self.assertEqual(reclaim_plan.image_ids, ("sha256:shared",))
+        self.assertEqual(reclaim_plan.preserved_shared_image_ids, ())
+
     def test_all_stopped_selects_only_stopped_labs_and_preserves_shared(self) -> None:
         stopped = Path("/labs/stopped/lab.clab.yml")
         running = Path("/labs/running/lab.clab.yml")
@@ -273,6 +300,33 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual(reclaim_plan.container_ids, ("stopped",))
         self.assertEqual(reclaim_plan.image_ids, ())
         self.assertEqual(reclaim_plan.preserved_shared_image_ids, ("sha256:shared",))
+
+    def test_all_stopped_removes_images_shared_only_inside_selected_labs(self) -> None:
+        first = Path("/labs/first/lab.clab.yml")
+        second = Path("/labs/second/lab.clab.yml")
+        running = Path("/labs/running/lab.clab.yml")
+        docker = FakeDocker()
+        docker.container_values = (
+            Container("first", "first", first, "sha256:selected", False),
+            Container("second", "second", second, "sha256:selected", False),
+            Container("running", "running", running, "sha256:outside", True),
+            Container("first-outside", "first", first, "sha256:outside", False),
+        )
+        docker.images = {
+            "selected": "sha256:selected",
+            "outside": "sha256:outside",
+        }
+
+        reclaim_plan = plan(
+            ("--all", "--stopped"),
+            cwd=Path("/labs"),
+            environment={},
+            registry=FakeRegistry(),
+            docker=docker,
+        )
+
+        self.assertEqual(reclaim_plan.image_ids, ("sha256:selected",))
+        self.assertEqual(reclaim_plan.preserved_shared_image_ids, ("sha256:outside",))
 
     def test_never_deployed_lab_resolves_topology_image(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -401,7 +455,7 @@ class ExecutionTest(unittest.TestCase):
         self.assertEqual(docker.removed_containers, ["good"])
         self.assertEqual(docker.removed_images, ["sha256:image"])
 
-    def test_reports_measured_storage_saved(self) -> None:
+    def test_reports_measured_storage_reclaimed(self) -> None:
         docker = FakeDocker()
         docker.storage_values = [8 * 1024**3, 5 * 1024**3]
         logger = MagicMock()
@@ -415,6 +469,38 @@ class ExecutionTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(logger.info.call_args.args[-1], "3.00 GiB")
+
+    def test_destroy_reclaim_uses_storage_snapshot_taken_before_destroy(self) -> None:
+        docker = FakeDocker()
+        docker.storage_bytes = MagicMock(return_value=7)  # type: ignore[method-assign]
+        logger = MagicMock()
+
+        code = execute(
+            ReclaimPlan((), (), (), (), (), storage_before=10),
+            commit=committed(),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(logger.info.call_args.args[-1], "3 B")
+        docker.storage_bytes.assert_called_once_with()
+
+    def test_reports_each_resource_reclaimed(self) -> None:
+        docker = FakeDocker()
+        logger = MagicMock()
+
+        code = execute(
+            ReclaimPlan((), ("container",), ("sha256:image",), (), ()),
+            commit=committed(),
+            docker=docker,
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        info_calls = [call.args for call in logger.info.call_args_list]
+        self.assertIn(("reclaimed container: %s", "container"), info_calls)
+        self.assertIn(("reclaimed image: %s", "sha256:image"), info_calls)
 
     def test_storage_measurement_failure_aborts_before_deletion(self) -> None:
         docker = FakeDocker()
@@ -676,7 +762,9 @@ class PluginTest(unittest.TestCase):
             short_product_name="eclab",
         )
         names = {option.name for option in PLUGIN_SCHEMA.options(application)}
-        self.assertTrue({"reclaim", "-t", "--all", "--stopped"}.issubset(names))
+        self.assertTrue(
+            {"reclaim", "-t", "--all", "--stopped", "--reclaim"}.issubset(names)
+        )
         annotations = {
             annotation.subject: annotation
             for annotation in PLUGIN_SCHEMA.annotations(application)
@@ -686,7 +774,7 @@ class PluginTest(unittest.TestCase):
             (LifecycleStage.BEFORE_GOAL, LifecycleStage.AFTER_GOAL),
         )
         self.assertIn("are deleted", " ".join(annotations["reclaim"].implies))
-        self.assertIn("storage saved", " ".join(annotations["reclaim"].implies))
+        self.assertIn("storage reclaimed", " ".join(annotations["reclaim"].implies))
         self.assertIn(
             "committed to the lab registry before any deletion",
             " ".join(annotations["reclaim"].implies),
@@ -725,6 +813,67 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(registry.updates, [()])
         contexts = {call.args[0]: call.args[1] for call in api.set_context.call_args_list}
         self.assertIs(contexts["engulf_clab.reclaim.plan"], reclaim_plan)
+
+    def test_destroy_reclaim_stages_before_destroy_and_executes_after(self) -> None:
+        api = self._before_goal_api()
+        invocation = Invocation(("destroy", "--all", "--reclaim"), Path("/labs"), {})
+        registry = FakeRegistry()
+        reclaim_plan = ReclaimPlan((), (), (), (), ())
+
+        with (
+            patch("engulf_clab_reclaim.plugin.lab_registry", return_value=registry),
+            patch("engulf_clab_reclaim.plugin.DockerClient") as docker,
+            patch("engulf_clab_reclaim.plugin.plan", return_value=reclaim_plan) as planner,
+        ):
+            docker.return_value.storage_bytes.return_value = 12 * 1024**3
+            result = ReclaimPlugin().before_goal(invocation, api)
+
+        self.assertIsNone(result)
+        self.assertTrue(planner.call_args.kwargs["allow_deployed_all"])
+        staged = api.set_context.call_args.args[1]
+        self.assertIsInstance(staged, ReclaimPlan)
+        self.assertEqual(staged.storage_before, 12 * 1024**3)
+
+        after_api = MagicMock(spec=AfterGoalAPI)
+        after_api.application = api.application
+        after_api.get_context.side_effect = lambda context_id: {
+            "engulf_clab.reclaim.plan": staged,
+            "engulf_clab.lab_registry.commit": committed(),
+        }.get(context_id)
+        native_result = GoalResult.completed(value={"destroyed": True})
+        with (
+            patch("engulf_clab_reclaim.plugin.DockerClient"),
+            patch("engulf_clab_reclaim.plugin.execute", return_value=0) as executor,
+        ):
+            after_result = ReclaimPlugin().after_goal(
+                invocation, native_result, after_api
+            )
+
+        self.assertIs(after_result, native_result)
+        executor.assert_called_once()
+
+    def test_destroy_reclaim_flag_is_removed_from_containerlab_call(self) -> None:
+        api = MagicMock(spec=InvocationAPI)
+        contribution = ReclaimPlugin().analyze_call(
+            BeforeCallEvent(
+                "containerlab",
+                ("destroy", "--all", "--reclaim"),
+                CallMode.NORMAL,
+            ),
+            api,
+        )
+
+        assert contribution is not None
+        self.assertEqual(contribution.removals, frozenset({2}))
+
+    def test_destroy_without_reclaim_keeps_native_call(self) -> None:
+        api = MagicMock(spec=InvocationAPI)
+        contribution = ReclaimPlugin().analyze_call(
+            BeforeCallEvent("containerlab", ("destroy", "--all"), CallMode.NORMAL),
+            api,
+        )
+
+        self.assertIsNone(contribution)
 
     def test_before_goal_refuses_an_unreadable_registry(self) -> None:
         """durability-003: an unreadable registry stops before planning."""

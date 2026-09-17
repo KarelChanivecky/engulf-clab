@@ -59,6 +59,8 @@ def plan(
     docker: DockerClient,
     program: str = "eclab reclaim",
     options: argparse.Namespace | None = None,
+    allow_deployed_all: bool = False,
+    storage_before: int | None = None,
 ) -> ReclaimPlan:
     if options is None:
         options = parse_options(arguments, program)
@@ -74,7 +76,7 @@ def plan(
             )
         else:
             deployed = tuple(lab for lab in universe if lab.container_ids)
-            if deployed:
+            if deployed and not allow_deployed_all:
                 names = ", ".join(lab.name for lab in deployed)
                 raise ReclaimError(
                     "--all requires every known lab to be destroyed; "
@@ -147,6 +149,7 @@ def plan(
         tuple(sorted(representative[item] for item in shared)),
         observations,
         registry.revision,
+        storage_before,
     )
 
 
@@ -179,46 +182,53 @@ def execute(
         logger.error("%s", reason)
         return 1
 
-    try:
-        storage_before = docker.storage_bytes()
-    except DockerError as error:
-        logger.error("could not measure Docker storage before reclamation: %s", error)
-        return 1
+    if reclaim_plan.storage_before is None:
+        try:
+            storage_before = docker.storage_bytes()
+        except DockerError as error:
+            logger.error("could not measure Docker storage before reclamation: %s", error)
+            return 1
+    else:
+        storage_before = reclaim_plan.storage_before
 
     failures: list[str] = []
     removed_containers = 0
     removed_images = 0
     for container_id in reclaim_plan.container_ids:
         try:
-            docker.remove_container(container_id)
+            removed = docker.remove_container(container_id)
             removed_containers += 1
+            if removed is not False:
+                logger.info("reclaimed container: %s", container_id)
         except DockerError as error:
             failures.append(str(error))
     for image_id in image_ids:
         try:
-            docker.remove_image(image_id)
+            removed = docker.remove_image(image_id)
             removed_images += 1
+            if removed is not False:
+                logger.info("reclaimed image: %s", image_id)
         except DockerError as error:
             failures.append(str(error))
 
-    storage_saved: int | None
+    storage_reclaimed: int | None
     try:
         storage_after = docker.storage_bytes()
-        storage_saved = max(0, storage_before - storage_after)
+        storage_reclaimed = max(0, storage_before - storage_after)
     except DockerError as error:
         failures.append(f"could not measure Docker storage after reclamation: {error}")
-        storage_saved = None
+        storage_reclaimed = None
 
     for failure in failures:
         logger.error("%s", failure)
     logger.info(
-        "reclaimed storage for %d lab(s): removed %d container(s) and %d image(s); "
-        "preserved %d shared image(s); storage saved %s",
+        "reclaimed %d lab(s): removed %d container(s) and %d image(s); "
+        "preserved %d shared image(s); storage reclaimed %s",
         len(reclaim_plan.labs),
         removed_containers,
         removed_images,
         len(reclaim_plan.preserved_shared_image_ids) + preserved,
-        _bytes(storage_saved),
+        _bytes(storage_reclaimed),
     )
     return 1 if failures else 0
 
