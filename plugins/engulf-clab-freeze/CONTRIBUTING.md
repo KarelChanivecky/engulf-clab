@@ -62,6 +62,9 @@ and atomic so a failure cannot leave a partial output at its requested destinati
 - Keep normal and offline launchers distinct. Offline execution may use only
   bundled runtime/tools and the host Docker daemon; never fall back to PATH or a
   package index.
+- The lab-writer's hidden `.engulf-clab-lab-*` topology is derived deploy output,
+  not portable source. Freeze must omit it, and defrost must remove it from
+  legacy archives before publication.
 - Never archive generated vrnetlab appliance images or vendor VM inputs in
   offline mode. Preserve entitled recipient selection and local rebuild.
 - Write the archive to a staged path and publish only after all work succeeds.

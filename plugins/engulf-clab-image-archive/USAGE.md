@@ -64,6 +64,11 @@ image tag, ahead of the dispatcher's low-authority pull fallback. A failed load
 is reported instead of falling back to a registry pull, because a public image
 with the same tag would not be the archive the lab selected.
 
+One canonical image tag may not select competing archive recipes. Requests may
+reuse an archive only when their resolved archive path, SHA-256 content hash,
+archive reference, and reload setting are identical. Otherwise preparation
+fails with both node names; YAML order never selects a winner.
+
 Loading is skipped when the tag already exists locally, so repeated deploys do
 not re-read a large archive. Set `ECLAB_IMAGE_ARCHIVE_RELOAD` to a true value
 when the archive is rewritten in place under a stable tag and every deploy must

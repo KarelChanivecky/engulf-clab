@@ -117,11 +117,13 @@ def resolve_source_value(
     return path.resolve()
 
 
-def _node_environment(node_name: str, node_data: dict[str, Any]) -> dict[str, Any]:
+def _node_environment(
+    node_name: str, node_data: Mapping[str, Any]
+) -> Mapping[str, Any]:
     env = node_data.get("env")
     if env is None:
         return {}
-    if not isinstance(env, dict):
+    if not isinstance(env, Mapping):
         raise VrnetlabError(f"node {node_name} env must be a YAML mapping")
     return env
 
@@ -184,7 +186,7 @@ def build_requests_from_topology(
     requests: list[BuildRequest] = []
     lab_name: str | None = None
     nodes = topology_nodes(topology_data)
-    configured_nodes: list[tuple[TopologyNode, dict[str, Any], str]] = []
+    configured_nodes: list[tuple[TopologyNode, Mapping[str, Any], str]] = []
 
     for node in nodes:
         node_env = _node_environment(node.name, node.data)

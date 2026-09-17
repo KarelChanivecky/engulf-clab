@@ -24,8 +24,13 @@ from engulf_api import PluginLogger, StateStore
 from engulf_clab_ensure_vrnetlab import vrnetlab_image_path_env
 from engulf_clab_freeze_api import FreezeContext, discover_contributors
 from engulf_clab_freeze_api import FreezeError as ContributorError
-from engulf_clab_lab_parser import parse_topology_yaml, topology_declarations
+from engulf_clab_lab_parser import (
+    effective_nodes,
+    parse_topology_yaml,
+    topology_declarations,
+)
 from engulf_clab_lab_parser.session import (
+    WRITER_TEMP_PREFIX,
     TopologyError,
     load_topology,
     topology_path_from_args,
@@ -378,10 +383,26 @@ def _ignored(
     return (
         relative in excluded
         or relative.name in _BUILTIN_IGNORES
+        or _is_generated_topology(relative)
         or any(
             fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(relative.name, pattern)
             for pattern in patterns
         )
+    )
+
+
+def _is_generated_topology(relative: Path) -> bool:
+    """Return whether a path is a lab-writer topology beside its source.
+
+    These files are a deploy-time rendering, not authored lab input.  Keeping
+    one in a portable archive would give the recipient two topology copies
+    which can diverge, and the hidden copy can also make topology discovery
+    ambiguous after defrost.
+    """
+    return (
+        relative.parent == Path(".")
+        and relative.name.startswith(WRITER_TEMP_PREFIX)
+        and relative.name.endswith((".clab.yml", ".clab.yaml"))
     )
 
 
@@ -609,8 +630,11 @@ def _remove_offline_vrnetlab_inputs(
     nodes = document.get("nodes") if isinstance(document, dict) else None
     if not isinstance(nodes, dict):
         return
-    for node in nodes.values():
-        environment = node.get("env") if isinstance(node, dict) else None
+    for declaration in topology_declarations(topology):
+        owner: Any = topology
+        for part in declaration.origin.path:
+            owner = owner[part]
+        environment = owner.get("env") if isinstance(owner, dict) else None
         if not isinstance(environment, dict):
             continue
         for name in tuple(environment):
@@ -663,16 +687,24 @@ def _offline_image_references(
     if not isinstance(nodes, dict):
         return ()
     references: set[str] = set()
-    for name, node in nodes.items():
+    try:
+        resolved_nodes = effective_nodes(topology)
+    except TopologyError as error:
+        raise FreezeError(f"could not resolve inherited topology settings: {error}") from error
+    for effective in resolved_nodes:
+        name = effective.name
+        node = nodes.get(name)
+        if node is None:
+            node = nodes[name] = {}
         if not isinstance(node, dict):
             continue
-        environment = node.get("env")
-        if isinstance(environment, dict) and any(
+        environment = effective.data.get("env")
+        if isinstance(environment, Mapping) and any(
             isinstance(key, str) and key.endswith("_VRNETLAB_TYPE")
             for key in environment
         ):
             continue
-        image = node.get("image")
+        image = effective.data.get("image")
         if image is None:
             continue
         if not isinstance(image, str) or not image.strip():
@@ -758,10 +790,14 @@ def _copy_external_vrnetlab_inputs(
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         node = nodes.get(request.node_name)
+        if node is None:
+            node = nodes[request.node_name] = {}
         if isinstance(node, dict):
-            environment = node.setdefault("env", {})
-            if isinstance(environment, dict):
-                environment[vrnetlab_image_path_env()] = str(
+            node_environment = node.get("env")
+            if node_environment is None:
+                node_environment = node["env"] = {}
+            if isinstance(node_environment, dict):
+                node_environment[vrnetlab_image_path_env()] = str(
                     target.relative_to(staging)
                 )
         warnings.append(

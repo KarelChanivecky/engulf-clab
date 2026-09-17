@@ -69,6 +69,48 @@ class FortigatePkiInjectorTest(unittest.TestCase):
             self.assertNotIn(LOCAL_CERTIFICATE_PASSWORD_FILES, environment)
             self.assertNotIn(REMOTE_CERTIFICATES, environment)
 
+    def test_resolves_inherited_kind_bind_and_group_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            projection = _projection(root, kind="fortinet_fortigate")
+            bind = f"{projection.staged_view}:{projection.mount_target}:ro"
+            session = TopologySession(
+                Path("/tmp/lab.clab.yml"),
+                {
+                    "topology": {
+                        "defaults": {"kind": projection.node_kind},
+                        "kinds": {projection.node_kind: {"binds": [bind]}},
+                        "nodes": {"fgt": {}},
+                    }
+                },
+            )
+            _prepare(session, PkiNodeProjections((projection,)))
+            self.assertIn(
+                CA_CERTIFICATES,
+                session.materialize()["topology"]["nodes"]["fgt"]["env"],
+            )
+
+            collision_session = TopologySession(
+                Path("/tmp/lab.clab.yml"),
+                {
+                    "topology": {
+                        "defaults": {"kind": projection.node_kind},
+                        "groups": {
+                            "clients": {
+                                "binds": [bind],
+                                "env": {CRLS: "/manual/crl.pem"},
+                            }
+                        },
+                        "nodes": {"fgt": {"group": "clients"}},
+                    }
+                },
+            )
+            with self.assertRaisesRegex(InjectorError, "topology group 'clients'"):
+                _prepare(collision_session, PkiNodeProjections((projection,)))
+            self.assertNotIn(
+                "env", collision_session.materialize()["topology"]["nodes"]["fgt"]
+            )
+
     def test_missing_pki_context_is_a_complete_noop(self) -> None:
         api = Mock(spec=InvocationAPI)
         api.get_context.return_value = None

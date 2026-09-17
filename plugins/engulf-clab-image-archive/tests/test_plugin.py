@@ -159,6 +159,31 @@ class LifecycleTest(unittest.TestCase):
         assert isinstance(recipe, DockerArchiveRecipe)
         self.assertEqual(recipe.archive, self.archive)
 
+    def test_prepare_rejects_conflicting_archives_for_one_canonical_tag(self) -> None:
+        other = self.root / "other.tar.gz"
+        other.write_bytes(b"different archive")
+        topology = self.root / "lab.clab.yml"
+        topology.write_text(
+            "topology:\n"
+            "  nodes:\n"
+            "    router:\n"
+            "      image: example/router:latest\n"
+            "      env: {ECLAB_IMAGE_ARCHIVE: router.tar.gz}\n"
+            "    switch:\n"
+            "      image: example/router\n"
+            f"      env: {{ECLAB_IMAGE_ARCHIVE: {other.name}}}\n",
+            encoding="utf-8",
+        )
+        plugin = ImageArchivePlugin()
+
+        with self.assertRaisesRegex(
+            ImageArchiveError,
+            r"conflicting image archive declarations.*router.*switch",
+        ):
+            self._prepare(plugin, topology)
+
+        self.assertIsNone(plugin._provider.provide(ImageRequirement("example/router:latest")))
+
     def test_prepare_expands_topology_environment_in_the_archive_path(self) -> None:
         topology = _lab(self.root, archive="${ROUTER_ARCHIVE}")
         plugin = ImageArchivePlugin()

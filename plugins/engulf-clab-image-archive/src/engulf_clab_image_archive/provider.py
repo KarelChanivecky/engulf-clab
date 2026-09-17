@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
+from pathlib import Path
 from threading import Lock
 
 from engulf_docker_image_api import (
@@ -14,6 +16,7 @@ from engulf_docker_image_api import (
 )
 
 from .config import ArchiveRequest
+from .errors import ImageArchiveError
 
 ARCHIVE_PROVIDER_ID = "org.engulf.docker.image-archive"
 
@@ -33,10 +36,22 @@ class ImageArchiveProvider(ImageProvider):
         self._requests: dict[str, ArchiveRequest] = {}
 
     def refresh_requests(self, requests: Sequence[ArchiveRequest]) -> None:
+        prepared: dict[str, ArchiveRequest] = {}
+        fingerprints: dict[Path, str] = {}
+        for request in requests:
+            reference = canonical_image_reference(request.image)
+            previous = prepared.get(reference)
+            if previous is not None and not _compatible_requests(
+                previous, request, fingerprints
+            ):
+                raise ImageArchiveError(
+                    f"conflicting image archive declarations for {reference}: "
+                    f"node {previous.node_name!r} uses {previous.archive}, "
+                    f"node {request.node_name!r} uses {request.archive}"
+                )
+            prepared.setdefault(reference, request)
         with self._lock:
-            self._requests = {
-                canonical_image_reference(request.image): request for request in requests
-            }
+            self._requests = prepared
 
     def clear(self) -> None:
         with self._lock:
@@ -64,3 +79,34 @@ class ImageArchiveProvider(ImageProvider):
             # failed load must surface instead of falling through.
             fallback_on_failure=False,
         )
+
+
+def _compatible_requests(
+    first: ArchiveRequest,
+    second: ArchiveRequest,
+    fingerprints: dict[Path, str],
+) -> bool:
+    """Allow shared tags only when the complete archive recipe is identical."""
+    if first.archive != second.archive:
+        return False
+    if first.source != second.source or first.reload != second.reload:
+        return False
+    first_fingerprint = _archive_fingerprint(first.archive, fingerprints)
+    second_fingerprint = _archive_fingerprint(second.archive, fingerprints)
+    return first_fingerprint == second_fingerprint
+
+
+def _archive_fingerprint(path: Path, fingerprints: dict[Path, str]) -> str:
+    existing = fingerprints.get(path)
+    if existing is not None:
+        return existing
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as error:
+        raise ImageArchiveError(f"cannot fingerprint image archive {path}: {error}") from error
+    value = digest.hexdigest()
+    fingerprints[path] = value
+    return value

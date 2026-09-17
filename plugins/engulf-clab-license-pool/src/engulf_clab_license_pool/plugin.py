@@ -22,8 +22,10 @@ from engulf_api import (
 )
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
+    TopologyError,
     TopologySession,
     editor,
+    effective_nodes,
     is_topology_mutation_command,
 )
 from engulf_clab_schema_api import (
@@ -527,25 +529,34 @@ def _requests(
     nodes = data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict):
         raise LicensePoolError("topology.nodes is required")
+    try:
+        resolved_nodes = effective_nodes(data)
+    except TopologyError as error:
+        raise LicensePoolError(str(error)) from error
     result = []
-    for name, node in nodes.items():
-        if not isinstance(node, dict) or not isinstance(node.get("license"), str):
+    for node in resolved_nodes:
+        license_value = node.data.get("license")
+        if not isinstance(license_value, str):
             continue
-        pool = _pool(node["license"], environ, contract)
+        pool = _pool(license_value, environ, contract)
         if pool is None:
             continue
-        env = node.get("env", {})
-        clamp = env.get(contract.clamp_environment) if isinstance(env, dict) else None
+        env = node.data.get("env", {})
+        if env is None:
+            env = {}
+        if not isinstance(env, Mapping):
+            raise LicensePoolError(f"node {node.name} env must be a YAML mapping")
+        clamp = env.get(contract.clamp_environment)
         if clamp is not None and not isinstance(clamp, str):
             raise LicensePoolError(
-                f"node {name} {contract.clamp_environment} must be a string"
+                f"node {node.name} {contract.clamp_environment} must be a string"
             )
-        identity = env.get(UUID_ENVIRONMENT, name) if isinstance(env, dict) else name
+        identity = env.get(UUID_ENVIRONMENT, node.name)
         if not isinstance(identity, str) or not identity:
             raise LicensePoolError(
-                f"node {name} {UUID_ENVIRONMENT} must be a nonempty string"
+                f"node {node.name} {UUID_ENVIRONMENT} must be a nonempty string"
             )
-        result.append((str(name), str(pool), clamp, f"{workspace}:{identity}"))
+        result.append((node.name, str(pool), clamp, f"{workspace}:{identity}"))
     return result
 
 
@@ -558,18 +569,22 @@ def _prompt_requests(
     nodes = data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict):
         raise LicensePoolError("topology.nodes is required")
+    try:
+        resolved_nodes = effective_nodes(data)
+    except TopologyError as error:
+        raise LicensePoolError(str(error)) from error
     pools: list[tuple[str, str, str | None, str]] = []
     direct: dict[str, tuple[str, str]] = {}
-    for name, node in nodes.items():
-        if not isinstance(node, dict) or node.get("license") != contract.prompt_marker:
+    for node in resolved_nodes:
+        if node.data.get("license") != contract.prompt_marker:
             continue
-        node_name = str(name)
-        node_env = node.get("env", {})
-        identity = (
-            node_env.get(UUID_ENVIRONMENT, node_name)
-            if isinstance(node_env, dict)
-            else node_name
-        )
+        node_name = node.name
+        node_env = node.data.get("env", {})
+        if node_env is None:
+            node_env = {}
+        if not isinstance(node_env, Mapping):
+            raise LicensePoolError(f"node {node_name} env must be a YAML mapping")
+        identity = node_env.get(UUID_ENVIRONMENT, node_name)
         if not isinstance(identity, str) or not identity:
             raise LicensePoolError(
                 f"node {node_name} {UUID_ENVIRONMENT} must be a nonempty string"

@@ -5,9 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_clab_lab_parser.session import (
-    TopologyError,
-)
+from engulf_clab_lab_parser import TopologyError, effective_nodes
 from engulf_clab_lab_parser.session import (
     load_topology as load_parsed_topology,
 )
@@ -21,7 +19,7 @@ from .errors import VrnetlabError
 @dataclass(frozen=True)
 class TopologyNode:
     name: str
-    data: dict[str, Any]
+    data: Mapping[str, Any]
 
 
 def load_topology(
@@ -49,11 +47,11 @@ def topology_nodes(topology_data: dict[str, Any]) -> list[TopologyNode]:
     if not isinstance(nodes, dict):
         raise VrnetlabError("topology file is missing topology.nodes mapping")
 
-    parsed: list[TopologyNode] = []
-    for name, node_data in nodes.items():
-        if isinstance(node_data, dict):
-            parsed.append(TopologyNode(name=str(name), data=node_data))
-    return parsed
+    try:
+        resolved = effective_nodes(topology_data)
+    except TopologyError as error:
+        raise VrnetlabError(str(error)) from error
+    return [TopologyNode(name=node.name, data=node.data) for node in resolved]
 
 
 def topology_path_from_args(args: tuple[str, ...], cwd: Path | None = None) -> Path:

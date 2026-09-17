@@ -15,6 +15,11 @@ into both context declarations, and call `record_plugin_schema()` at the start
 of `before_goal()`. The helper stores an immutable snapshot in invocation
 context; callback API objects are never retained.
 
+`publish_containerlab_source()` and `publish_vrnetlab_source()` publish
+optional compiler hints. They permit a successful control command that
+preempts schema generation to leave those hints unread; a compiler read still
+records normal context consumption.
+
 Declare that dependency in the distribution, never in code. Engulf rejects a
 plugin that sets `plugin_dependencies`, so the current API omits the
 `SCHEMA_PLUGIN_DEPENDENCY` constant that used to express this edge in code:

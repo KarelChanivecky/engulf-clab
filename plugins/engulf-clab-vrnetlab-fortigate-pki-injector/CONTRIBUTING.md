@@ -5,8 +5,9 @@ perform translation only in deploy or single-source redeploy `prepare_call()`. C
 from `PKI_NODE_PROJECTIONS_CONTEXT`; never import the PKI implementation, inspect
 its state directories, read `inventory.json`, or parse certificate content.
 
-Validate the current topology node, effective environment collisions, exact
-read-only bind, lexical host/container correspondence, and regular-file
+Validate the current effective topology node, including inherited environment
+collisions, kind, and exact read-only bind, preserving declaration provenance in
+diagnostics. Validate lexical host/container correspondence and regular-file
 availability before recording any mutation. Preserve projection order and
 deduplicate by fingerprint. Every CA, remote, local, and CRL launcher entry must
 start with a refname field; never emit the ambiguous legacy bare-path or

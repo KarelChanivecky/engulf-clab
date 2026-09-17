@@ -27,8 +27,9 @@ The plugin generates these vrnetlab-owned variables:
 The current PKI producer stages unencrypted PEM keys and does not project remote
 certificates or generated CRLs, so the injector omits
 `FOS_PKI_LOCAL_CERT_PASS_FILES`, `FOS_PKI_REMOTE_CERTS`, and `FOS_PKI_CRLS`.
-All five names are reserved by the injector. A value already present in topology
-defaults or an eligible node fails deployment instead of being overwritten.
+All five names are reserved by the injector. A value already present in
+topology defaults, a kind, a group, or an eligible node fails deployment
+instead of being overwritten; the resolved declaration origin is reported.
 
 The launcher imports CA certificates into FortiOS trust, configures local
 certificate/key pairs (including deep-inspection CA pairs), and owns TFTP and
@@ -53,8 +54,9 @@ injector never emits the legacy bare `path` or `key_path:cert_path` spellings.
 
 PKI mounts each authorized view read-only at `/mnt/eclab/pki` by default.
 `ECLAB_PKI_MOUNT_TARGET` may override that absolute POSIX path in
-`topology.defaults.env` or per node; node scope wins. PKI strips the control from
-the derived environment, and injector paths use the resolved target directly.
+`topology.defaults.env`, a kind, a group, or a node; node scope wins. PKI strips
+the control from the derived environment, and injector paths use the resolved
+target directly.
 
 The injector runs after PKI and before the topology writer. Before mutation it
 checks the typed projection, matching read-only bind, path containment, and each

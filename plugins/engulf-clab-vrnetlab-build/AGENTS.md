@@ -41,7 +41,8 @@ never restore code-level `plugin_dependencies`.
   plugin-owned `NODE=PATH` option: analyze it without side effects, remove its
   exact argument indexes, and re-parse the immutable original arguments during
   preparation. Node `ECLAB_VRNETLAB_TYPE` and topology image-source values
-  remain node `env` controls.
+  remain node `env` controls. Read node image and environment controls from
+  parser `EffectiveNode` snapshots so defaults, kinds, and groups are honored.
 - Require image selectors to follow a deploy or single-source redeploy command. Other topology-aware
   plugins receive the same original argument tuple, so treating this option as
   a pre-command global would bypass their command detection.

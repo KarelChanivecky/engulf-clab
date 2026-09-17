@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from engulf_clab_freeze_api import DefrostContext, FreezeContext, FreezeError
+from engulf_clab_lab_parser import TopologyError, effective_nodes, topology_declarations
 
 from .catalog import load_catalog
 from .plugin import MANIFEST_ENVIRONMENT
@@ -405,19 +407,11 @@ def _vendor_global_certificate_declarations(
         replacements[reference] = f"local/{target}"
     if not replacements:
         return
-    block = document.get("topology", {})
-    owners = []
-    if isinstance(block, dict):
-        owners.append(block.get("defaults", {}))
-        if isinstance(block.get("nodes"), dict):
-            owners.extend(block["nodes"].values())
-    for owner in owners:
-        environment = owner.get("env", {}) if isinstance(owner, dict) else {}
-        value = environment.get("ECLAB_PKI_CERTIFICATES") if isinstance(environment, dict) else None
-        if isinstance(value, str):
-            environment["ECLAB_PKI_CERTIFICATES"] = ",".join(
-                replacements.get(item.strip(), item.strip()) for item in value.split(",")
-            )
+    _rewrite_topology_environment_references(
+        document,
+        "ECLAB_PKI_CERTIFICATES",
+        lambda item: replacements.get(item, item),
+    )
 
 
 def _merge_mappings(base: Any, override: Any) -> dict[str, Any]:
@@ -784,25 +778,46 @@ def _topology_certificate_requests(topology: dict[str, Any]) -> tuple[tuple[str,
 def _topology_environment_requests(
     topology: dict[str, Any], variable: str
 ) -> tuple[tuple[str, str], ...]:
-    block = topology.get("topology", {})
-    defaults = block.get("defaults", {}) if isinstance(block, dict) else {}
-    nodes = block.get("nodes", {}) if isinstance(block, dict) else {}
-    default_env = defaults.get("env", {}) if isinstance(defaults, dict) else {}
     result: list[tuple[str, str]] = []
-    if not isinstance(nodes, dict):
-        return ()
-    for node, spec in nodes.items():
-        environment = spec.get("env", {}) if isinstance(spec, dict) else {}
-        value = (
-            environment.get(variable)
-            if isinstance(environment, dict) and variable in environment
-            else default_env.get(variable)
-            if isinstance(default_env, dict)
-            else None
-        )
+    try:
+        nodes = effective_nodes(topology)
+    except TopologyError as error:
+        raise FreezeError(f"could not resolve inherited topology settings: {error}") from error
+    for node in nodes:
+        environment = node.data.get("env", {})
+        value = environment.get(variable) if isinstance(environment, Mapping) else None
         if isinstance(value, str):
-            result.extend((str(node), item.strip()) for item in value.split(",") if item.strip())
+            result.extend(
+                (node.name, item.strip()) for item in value.split(",") if item.strip()
+            )
     return tuple(result)
+
+
+def _rewrite_topology_environment_references(
+    document: dict[str, Any],
+    variable: str,
+    rewrite: Callable[[str], str],
+) -> None:
+    """Rewrite one topology env variable at every declaration origin.
+
+    Effective values identify which requests are used, but the source topology
+    must be independent of the exporting machine as a whole. Rewrite shadowed
+    and unused declarations too, so a later kind/group selection cannot restore
+    an old site-specific authority reference.
+    """
+    for declaration in topology_declarations(document):
+        owner: Any = document
+        for part in declaration.origin.path:
+            owner = owner[part]
+        environment = owner.get("env") if isinstance(owner, dict) else None
+        if not isinstance(environment, dict):
+            continue
+        value = environment.get(variable)
+        if not isinstance(value, str):
+            continue
+        environment[variable] = ",".join(
+            rewrite(item.strip()) for item in value.split(",")
+        )
 
 
 def _binding_answers(values: list[str]) -> dict[str, str]:
@@ -859,27 +874,16 @@ def _rewrite_authority_references(
 def _rewrite_topology_authority_references(
     document: dict[str, Any], binding: str, replacement: str
 ) -> None:
-    block = document.get("topology", {})
-    if not isinstance(block, dict):
-        return
-    owners = [block.get("defaults", {}), *(
-        block.get("nodes", {}).values() if isinstance(block.get("nodes"), dict) else ()
-    )]
-    for owner in owners:
-        environment = owner.get("env", {}) if isinstance(owner, dict) else {}
-        if not isinstance(environment, dict):
-            continue
-        for variable in (
-            "ECLAB_PKI_PRIVATE_AUTHORITIES",
-            "ECLAB_PKI_TRUST_INCLUDE",
-            "ECLAB_PKI_TRUST_EXCLUDE",
-        ):
-            value = environment.get(variable)
-            if isinstance(value, str):
-                environment[variable] = ",".join(
-                    _rewritten_reference(item.strip(), binding, replacement)
-                    for item in value.split(",")
-                )
+    for variable in (
+        "ECLAB_PKI_PRIVATE_AUTHORITIES",
+        "ECLAB_PKI_TRUST_INCLUDE",
+        "ECLAB_PKI_TRUST_EXCLUDE",
+    ):
+        _rewrite_topology_environment_references(
+            document,
+            variable,
+            lambda item: _rewritten_reference(item, binding, replacement),
+        )
 
 
 def _rewritten_reference(value: str, binding: str, replacement: str) -> str:

@@ -6,6 +6,7 @@
 - Skip projections for build-only nodes already removed from the deployable topology.
 - Emit mandatory, stable refnames before every staged path entry and reject category-local collisions.
 - Mutate generated environment leaf keys, never the complete node `env` mapping.
+- Resolve kind, binds, and environment collisions through the immutable effective-node view, preserving the declaration origin in diagnostics.
 - Reject every injector-owned environment collision and validate staged files and binds first.
 - Preserve package-declared PKI-before and writer-after ordering.
 - Keep host state, leases, copying, TFTP, FortiOS commands, and cleanup out of this package.

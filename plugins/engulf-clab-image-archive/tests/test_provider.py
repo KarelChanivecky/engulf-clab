@@ -12,6 +12,7 @@ from engulf_docker_image_api import (
 )
 
 from engulf_clab_image_archive.config import ArchiveRequest
+from engulf_clab_image_archive.errors import ImageArchiveError
 from engulf_clab_image_archive.provider import ImageArchiveProvider
 
 
@@ -91,6 +92,38 @@ class ImageArchiveProviderTest(unittest.TestCase):
         self.provider.refresh_requests([self._request()])
 
         self.assertIsNone(self.provider.provide(ImageRequirement("other/image:1.0.0")))
+
+    def test_conflicting_canonical_requests_are_rejected_with_both_nodes(self) -> None:
+        other_archive = self.root / "other.tar.gz"
+        other_archive.write_bytes(b"different archive")
+
+        with self.assertRaisesRegex(
+            ImageArchiveError,
+            r"conflicting image archive declarations.*router.*switch",
+        ):
+            self.provider.refresh_requests(
+                [
+                    self._request(node_name="router", image="example/router:latest"),
+                    self._request(
+                        node_name="switch",
+                        image="example/router",
+                        archive=other_archive,
+                    ),
+                ]
+            )
+
+    def test_identical_canonical_requests_may_reuse_one_archive(self) -> None:
+        self.provider.refresh_requests(
+            [
+                self._request(node_name="router", image="example/router:latest"),
+                self._request(node_name="switch", image="example/router"),
+            ]
+        )
+
+        response = self.provider.provide(ImageRequirement("example/router:latest"))
+
+        assert response is not None and response.provision is not None
+        self.assertEqual(response.provision.origin, "image archive node router")
 
     def test_refresh_replaces_previous_requests(self) -> None:
         self.provider.refresh_requests([self._request()])

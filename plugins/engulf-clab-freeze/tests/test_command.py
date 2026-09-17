@@ -340,6 +340,25 @@ class FreezeCommandTestCase(unittest.TestCase):
             self.assertFalse(archived("empty"))
             self.assertFalse(archived("licenses-only"))
 
+    def test_freeze_excludes_the_lab_writer_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "lab"
+            root.mkdir()
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+            generated = root / ".engulf-clab-lab-generated.clab.yml"
+            generated.write_text("topology: {nodes: {stale: {}}}\n", encoding="utf-8")
+            archive = Path(directory) / "share.tar.gz"
+
+            with patch("engulf_clab_freeze.command._download_wheels"):
+                freeze(topology, archive)
+
+            with tarfile.open(archive, "r:gz") as tar:
+                names = tar.getnames()
+
+            self.assertIn("share/lab.clab.yml", names)
+            self.assertNotIn("share/.engulf-clab-lab-generated.clab.yml", names)
+
     def test_offline_freeze_bundles_components_and_uses_offline_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
@@ -423,6 +442,42 @@ class OfflineBundleTestCase(unittest.TestCase):
         ):
             self.assertEqual(_offline_image_references(topology), ("router:1",))
         self.assertEqual(topology["topology"]["nodes"]["one"]["image"], "router:1")
+
+    def test_offline_image_references_use_an_inherited_image(self) -> None:
+        topology = {
+            "topology": {
+                "defaults": {"image": "router:1"},
+                "kinds": {"linux": {"env": {"KEEP": "yes"}}},
+                "nodes": {"router": {"kind": "linux"}},
+            }
+        }
+
+        self.assertEqual(_offline_image_references(topology), ("router:1",))
+        self.assertEqual(topology["topology"]["nodes"]["router"]["image"], "router:1")
+
+    def test_offline_vrnetlab_paths_are_removed_from_every_declaration_level(self) -> None:
+        path_key = "ECLAB_VRNETLAB_IMG_PATH"
+        topology = {
+            "topology": {
+                "defaults": {"env": {path_key: "default.qcow2"}},
+                "kinds": {"linux": {"env": {path_key: "kind.qcow2"}}},
+                "groups": {"clients": {"env": {path_key: "group.qcow2"}}},
+                "nodes": {"router": {"kind": "linux", "group": "clients", "env": {path_key: "node.qcow2"}}},
+            }
+        }
+
+        _remove_offline_vrnetlab_inputs(
+            topology, Path("/tmp/lab.clab.yml"), Path("/tmp"), []
+        )
+
+        declarations = topology["topology"]
+        for definition in (
+            declarations["defaults"],
+            declarations["kinds"]["linux"],
+            declarations["groups"]["clients"],
+            declarations["nodes"]["router"],
+        ):
+            self.assertNotIn(path_key, definition.get("env", {}))
 
     def test_missing_local_image_makes_offline_freeze_fail(self) -> None:
         topology = {"topology": {"nodes": {"router": {"image": "router:1"}}}}

@@ -46,10 +46,15 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   output suffix validation, overwrite confirmation, external-symlink rejection,
   Git-ignore-style exclusions, empty-directory pruning, and tracked archive
   exclusion.
+- Treat `.engulf-clab-lab-*.clab.yml` and `.engulf-clab-lab-*.clab.yaml` as
+  deploy-time writer output. Exclude it from new archives and remove it while
+  defrosting legacy archives so a portable lab has one authored topology.
 - Redact every node license, remove every `*_LIC_CLAMP`, exclude likely license
   files, and fail when generated lab-local license copies exist.
 - Sanitize every declaration origin, including shadowed and unused kinds/groups.
   Resolve defrost image/archive selections and license prompts with EffectiveNode.
+- Freeze's offline image and vrnetlab-input paths use the same EffectiveNode
+  snapshots, while sanitizing generated input paths at every declaration origin.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, defrost's per-node license
   variables and `ECLAB_IMAGE_ARCHIVE` key, and both lease names — never derive

@@ -3,9 +3,10 @@ from __future__ import annotations
 import io
 import os
 import re
+import sys
 import tomllib
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
@@ -146,6 +147,24 @@ class CliTest(unittest.TestCase):
 
         definition.create.assert_called_once_with()
         application.run.assert_called_once_with()
+
+    def test_plugin_list_uses_a_metadata_fallback_when_extension_is_absent(self) -> None:
+        definition = MagicMock()
+        application = definition.create.return_value.__enter__.return_value
+        application.diagnostic_extensions = ()
+        application.active_plugins = ()
+        application.postprocess_plugins = ()
+        output = io.StringIO()
+        with (
+            patch("engulf_clab.cli.CONTAINERLAB_APPLICATION", definition),
+            patch.object(sys, "argv", ["eclab", "--engulf-plugin-list"]),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(main(), 0)
+
+        self.assertIn("Normal goal plugins", output.getvalue())
+        self.assertIn("Diagnostic extensions", output.getvalue())
+        application.run.assert_not_called()
 
 
 class PrivilegeRefusalTest(unittest.TestCase):

@@ -46,6 +46,9 @@ across editions.
 - Offer at `PREFERRED` authority with `fallback_on_failure=False`: an explicitly
   selected archive is the node's declared image source, and a registry pull of
   the same tag would be a different image.
+- Reject canonical image-tag collisions during preparation unless the requests
+  have the same archive path and SHA-256, source reference, and reload policy;
+  diagnostics must name both nodes.
 - Default to `only_if_missing=True` and let `ECLAB_IMAGE_ARCHIVE_RELOAD` opt into
   loading on every deploy.
 - Never choose a member of a multi-image archive implicitly; require

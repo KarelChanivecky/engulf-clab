@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from engulf_api import BeforeGoalAPI, Invocation, InvocationAPI
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
+    EffectiveNode,
+    TopologyError,
     TopologySession,
+    effective_nodes,
     is_topology_mutation_command,
 )
 from engulf_clab_pki_api import (
@@ -111,9 +115,12 @@ class FortigatePkiInjector(SchemaBackedPlugin):
         if not isinstance(topology_block, dict):
             raise InjectorError("topology must be a mapping")
         nodes = topology_block.get("nodes", {})
-        defaults = topology_block.get("defaults", {})
         if not isinstance(nodes, dict):
             raise InjectorError("topology.nodes must be a mapping")
+        try:
+            resolved_nodes = {node.name: node for node in effective_nodes(topology)}
+        except TopologyError as error:
+            raise InjectorError(str(error)) from error
         mutation = session.editor(self.plugin_id)
         for projection in value.nodes:
             node = nodes.get(projection.node_name)
@@ -123,16 +130,18 @@ class FortigatePkiInjector(SchemaBackedPlugin):
                 raise InjectorError(
                     f"projected PKI node {projection.node_name!r} must be a mapping"
                 )
-            kind = _node_kind(node, defaults)
+            effective = resolved_nodes.get(projection.node_name)
+            if effective is None:
+                continue
+            kind = _node_kind(effective.data)
             if kind != projection.node_kind:
                 raise InjectorError(
                     f"node {projection.node_name!r} kind does not match its PKI projection"
                 )
             if kind != FORTIGATE_KIND:
                 continue
-            _validate_projection(projection, node)
-            environment = _environment(node, owner=f"node {projection.node_name!r}")
-            _reject_collisions(projection.node_name, environment, defaults)
+            _validate_projection(projection, effective.data)
+            _reject_collisions(projection.node_name, effective)
             generated = _environment_values(projection)
             for variable, generated_value in generated.items():
                 mutation.modify(
@@ -141,39 +150,38 @@ class FortigatePkiInjector(SchemaBackedPlugin):
                 )
 
 
-def _node_kind(node: dict[str, Any], defaults: Any) -> str:
+def _node_kind(node: Mapping[str, Any]) -> str:
     value = node.get("kind")
-    if value is None and isinstance(defaults, dict):
-        value = defaults.get("kind")
     return "linux" if value is None else str(value)
 
 
-def _environment(mapping: dict[str, Any], *, owner: str) -> dict[str, Any]:
+def _environment(mapping: Mapping[str, Any], *, owner: str) -> dict[str, Any]:
     value = mapping.get("env", {})
     if value is None:
         return {}
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise InjectorError(f"{owner} env must be a mapping")
     return dict(value)
 
 
-def _reject_collisions(node_name: str, node_environment: dict[str, Any], defaults: Any) -> None:
-    default_environment = (
-        _environment(defaults, owner="topology defaults") if isinstance(defaults, dict) else {}
-    )
+def _reject_collisions(node_name: str, node: EffectiveNode) -> None:
+    node_environment = _environment(node.data, owner=f"node {node_name!r}")
     for variable in sorted(OWNED_ENVIRONMENT):
         if variable in node_environment:
-            raise InjectorError(
-                f"node {node_name!r} already defines injector-owned variable {variable} in node env"
-            )
-        if variable in default_environment:
+            origin = node.origin("env", variable)
+            if origin is None or origin.level == "node":
+                source = "node env"
+            elif origin.level == "defaults":
+                source = "topology defaults"
+            else:
+                source = f"topology {origin.level} {origin.name!r}"
             raise InjectorError(
                 f"node {node_name!r} already defines injector-owned variable {variable} "
-                "in topology defaults"
+                f"in {source}"
             )
 
 
-def _validate_projection(projection: NodePkiProjection, node: dict[str, Any]) -> None:
+def _validate_projection(projection: NodePkiProjection, node: Mapping[str, Any]) -> None:
     if projection.staged_view.is_symlink() or not projection.staged_view.is_dir():
         raise InjectorError(f"node {projection.node_name!r} projected PKI view is unavailable")
     if not _matching_bind(node, projection):
@@ -197,9 +205,9 @@ def _validate_file(node_name: str, artifact: ProjectedFile, view: Path) -> None:
         ) from error
 
 
-def _matching_bind(node: dict[str, Any], projection: NodePkiProjection) -> bool:
+def _matching_bind(node: Mapping[str, Any], projection: NodePkiProjection) -> bool:
     binds = node.get("binds", [])
-    if not isinstance(binds, list):
+    if not isinstance(binds, (list, tuple)):
         raise InjectorError(f"node {projection.node_name!r} binds must be a list")
     source = str(projection.staged_view)
     target = str(projection.mount_target)
@@ -208,7 +216,7 @@ def _matching_bind(node: dict[str, Any], projection: NodePkiProjection) -> bool:
             parts = bind.rsplit(":", 2)
             if len(parts) == 3 and parts == [source, target, "ro"]:
                 return True
-        elif isinstance(bind, dict):
+        elif isinstance(bind, Mapping):
             mode = bind.get("mode", bind.get("options"))
             if bind.get("source") == source and bind.get("target") == target and mode == "ro":
                 return True

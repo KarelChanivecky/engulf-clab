@@ -18,6 +18,9 @@ through the shared topology editor.
 - Parse pool and frozen-prompt requests in preparation, never help or analysis
   side effects. Validate topology mappings, environment values, pool/file roles,
   UUIDs, and clamp strings before copying.
+- Resolve license selectors, pool clamps, allocation identities, and frozen
+  prompts from the parser's immutable `EffectiveNode` snapshots; inherited
+  values at defaults, kind, group, and node scope must behave identically.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.

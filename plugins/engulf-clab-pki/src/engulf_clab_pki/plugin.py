@@ -262,7 +262,8 @@ class PkiPlugin(SchemaBackedPlugin):
                     mutation.delete(declaration.field_origin("env", variable).path)
             for name, node in topology_nodes.items():
                 node = node or {}
-                binds = list(node.get("binds") or ())
+                effective = resolved_nodes[str(name)]
+                binds = list(effective.data.get("binds") or ())
                 target = mount_targets[str(name)]
                 binds.append(f"{views[str(name)]}:{target}:ro")
                 mutation.modify(("topology", "nodes", name, "binds"), binds)

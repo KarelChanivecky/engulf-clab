@@ -40,6 +40,10 @@ the dispatcher that consumes this provider during deploy and single-source redep
   the dictionary read only, and build the response from recorded values.
 - Key recorded requests by canonical image reference so `example/router` and
   `example/router:latest` resolve to the same request.
+- During `refresh_requests`, reject competing recipes for one canonical
+  reference. Shared reuse is allowed only for identical archive paths and
+  SHA-256 fingerprints with the same source and reload settings; never let YAML
+  order choose a request, and include both node names in the error.
 - Preserve `fallback_on_failure=False`. A failed load must surface rather than
   reaching the dispatcher's pull fallback for the same tag.
 - Preserve `only_if_missing = not request.reload` so an unchanged archive is not

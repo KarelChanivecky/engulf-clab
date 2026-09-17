@@ -222,6 +222,7 @@ def defrost(
     with tempfile.TemporaryDirectory(prefix=".eclab-defrost-", dir=into.parent) as work:
         temporary_root = Path(work)
         root = _extract(archive, temporary_root / "staging")
+        _remove_generated_topologies(root)
         topology_path = _archive_topology(root)
         document = _load_document(topology_path)
         metadata = _freeze_metadata(document, notes)
@@ -362,6 +363,21 @@ def _archive_topology(root: Path) -> Path:
             f"no archive topology carries {_FREEZE_KEY}; this is not a frozen lab archive"
         )
     raise DefrostError(f"archive has several topologies carrying {_FREEZE_KEY}")
+
+
+def _remove_generated_topologies(root: Path) -> None:
+    """Discard deploy-time writer output from old archives during defrost.
+
+    New freezes omit these files.  Removing them here also keeps archives made
+    by an older freeze from publishing a stale second topology into the lab.
+    """
+    for pattern in (
+        f"{WRITER_TEMP_PREFIX}*.clab.yml",
+        f"{WRITER_TEMP_PREFIX}*.clab.yaml",
+    ):
+        for path in root.glob(pattern):
+            if path.is_file() or path.is_symlink():
+                path.unlink()
 
 
 def _carries_freeze_key(path: Path) -> bool:
@@ -584,7 +600,9 @@ def _select_image_archives(
         archive = available.get(_canonical_reference(reference))
         if archive is None:
             continue
-        node_environment = node.setdefault("env", {})
+        node_environment = node.get("env")
+        if node_environment is None:
+            node_environment = node["env"] = {}
         if not isinstance(node_environment, dict):
             continue
         relative = os.path.relpath(archive, topology_path.parent)

@@ -73,11 +73,17 @@ def record_plugin_schema(api: BeforeGoalAPI, schema: PluginSchema) -> None:
 def publish_containerlab_source(
     api: BeforeGoalAPI | InvocationAPI, source: ContainerlabSourceHint
 ) -> None:
-    api.set_context(SCHEMA_SOURCE_CONTEXT, source)
+    # A source hint is advisory: control commands and applications without a
+    # schema consumer may legitimately stop before the compiler reads it.  The
+    # hint is still tracked as read when a compiler does consume it, but it
+    # must not make an otherwise successful preempted invocation noisy.
+    api.set_context(SCHEMA_SOURCE_CONTEXT, source, allow_unused=True)
 
 
 def publish_vrnetlab_source(api: BeforeGoalAPI | InvocationAPI, source: VrnetlabSourceHint) -> None:
-    api.set_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT, source)
+    # See publish_containerlab_source: this is an optional compiler input, not
+    # a required output of every invocation.
+    api.set_context(SCHEMA_VRNETLAB_SOURCE_CONTEXT, source, allow_unused=True)
 
 
 def request_schema_build(api: BeforeGoalAPI, request: SchemaBuildRequest) -> None:

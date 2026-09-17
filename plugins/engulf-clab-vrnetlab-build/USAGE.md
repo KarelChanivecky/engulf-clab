@@ -40,7 +40,9 @@ eclab deploy -t lab.clab.yml \
 ```
 
 The plugin applies only to deploy and single-source redeploy, and only to nodes
-with a nonempty `ECLAB_VRNETLAB_TYPE`. Place image selectors after the command;
+with a nonempty `ECLAB_VRNETLAB_TYPE`. The type, image, and image-source
+environment values inherit through `defaults < kind < group < node`; the node
+view's winning values are used. Place image selectors after the command;
 they are plugin-owned deployment options rather than Containerlab root flags. Each exact
 node or reserved `default` selector may appear once. A bare path remains a
 compatibility spelling of `default=PATH`; prefer the explicit form.

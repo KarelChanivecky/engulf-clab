@@ -16,12 +16,14 @@ from engulf_clab_license_pool.plugin import (
     LICENSE_POOL_STRATEGY_ENVIRONMENT,
     LICENSE_SELECTION_CONTEXT,
     PLUGIN_SCHEMA,
+    UUID_ENVIRONMENT,
     LicensePoolError,
     LicensePoolPlugin,
     LicenseSelection,
     LicenseStrategy,
     _claim,
     _license_strategy,
+    _prompt_requests,
     _release_workspace,
     _requests,
     _warn_legacy_uuid,
@@ -878,6 +880,82 @@ class PoolReferenceTestCase(unittest.TestCase):
 
     def test_a_path_that_does_not_exist_is_left_to_containerlab(self) -> None:
         self.assertEqual(self._requests_for("/nonexistent/pool/FGT", {}), [])
+
+
+class InheritedTopologyRequestTestCase(unittest.TestCase):
+    _APPLICATION = ApplicationMetadata(
+        application_id="engulf-clab",
+        display_name="eclab",
+        vendor="Engulf",
+        product="eclab",
+        short_product_name="eclab",
+        version="1.0",
+    )
+
+    def _document(self, level: str, definition: dict[str, object]) -> dict[str, object]:
+        node: dict[str, object] = {"kind": "linux", "group": "clients"}
+        topology: dict[str, object] = {"nodes": {"router": node}}
+        if level == "defaults":
+            topology[level] = definition
+        elif level == "nodes":
+            node.update(definition)
+        else:
+            topology[level] = {"linux" if level == "kinds" else "clients": definition}
+        return {"topology": topology}
+
+    def test_pool_and_reserved_environment_values_inherit_at_every_level(self) -> None:
+        contract = license_contract(self._APPLICATION)
+        with tempfile.TemporaryDirectory() as directory:
+            for level in ("defaults", "kinds", "groups", "nodes"):
+                with self.subTest(level=level):
+                    document = self._document(
+                        level,
+                        {
+                            "license": "$ROUTER_POOL",
+                            "env": {
+                                contract.clamp_environment: "serial-0001.lic",
+                                UUID_ENVIRONMENT: "stable-router",
+                            },
+                        },
+                    )
+                    requests = _requests(
+                        document,
+                        {"ROUTER_POOL": directory},
+                        Path("/workspace"),
+                        contract,
+                    )
+                    self.assertEqual(
+                        requests,
+                        [
+                            (
+                                "router",
+                                str(Path(directory).resolve()),
+                                "serial-0001.lic",
+                                "/workspace:stable-router",
+                            )
+                        ],
+                    )
+
+    def test_frozen_prompt_and_identity_inherit_from_kind(self) -> None:
+        contract = license_contract(self._APPLICATION)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "router.lic"
+            source.write_text("license", encoding="utf-8")
+            document = self._document(
+                "kinds",
+                {
+                    "license": contract.prompt_marker,
+                    "env": {UUID_ENVIRONMENT: "stable-router"},
+                },
+            )
+            pools, direct = _prompt_requests(
+                document,
+                {contract.node_license_environment("router"): str(source)},
+                Path(directory),
+                contract,
+            )
+            self.assertEqual(pools, [])
+            self.assertEqual(direct["router"], (f"{directory}:stable-router", str(source)))
 
 
 class LegacyUuidWarningTestCase(unittest.TestCase):

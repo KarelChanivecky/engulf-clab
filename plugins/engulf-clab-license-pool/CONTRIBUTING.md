@@ -18,6 +18,9 @@ through the shared topology editor.
 - Parse pool and frozen-prompt requests in preparation, never help or analysis
   side effects. Validate topology mappings, environment values, pool/file roles,
   UUIDs, and clamp strings before copying.
+- Use `engulf_clab_lab_parser.effective_nodes()` for license, clamp, identity,
+  and frozen-prompt reads. Do not inspect raw `topology.nodes` for values that
+  Containerlab allows at defaults, kind, or group scope.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.

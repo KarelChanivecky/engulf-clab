@@ -22,11 +22,57 @@ from engulf_clab_pki.freeze import (
     _passphrase,
     _portable_external_stores,
     _rewrite_authority_references,
+    _rewrite_topology_authority_references,
+    _topology_certificate_requests,
 )
 from engulf_clab_pki.material import generate_catalog
 
 
 class FreezeTest(unittest.TestCase):
+    def test_topology_pki_requests_use_the_effective_node_at_every_level(self) -> None:
+        for level in ("defaults", "kinds", "groups", "nodes"):
+            with self.subTest(level=level):
+                node = {"kind": "linux", "group": "clients"}
+                topology: dict[str, object] = {"nodes": {"router": node}}
+                definition = {"env": {"ECLAB_PKI_CERTIFICATES": "global/site-tls"}}
+                if level == "defaults":
+                    topology[level] = definition
+                elif level == "nodes":
+                    node.update(definition)
+                else:
+                    topology[level] = {
+                        "linux" if level == "kinds" else "clients": definition
+                    }
+                self.assertEqual(
+                    _topology_certificate_requests({"topology": topology}),
+                    (("router", "global/site-tls"),),
+                )
+
+    def test_inherited_authority_references_are_rewritten_at_their_origin(self) -> None:
+        document = {
+            "topology": {
+                "defaults": {"kind": "linux"},
+                "kinds": {"linux": {"group": "clients"}},
+                "groups": {
+                    "clients": {
+                        "env": {"ECLAB_PKI_PRIVATE_AUTHORITIES": "site-root"}
+                    }
+                },
+                "nodes": {"router": {}},
+            }
+        }
+
+        _rewrite_topology_authority_references(
+            document, "site-root", "global/recipient-root"
+        )
+
+        self.assertEqual(
+            document["topology"]["groups"]["clients"]["env"][
+                "ECLAB_PKI_PRIVATE_AUTHORITIES"
+            ],
+            "global/recipient-root",
+        )
+
     def test_external_manifest_is_vendored_and_rebased_without_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

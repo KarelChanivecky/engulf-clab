@@ -171,9 +171,10 @@ engulf.plugins.v1.application.engulf_clab
 The companion `engulf-clab-all-plugins` package installs all maintained extensions;
 individual feature packages can be installed instead for a smaller footprint.
 
-`eclab --engulf-plugin-list` is supplied by the optional
-`engulf-plugin-list` diagnostic extension. It reports each active plugin's
-pre/post order, priority, source distribution, and installed version. It is a
+`eclab --engulf-plugin-list` reports each active plugin's pre/post order,
+priority, source distribution, and installed version. When the optional
+`engulf-plugin-list` diagnostic extension is installed, Engulf supplies the
+isolated report; otherwise eclab uses a read-only metadata fallback. It is a
 useful first check for missing help, unexpected ordering, or an MCP service that
 uses a different environment from the caller's shell.
 

@@ -40,7 +40,9 @@ class _API:
     def get_context(self, context_id: str, default: object = None) -> object:
         return self.context.get(context_id, default)
 
-    def set_context(self, context_id: str, value: object) -> None:
+    def set_context(
+        self, context_id: str, value: object, **_kwargs: object
+    ) -> None:
         self.context[context_id] = value
 
 

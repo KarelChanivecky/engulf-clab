@@ -230,6 +230,17 @@ class DefrostTestCase(unittest.TestCase):
             self.assertEqual(record["topology"], "lab.clab.yml")
             self.assertEqual(record["freeze"]["licenses"], "prompt")
 
+    def test_defrost_drops_a_legacy_lab_writer_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files[".engulf-clab-lab-stale.clab.yml"] = "topology: {nodes: {}}\n"
+            archive = build_archive(base / "share.tar.gz", "share", files)
+
+            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False)
+
+            self.assertFalse((base / "demo/.engulf-clab-lab-stale.clab.yml").exists())
+
     def test_defrost_resolves_licenses_from_the_environment_before_prompting(
         self,
     ) -> None:

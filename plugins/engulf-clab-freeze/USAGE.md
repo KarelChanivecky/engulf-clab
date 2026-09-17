@@ -67,10 +67,15 @@ License selectors and `*_LIC_CLAMP` values are sanitized at every declaration
 origin: defaults, kinds, groups, and nodes, including shadowed and unused entries.
 Optional site-setting contributors use the same inventory. Defrost resolves
 inherited license prompts per node and respects inherited archive selections.
+Offline image collection and vrnetlab input redaction likewise resolve inherited
+node image/environment controls before writing the portable copy.
 
 Built-in exclusions cover the active application's managed lab state, virtual
 environments, caches, likely license files, private `*.env` files, and the
-current `clab-<lab>` runtime directory. Add Git-ignore-style patterns in
+current `clab-<lab>` runtime directory. Hidden `.engulf-clab-lab-*.clab.yml`
+and `.engulf-clab-lab-*.clab.yaml` files produced by the lab writer are also
+excluded: they are deploy-time renderings, not portable authored topology. Add
+Git-ignore-style patterns in
 `.<state-prefix-lowercase>-freezeignore` (`.eclab-freezeignore` for base
 eclab). This state-directory prefix is derived from the active application's
 short product name, unlike the fixed `ECLAB` label prefix used for the license
@@ -152,7 +157,8 @@ Freeze stamps exactly one topology per archive, so selection is never ambiguous
 and defrost has no topology option. Members that escape the root, unsupported
 freeze formats, and archives without freeze metadata are rejected. Defrost runs
 under a lease on its destination, so two concurrent expansions into one
-directory block each other.
+directory block each other. Defrost removes legacy lab-writer topology outputs
+before publishing, so an older archive cannot restore a stale second topology.
 
 Licenses are answered in order: `--license`, then `ECLAB_LICENSE_<NODE_NAME>`,
 then `ECLAB_LICENSE`, then an interactive prompt. Each answer is a license file,
