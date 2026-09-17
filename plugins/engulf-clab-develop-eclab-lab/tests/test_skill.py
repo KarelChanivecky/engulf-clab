@@ -11,6 +11,7 @@ from engulf_clab_develop_lab_skill.plugin import (
     DevelopLabSkillPlugin,
     _installed_fingerprint,
     _is_eclab_application,
+    _prune_backups,
     _skip_automatic_refresh,
     _write_static_skill,
     install_command,
@@ -119,6 +120,34 @@ def test_installed_fingerprint_requires_a_complete_runtime(tmp_path: Path) -> No
     assert _installed_fingerprint(target) == fingerprint
     (runtime / "catalog.json").unlink()
     assert _installed_fingerprint(target) is None
+
+
+def test_prune_backups_keeps_only_latest_backup(tmp_path: Path) -> None:
+    backups = tmp_path / ".develop-eclab-lab-backups"
+    backups.mkdir()
+    old = backups / "100"
+    latest = backups / "200"
+    unexpected = backups / "notes"
+    old.mkdir()
+    latest.mkdir()
+    unexpected.write_text("not a backup")
+
+    _prune_backups(backups)
+
+    assert list(backups.iterdir()) == [latest]
+
+
+def test_prune_backups_keeps_newly_created_backup(tmp_path: Path) -> None:
+    backups = tmp_path / ".develop-eclab-lab-backups"
+    backups.mkdir()
+    old = backups / "200"
+    latest = backups / "100"
+    old.mkdir()
+    latest.mkdir()
+
+    _prune_backups(backups, keep=latest)
+
+    assert list(backups.iterdir()) == [latest]
 
 
 def test_eclab_collector_is_inactive_for_an_external_edition() -> None:

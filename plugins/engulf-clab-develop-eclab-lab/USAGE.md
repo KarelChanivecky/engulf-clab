@@ -29,7 +29,8 @@ The configuration root must already exist and must not be a symlink. The
 installer also refuses a symlinked `skills/` directory, a symlinked target, and
 an unrelated target. Recognized replacements are moved beneath
 `.develop-eclab-lab-backups/<timestamp>` before the staged update is published
-atomically; older runtime bundles remain available for existing conversations.
+atomically. Only the latest skill backup is retained; older backups are
+removed, while older runtime bundles remain available for existing conversations.
 
 Explicitly installed roots are tracked for best-effort refresh after later
 eclab calls. An incomplete recognized target is repaired from the cached bundle.

@@ -289,6 +289,7 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
             raise ValueError(f"refusing symlinked skills directory: {skills}")
         skills.mkdir(parents=True, exist_ok=True)
         target = skills / name
+        backups = skills / f".{name}-backups"
         lease = hashlib.sha256(str(target).encode()).hexdigest()
         with api.lease(f"generated-skill:{lease}"):
             marker = _marker(target)
@@ -296,6 +297,8 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                 if target.is_symlink() or marker is None:
                     raise ValueError(f"refusing to replace unrecognized path: {target}")
                 if _installed_fingerprint(target) == bundle.fingerprint:
+                    if backups.is_dir() and not backups.is_symlink():
+                        _prune_backups(backups)
                     return target
             staged = Path(tempfile.mkdtemp(prefix=f".{name}.", dir=skills))
             try:
@@ -352,10 +355,10 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                     encoding="utf-8",
                 )
                 if target.is_dir():
-                    backups = skills / f".{name}-backups"
                     backups.mkdir(exist_ok=True)
                     backup = backups / f"{time.time_ns()}"
                     target.replace(backup)
+                    _prune_backups(backups, keep=backup)
                 staged.replace(target)
             finally:
                 if staged.exists():
@@ -369,6 +372,21 @@ def install_command() -> str:
 
 def skill_name() -> str:
     return ECLAB_SKILL_NAME
+
+
+def _prune_backups(backups: Path, *, keep: Path | None = None) -> None:
+    """Keep only the selected (latest) generated-skill backup."""
+    entries = list(backups.iterdir())
+    if keep is None:
+        candidates = [entry for entry in entries if entry.name.isdigit()]
+        keep = max(candidates, key=lambda entry: int(entry.name), default=None)
+    for entry in entries:
+        if keep is not None and entry == keep:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
 
 
 def _is_eclab_application(application: ApplicationMetadata) -> bool:
