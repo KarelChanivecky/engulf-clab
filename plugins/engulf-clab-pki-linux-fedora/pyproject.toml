@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 [project]
 name = "engulf-clab-pki-linux-fedora"
-version = "0.1.0"
+version = "0.1.1"
 description = "Fedora-family eclab PKI integration asset"
 readme = "README.md"
 requires-python = ">=3.12"
