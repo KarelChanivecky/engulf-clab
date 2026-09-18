@@ -27,6 +27,9 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
 
 ## Development Notes
 
+- Elevate individual host commands through `engulf-host-exec`, authenticating
+  before detached work. Open the DHCP raw socket as root, then drop to the caller
+  before writing PID/lease files; keep managed PID verification before signals.
 - Keep `--eclab-uplink-interface` bound to persistent `ECLAB_UPLINK_IF` and
   thread the normalized event environment into uplink detection. WAN node
   labels remain topology controls, not wrapper options.

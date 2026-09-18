@@ -2,8 +2,12 @@
 
 Creates DHCP/NAT WAN bridges for explicitly marked Containerlab bridge nodes.
 This is an IPv4 Linux feature. It changes host networking and therefore requires
-the necessary Linux and Docker privileges: root plus `ip`, `iptables`, `sysctl`,
-and the packaged Python DHCP server. A deployment without a marked
+the necessary Linux and Docker privileges: `sudo`, `ip`, `iptables`, `sysctl`,
+and the packaged Python DHCP server. Run the wrapper as your normal user; it
+authenticates through sudo before host work and elevates individual commands.
+Containerlab's sudo-less setup does not grant plugins these network privileges.
+The DHCP child opens its raw socket as root, then drops to the invoking user's
+UID/GID before writing PID/lease state and serving packets. A deployment without a marked
 bridge does not use this plugin, require root because of it, or change host
 networking.
 
@@ -97,8 +101,9 @@ records prevent removal of unrelated host resources and support recovery.
 
 - Treat deploy and destroy as privileged host mutations. Parse the topology
   YAML and inspect runtime help before authorizing either operation. Use a
-  configured MCP service or an explicitly privileged local launcher, not a
-  general shell exposed to an untrusted agent.
+  configured MCP service or the normal local launcher with sudo authorization.
+  Detached DHCP startup uses noninteractive sudo after authentication; a denied
+  or expired authorization fails normally and preserves recovery metadata.
 - For prefix errors, remove stale keys belonging to another edition and use only
   the active prefix shown by that launcher.
 - For uplink failures, select an existing egress interface and verify its route

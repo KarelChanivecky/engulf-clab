@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-wan"
-version = "0.1.1"
+version = "0.1.2"
 description = "Edition-aware managed WAN bridges for engulf-clab"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+    "engulf-host-exec>=0.1.0,<1",
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
     "engulf-clab-schema-api>=1.0.0,<3",

@@ -1,5 +1,12 @@
 # Reclaim lab storage
 
+Docker operations use sudo when the selected local Unix socket is inaccessible.
+The caller's Docker endpoint, context and configuration are retained. Accessible
+sockets, rootless Docker and remote endpoints execute directly. Run eclab as the
+normal user; sudo prompts for the child operation, and a missing or denied sudo
+command fails normally. Noninteractive runs need cached credentials or sudoers
+authorization. Filesystem inspection and plugin state remain unprivileged.
+
 Install `engulf-clab-reclaim` beside `engulf-clab`. The active plugin
 adds:
 
@@ -48,8 +55,10 @@ containers and every image with no owner outside that stopped selection;
 images also owned by a running or destroyed lab are preserved. Destroyed and
 running labs are not selected by this mode.
 
-Image removal does not use Docker's `--force`; an image retained by an unrelated
-container is preserved by Docker and reported as a failure.
+Image removal does not use Docker's `--force`. When one image ID has several
+repository tags or digests, reclaim removes those references together so Docker
+can remove the image normally. An image retained by an unrelated container is
+still preserved by Docker and reported as a failure.
 
 The command never deletes the topology, startup configurations, captures, logs,
 or any other file in a lab directory. It does not prune unrelated containers,

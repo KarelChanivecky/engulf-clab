@@ -8,6 +8,7 @@ from typing import Any
 
 from engulf_clab_lab_parser import load_topology
 from engulf_clab_lab_registry_api import LabRecord, LabRegistryError, Workspace
+from engulf_host_exec import docker_command
 
 
 def observe_deployed_lab(
@@ -67,7 +68,7 @@ def _containers() -> tuple[dict[str, Any], ...]:
 def _run(arguments: Sequence[str]) -> str:
     try:
         result = subprocess.run(
-            ["docker", *arguments],
+            docker_command(["docker", *arguments]),
             check=False,
             capture_output=True,
             text=True,

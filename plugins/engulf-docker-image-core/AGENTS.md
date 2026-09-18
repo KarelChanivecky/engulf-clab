@@ -1,6 +1,8 @@
 # Docker Image Core Instructions
 
 - Do not import eclab, Containerlab, YAML, or application-specific providers.
+- Use `engulf-host-exec` at Docker execution boundaries. Authenticate before
+  parallel work and keep Make/staging unprivileged using its scoped Docker shim.
 - Keep provider calls side-effect free and Docker work in the scheduler.
 - Preserve deterministic authority/priority/ID selection and recursive backtracking.
 - Resolve every dependency from its own complete requirement; never copy

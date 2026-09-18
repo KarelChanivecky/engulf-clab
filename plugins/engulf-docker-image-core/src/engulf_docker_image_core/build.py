@@ -15,6 +15,12 @@ from engulf_docker_image_api import (
     VrnetlabBuildRecipe,
     canonical_image_reference,
 )
+from engulf_host_exec import (
+    docker_command,
+    docker_environment,
+    docker_needs_sudo,
+    require_root_access,
+)
 
 from .errors import ImageBuildError, ImageBuildFailure
 from .resolver import ResolvedImage, ResolvedImageGraph
@@ -107,7 +113,7 @@ def _load_archive_image(recipe: DockerArchiveRecipe, image: str) -> bool:
     if recipe.only_if_missing and _docker_image_exists(image):
         return True
     result = subprocess.run(
-        docker_load_command(recipe),
+        docker_command(docker_load_command(recipe)),
         check=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -126,7 +132,7 @@ def _load_archive_image(recipe: DockerArchiveRecipe, image: str) -> bool:
     elif source not in loaded and not _docker_image_exists(source):
         raise ImageBuildError(f"{recipe.archive} does not contain {source}")
     if source != image:
-        subprocess.run(["docker", "tag", source, image], check=True)
+        subprocess.run(docker_command(["docker", "tag", source, image]), check=True)
     return False
 
 
@@ -183,7 +189,7 @@ def _vrnetlab_native_image_tag(builder: Path) -> str | None:
 
 def _docker_image_exists(image: str) -> bool:
     result = subprocess.run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+        docker_command(["docker", "image", "inspect", "--format", "{{.Id}}", image]),
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -194,7 +200,7 @@ def _docker_image_exists(image: str) -> bool:
 
 def _docker_remove_tag(image: str, *, check: bool) -> None:
     subprocess.run(
-        ["docker", "image", "rm", image],
+        docker_command(["docker", "image", "rm", image]),
         check=check,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -223,7 +229,11 @@ def _build_vrnetlab_image(recipe: VrnetlabBuildRecipe) -> None:
             f"vrnetlab builder directory does not exist: {recipe.builder}"
         )
 
-    subprocess.run(["make"], cwd=recipe.builder, check=True)
+    with docker_environment() as environment:
+        if environment is None:
+            subprocess.run(["make"], cwd=recipe.builder, check=True)
+        else:
+            subprocess.run(["make"], cwd=recipe.builder, check=True, env=environment)
     if not _docker_image_exists(recipe.image):
         native = _vrnetlab_native_image_tag(recipe.builder)
         if native is None or not _docker_image_exists(native):
@@ -231,7 +241,7 @@ def _build_vrnetlab_image(recipe: VrnetlabBuildRecipe) -> None:
                 "vrnetlab builder completed without creating required image "
                 f"{recipe.image}"
             )
-        subprocess.run(["docker", "tag", native, recipe.image], check=True)
+        subprocess.run(docker_command(["docker", "tag", native, recipe.image]), check=True)
 
 
 def build_resolved_graph(
@@ -250,6 +260,8 @@ def build_resolved_graph(
         raise ImageBuildError("missing required command: docker")
     for item in builds.values():
         _validate_recipe(item)
+    if docker_needs_sudo():
+        require_root_access()
 
     pending = set(builds)
     succeeded: set[str] = set()
@@ -457,7 +469,7 @@ def _build_image(image: ResolvedImage) -> bool:
                 f"no executor for recipe kind {recipe.recipe_kind!r} for {image.image}"
             )
         for command in commands:
-            subprocess.run(command, check=True)
+            subprocess.run(docker_command(command), check=True)
         return False
     except subprocess.CalledProcessError as error:
         raise ImageBuildError(f"exit code {error.returncode}") from error

@@ -71,7 +71,11 @@ as `${FGT_IMAGE:=fgt:8.0.1.0203}` are supported; an expression left unresolved
 after parsing still fails so the plugin can own the complete provisioning
 graph. Dockerfile `FROM` values must likewise be statically resolvable. The host
 `docker` command and daemon authorization are required for every deployment that
-has an image root.
+has an image root. If the selected local Docker socket is inaccessible, the
+executor invokes Docker through sudo with the caller's endpoint and configuration.
+Accessible sockets, rootless Docker and remote endpoints execute directly.
+Sudo authentication occurs before parallel builds; missing or denied sudo access
+fails the build normally. Make and build staging remain owned by the caller.
 
 ## Troubleshooting
 

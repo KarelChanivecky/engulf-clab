@@ -24,6 +24,8 @@ diagnostics and must restore the process `PATH` after each call.
 
 ## Development Notes
 
+- Containerlab child sudo selection belongs to the wrapper goal, after binary
+  preparation. Keep Git and Go work unprivileged and preserve PATH cleanup.
 - Derive from `SchemaBackedPlugin`. Keep provisioning flags in `PLUGIN_SCHEMA`,
   bind canonical `--eclab-containerlab-*` options to supported persistent
   `CONTAINERLAB_*` defaults, and read only normalized invocation/event

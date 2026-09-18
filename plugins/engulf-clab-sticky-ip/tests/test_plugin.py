@@ -140,11 +140,11 @@ class PluginTest(unittest.TestCase):
         logger.warning.assert_not_called()
 
 
-    def test_host_requirements_only_declare_docker_and_ip(self) -> None:
+    def test_host_requirements_declare_docker_ip_and_conditional_sudo(self) -> None:
         schema = PLUGIN_SCHEMA.snapshot(_APPLICATION)
         self.assertEqual(
             {item.name for item in schema.requirements if item.kind is RequirementKind.HOST_TOOL},
-            {"docker", "ip"},
+            {"docker", "ip", "sudo"},
         )
 
     @staticmethod

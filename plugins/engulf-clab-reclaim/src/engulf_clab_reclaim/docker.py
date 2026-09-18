@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from engulf_host_exec import docker_command
+
 from .model import Container
 
 
@@ -142,7 +144,37 @@ class DockerClient:
     def remove_image(self, image_id: str) -> bool:
         # Deliberately omit --force: Docker must protect non-lab consumers that
         # are outside the registry's ownership model.
-        return self._run_removal(("image", "rm", image_id))
+        try:
+            references = self._image_references(image_id)
+        except DockerError as error:
+            if _already_gone(str(error)):
+                return False
+            raise
+        return self._run_removal(("image", "rm", *(references or (image_id,))))
+
+    def _image_references(self, image_id: str) -> tuple[str, ...]:
+        payload = _json(
+            self._run(("image", "inspect", image_id)),
+            "image inspect",
+        )
+        if not isinstance(payload, list) or not payload or not isinstance(
+            payload[0], dict
+        ):
+            raise DockerError("docker image inspect returned invalid JSON")
+        references: list[str] = []
+        for field in ("RepoTags", "RepoDigests"):
+            values = payload[0].get(field)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                if (
+                    isinstance(value, str)
+                    and value
+                    and value != "<none>:<none>"
+                    and value not in references
+                ):
+                    references.append(value)
+        return tuple(references)
 
     def _run_removal(self, arguments: Sequence[str]) -> bool:
         """Run one removal, tolerating an object that is already gone.
@@ -162,7 +194,7 @@ class DockerClient:
     def _run(self, arguments: Sequence[str]) -> str:
         try:
             result = subprocess.run(
-                ["docker", *arguments],
+                docker_command(["docker", *arguments]),
                 check=False,
                 capture_output=True,
                 text=True,

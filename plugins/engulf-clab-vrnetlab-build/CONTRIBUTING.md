@@ -29,6 +29,8 @@ not on the Python class.
 
 ## Development Notes
 
+- Use `engulf-host-exec` for Docker commands and its scoped Docker environment
+  for Make. Keep Make and checkout writes unprivileged; never sudo the whole build.
 - Keep the concurrency flag bound to its persistent runtime default and read
   the normalized event environment. The repeatable image-source flag is a
   plugin-owned `NODE=PATH` option: analyze it without side effects, remove its

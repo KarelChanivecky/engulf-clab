@@ -1,5 +1,6 @@
 PYTHON := .venv/bin/python
 PACKAGES := \
+	engulf-host-exec \
 	engulf-clab-schema-api \
 	engulf-clab-lab-registry-api \
 	engulf-clab-freeze-api \
@@ -40,6 +41,7 @@ PACKAGES := \
 	engulf-clab-mcp
 
 # Package name -> source directory
+DIR_engulf-host-exec := plugins/engulf-host-exec
 DIR_engulf-clab-schema-api := plugins/engulf-clab-schema-api
 DIR_engulf-clab-lab-registry-api := plugins/engulf-clab-lab-registry-api
 DIR_engulf-clab-freeze-api := plugins/engulf-clab-freeze-api

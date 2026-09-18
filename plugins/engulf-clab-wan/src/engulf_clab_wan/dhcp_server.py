@@ -303,15 +303,13 @@ def make_frame(config: ServerConfig, source_mac: bytes, dhcp_payload: bytes) -> 
     return ethernet + ip_header + udp_header + dhcp_payload
 
 
-def serve(config: ServerConfig) -> None:
+def serve(config: ServerConfig, sock: socket.socket) -> None:
     log(
         f"starting interface={config.interface} subnet={config.subnet} "
         f"gateway={config.gateway} pool={config.pool_start}-{config.pool_end}"
     )
     leases = load_leases(config.lease_file)
     mac = iface_mac(config.interface)
-    sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_IP))
-    sock.bind((config.interface, 0))
     log("listening for DHCP frames")
 
     while True:
@@ -372,16 +370,30 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("config")
     parser.add_argument("pid_file")
+    parser.add_argument("--uid", type=int)
+    parser.add_argument("--gid", type=int)
     args = parser.parse_args(argv)
+    if (args.uid is None) != (args.gid is None):
+        parser.error("--uid and --gid must be supplied together")
+    if args.uid is not None and (args.uid < 0 or args.gid < 0):
+        parser.error("--uid and --gid must be nonnegative")
 
     config = config_from_file(Path(args.config))
     pid_file = Path(args.pid_file)
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(
-        json.dumps({"config": args.config, "pid": os.getpid()}, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    serve(config)
+    with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_IP)) as sock:
+        sock.bind((config.interface, 0))
+        # Only opening the raw socket needs root. Drop before creating state or
+        # serving packets so the caller owns PID/lease files and can stop us.
+        if args.uid is not None and os.geteuid() == 0 and args.uid != 0:
+            os.setgroups([])
+            os.setgid(args.gid)
+            os.setuid(args.uid)
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(
+            json.dumps({"config": args.config, "pid": os.getpid()}, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        serve(config, sock)
     return 0
 
 

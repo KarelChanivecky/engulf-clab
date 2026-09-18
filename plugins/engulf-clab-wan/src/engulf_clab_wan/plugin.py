@@ -195,9 +195,10 @@ PLUGIN_SCHEMA = (
     )
     .require_privilege(
         Privilege.ROOT,
-        "Managed bridges, addresses, processes, forwarding, and NAT require root.",
-        commands=("deploy", "destroy"),
+        "Managed host operations acquire root through sudo; the wrapper stays unprivileged.",
+        commands=("deploy", "redeploy", "destroy"),
     )
+    .require_host_tool("sudo", "Authorize managed host operations for unprivileged callers.")
     .use_case(
         "Provide isolated lab nodes with managed IPv4 DHCP and outbound NAT through a bridge node."
     )
@@ -263,7 +264,7 @@ class WanPlugin(SchemaBackedPlugin):
             "    --eclab-uplink-interface IFACE  Optional host uplink override\n"
             f"  {contract.uplink_environment} is the persistent environment default; "
             "the CLI option wins.\n"
-            "  Marked deploys or redeploys require root; successful destroy releases managed resources."
+            "  Marked deploys/redeploys and destroy cleanup use sudo for host operations."
         )
 
     def analyze_call(

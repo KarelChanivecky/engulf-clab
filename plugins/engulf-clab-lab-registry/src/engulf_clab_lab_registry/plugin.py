@@ -53,6 +53,7 @@ PLUGIN_SCHEMA = (
         "Read registry identity, observation, persistence, and retention behavior.",
     )
     .refer("USAGE.md")
+    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -151,5 +152,6 @@ class LabRegistryPlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  Lab registry (automatic)  Track deployed and explicitly discovered labs"
+            "  Lab registry (automatic)  Track deployed and explicitly discovered labs\n"
+            "  Docker observation uses sudo when local socket access requires it."
         )

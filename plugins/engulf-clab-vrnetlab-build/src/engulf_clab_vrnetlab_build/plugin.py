@@ -178,6 +178,7 @@ PLUGIN_SCHEMA = (
         "Read image-source precedence, builder layout, and fingerprint behavior.",
     )
     .refer("USAGE.md")
+    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -253,7 +254,8 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             f"  {prefix}_VRNETLAB_IMG_PATH remains the persistent image fallback; "
             "node selectors and node YAML win.\n"
             f"  {prefix}_VRNETLAB_BUILD_JOBS is the persistent job default; its CLI option wins.\n"
-            f"  {prefix}_VM_IMG and {prefix}_VM_SRC remain legacy image-source aliases."
+            f"  {prefix}_VM_IMG and {prefix}_VM_SRC remain legacy image-source aliases.\n"
+            "  Docker uses sudo when needed; Make and build staging run as the caller."
         )
 
     def analyze_call(

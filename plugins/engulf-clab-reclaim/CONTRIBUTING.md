@@ -15,6 +15,10 @@ running or stopped container; only then may it remove the shared union. `--all
 that subset.
 Never pass `--force` to Docker image removal: non-lab containers are outside the
 registry's ownership model and Docker must protect them.
+Before removal, inspect the planned image ID and pass all of its repository
+tags and digests to `docker image rm`; an image ID with multiple repository
+references otherwise fails with Docker's `must be forced` conflict. Keep the
+command non-forced so unrelated container consumers remain protected.
 When a multi-lab selection owns an image only within that selection, the image
 is eligible for removal; ownership outside the selection always preserves it.
 

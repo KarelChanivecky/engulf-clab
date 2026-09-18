@@ -685,9 +685,47 @@ class DockerTest(unittest.TestCase):
 
     def test_image_removal_is_not_forced(self) -> None:
         docker = DockerClient()
-        with patch.object(docker, "_run", return_value="") as run:
+        with patch.object(
+            docker,
+            "_run",
+            side_effect=(json.dumps([{"RepoTags": [], "RepoDigests": []}]), ""),
+        ) as run:
             docker.remove_image("sha256:image")
-        run.assert_called_once_with(("image", "rm", "sha256:image"))
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [
+                ("image", "inspect", "sha256:image"),
+                ("image", "rm", "sha256:image"),
+            ],
+        )
+        self.assertNotIn("--force", run.call_args_list[-1].args[0])
+
+    def test_image_removal_removes_all_repository_references_without_force(
+        self,
+    ) -> None:
+        docker = DockerClient()
+        inspect = json.dumps(
+            [
+                {
+                    "RepoTags": ["example/router:latest", "mirror/router:1"],
+                    "RepoDigests": ["example/router@sha256:digest"],
+                }
+            ]
+        )
+        with patch.object(docker, "_run", side_effect=(inspect, "")) as run:
+            docker.remove_image("sha256:image")
+
+        self.assertEqual(
+            run.call_args_list[-1].args[0],
+            (
+                "image",
+                "rm",
+                "example/router:latest",
+                "mirror/router:1",
+                "example/router@sha256:digest",
+            ),
+        )
+        self.assertNotIn("--force", run.call_args_list[-1].args[0])
 
     def test_already_removed_objects_are_tolerated_on_retry(self) -> None:
         """durability-002: a retry after a mid-delete crash must not fail."""
@@ -717,8 +755,11 @@ class DockerTest(unittest.TestCase):
             patch.object(
                 docker,
                 "_run",
-                side_effect=DockerError(
-                    "docker image rm failed: conflict: image is being used"
+                side_effect=(
+                    json.dumps([{"RepoTags": ["example/router:latest"]}]),
+                    DockerError(
+                        "docker image rm failed: conflict: image is being used"
+                    ),
                 ),
             ),
             self.assertRaises(DockerError),

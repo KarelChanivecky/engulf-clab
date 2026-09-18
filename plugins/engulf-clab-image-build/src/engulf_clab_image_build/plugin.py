@@ -157,6 +157,7 @@ PLUGIN_SCHEMA = (
         "Resolve a root image and every provider-buildable literal FROM dependency before deploy.",
     )
     .refer("USAGE.md")
+    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -198,6 +199,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
             "  Docker image providers are resolved recursively before deploy or redeploy.\n"
             "  Images and env parameters inherit defaults < kind < group < node.\n"
             "  Unclaimed literal images use an exact local tag or pull when missing.\n"
+            "  Docker uses sudo when local socket access requires it.\n"
             "  Provisioned roots use image-pull-policy Never in the derived topology.\n"
             "  Node YAML env fields:\n"
             "    ECLAB_IMAGE_PARAM_name  Parameter for this node image only\n"

@@ -12,6 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engulf_api import InvocationAPI, StateStore
+from engulf_host_exec import (
+    docker_command,
+    docker_environment,
+    docker_needs_sudo,
+    require_root_access,
+)
 
 from .config import DEFAULT_VRNETLAB_BUILD_JOBS, BuildRequest
 from .errors import VrnetlabError
@@ -35,12 +41,20 @@ def _require_command(command: str) -> None:
 
 
 def _run(argv: Sequence[str], *, cwd: Path | None = None) -> None:
+    if argv[0] == "docker":
+        subprocess.run(docker_command(list(argv)), cwd=cwd, check=True)
+        return
+    if argv[0] == "make":
+        with docker_environment() as environment:
+            if environment is not None:
+                subprocess.run(list(argv), cwd=cwd, check=True, env=environment)
+                return
     subprocess.run(list(argv), cwd=cwd, check=True)
 
 
 def docker_image_id(image: str) -> str | None:
     result = subprocess.run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+        docker_command(["docker", "image", "inspect", "--format", "{{.Id}}", image]),
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -91,7 +105,7 @@ def _native_image_tag_from_make(builder: Path) -> str | None:
 
 def _remove_image_tag(image: str, *, check: bool) -> None:
     subprocess.run(
-        ["docker", "image", "rm", image],
+        docker_command(["docker", "image", "rm", image]),
         check=check,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -318,6 +332,8 @@ def ensure_images(
         return
 
     _require_command("docker")
+    if docker_needs_sudo():
+        require_root_access()
     source_requests = [request for request in requests if request.source is not None]
     source_images = {request.image for request in source_requests}
 

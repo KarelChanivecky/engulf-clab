@@ -130,6 +130,7 @@ PLUGIN_SCHEMA = (
         "Read deletion scope, shared-image behavior, safety, and failure recovery.",
     )
     .refer("USAGE.md")
+    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -267,7 +268,8 @@ class ReclaimPlugin(SchemaBackedPlugin):
             "  reclaim [-t TOPOLOGY | --all [--stopped]]  "
             "Remove lab containers, reclaim images, and report storage reclaimed\n"
             "  destroy [--all] --reclaim                 "
-            "Destroy the lab, then reclaim its Docker resources"
+            "Destroy the lab, then reclaim its Docker resources\n"
+            "  Docker uses sudo when local socket access requires it."
         )
 
 

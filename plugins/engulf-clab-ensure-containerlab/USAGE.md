@@ -84,11 +84,18 @@ safe to repeat.
 
 ## Privileges and troubleshooting
 
-This plugin resolves the executable but does not grant the host privileges
-Containerlab needs. Depending on the node kinds and host setup, local deploy
-may require root or Containerlab's documented sudo-less configuration. Managed
-WAN bridges have their own explicit root requirement; ordinary labs can still
-fail for separate Docker or Containerlab privilege reasons.
+The wrapper invokes privileged Containerlab operations with `sudo` when the
+resolved executable lacks usable root SUID access. Run `eclab` as your normal
+user; sudo authenticates the child operation. Help, completion and version
+queries remain unprivileged. Sudo-less access is detected from binary ownership,
+SUID mode, mount options and the caller's active `clab_admins` membership, so a
+rebuilt binary automatically falls back to sudo until `eclab sudoless` is rerun.
+
+Docker helpers independently use sudo for an inaccessible local Docker socket,
+retaining the caller's endpoint and configuration. Managed WAN host commands
+also invoke sudo, since Containerlab's SUID bit does not elevate plugins. A
+missing or denied sudo command fails normally; automated invocations need
+cached credentials or suitable sudoers authorization.
 
 - Run `eclab --help` in the target environment and confirm
   `engulf_clab.ensure_containerlab` is active.

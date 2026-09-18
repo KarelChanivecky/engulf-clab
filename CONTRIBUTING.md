@@ -34,6 +34,13 @@ The wrapper imports the `engulf` runtime. Runtime plugins import the stable
 implementations. Contract-only packages should remain declarative and avoid
 runtime discovery or host work.
 
+The wrapper's Containerlab goal specializes only the child execution boundary of
+`ExecutableWrapperGoal` to select sudo when required. Keep lifecycle, signal
+handling, completion and elevated-startup refusal in the shared wrapper contract.
+`engulf-host-exec` owns common argv construction and local Docker socket access
+checks. New host/Docker consumers must use it without elevating the application
+or replaying failed mutations under sudo. Validate with mocked commands.
+
 Containerlab YAML is the source topology language. Validate its standard shape
 against the upstream `schemas/clab.schema.json` before applying eclab plugin
 conventions. Plugins must preserve the source topology and communicate changes
