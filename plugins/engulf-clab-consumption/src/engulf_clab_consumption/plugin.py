@@ -76,7 +76,6 @@ PLUGIN_SCHEMA = (
         "Read selection, measurement, storage accounting, polling, and limitations.",
     )
     .refer("USAGE.md")
-    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -110,6 +109,5 @@ class ConsumptionPlugin(SchemaBackedPlugin):
         del api
         return (
             "  consumption [-t TOPOLOGY | --all] [-p]  "
-            "Report state, CPU, RAM, lab-directory, and unique/shared image storage\n"
-            "  Docker uses sudo when local socket access requires it."
+            "Report state, CPU, RAM, lab-directory, and unique/shared image storage"
         )

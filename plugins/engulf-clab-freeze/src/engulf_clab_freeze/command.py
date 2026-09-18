@@ -39,7 +39,6 @@ from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
     resolve_image_expression,
 )
-from engulf_host_exec import docker_command
 
 from .state import FreezeStateError, track_archive, tracked_archives
 
@@ -734,7 +733,7 @@ def _bundle_offline_images(
     missing: list[str] = []
     for reference in references:
         result = subprocess.run(
-            docker_command(["docker", "image", "inspect", reference]),
+            ["docker", "image", "inspect", reference],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -750,13 +749,10 @@ def _bundle_offline_images(
     image_dir.mkdir(parents=True, exist_ok=True)
     archive = image_dir / "images.tar"
     try:
-        # Open as the caller: sudo must not leave a root-owned staging archive.
-        with archive.open("wb") as output:
-            subprocess.run(
-                docker_command(["docker", "image", "save", *references]),
-                stdout=output,
-                check=True,
-            )
+        subprocess.run(
+            ["docker", "image", "save", "--output", str(archive), *references],
+            check=True,
+        )
     except subprocess.CalledProcessError as error:
         raise FreezeError("docker could not export the topology images") from error
     (image_dir / "images.txt").write_text(
@@ -998,13 +994,13 @@ if [[ -f "$image_list" ]]; then
     missing_image=0
     while IFS= read -r image; do
         [[ -z "$image" ]] && continue
-        if ! "$runtime/bin/python" -m engulf_host_exec image inspect "$image" >/dev/null 2>&1; then
+        if ! docker image inspect "$image" >/dev/null 2>&1; then
             missing_image=1
             break
         fi
     done < "$image_list"
     if [[ "$missing_image" -eq 1 ]]; then
-        "$runtime/bin/python" -m engulf_host_exec image load --input "$images"
+        docker image load --input "$images"
     fi
 fi
 if [[ $# -eq 0 ]]; then set -- deploy -t {topology_name!s}; fi

@@ -7,8 +7,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from engulf_host_exec import docker_command
-
 from .model import Container
 
 
@@ -194,7 +192,7 @@ class DockerClient:
     def _run(self, arguments: Sequence[str]) -> str:
         try:
             result = subprocess.run(
-                docker_command(["docker", *arguments]),
+                ["docker", *arguments],
                 check=False,
                 capture_output=True,
                 text=True,

@@ -205,7 +205,6 @@ PLUGIN_SCHEMA = (
         "Read expansion, license answers, image selection, and runtime preparation.",
     )
     .refer("USAGE.md")
-    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -287,6 +286,5 @@ class FreezePlugin(SchemaBackedPlugin):
             "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--offline] [--include-pki-secrets]  "
             "Create a sanitized portable lab archive\n"
             "  defrost ARCHIVE [--into DIRECTORY] [--pki-authority BINDING=REF]  "
-            "Expand a frozen archive into a runnable lab\n"
-            "  Docker export/load uses sudo when local socket access requires it."
+            "Expand a frozen archive into a runnable lab"
         )

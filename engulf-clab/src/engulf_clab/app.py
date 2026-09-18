@@ -23,7 +23,6 @@ from engulf_executable_wrapper_api import (
     CompletionProvider,
 )
 
-from .execution import ContainerlabGoal
 from .workspace import workspace_root
 
 APPLICATION_ID = "engulf-clab"
@@ -80,7 +79,7 @@ def _companion_binary(binary: str) -> str | None:
 
 def _containerlab_goal() -> ExecutableWrapperGoal:
     """Create the standard Containerlab goal when an application is launched."""
-    return ContainerlabGoal(binary_path(), source_completion=True)
+    return ExecutableWrapperGoal(binary_path(), source_completion=True)
 
 
 # This definition is deliberately import-safe: editions can depend on this package
@@ -132,12 +131,7 @@ class ContainerlabApp(Application[CallOutcome]):
         when present; otherwise Engulf resolves ``containerlab`` from ``PATH``.
         """
         executable = binary_path() if binary is None else binary
-        goal_type = (
-            ContainerlabGoal
-            if binary is None or Path(binary).name in {"containerlab", "clab"}
-            else ExecutableWrapperGoal
-        )
-        executable_goal = goal_type(
+        executable_goal = ExecutableWrapperGoal(
             executable,
             completion_provider=completion_provider,
             source_completion=source_completion,

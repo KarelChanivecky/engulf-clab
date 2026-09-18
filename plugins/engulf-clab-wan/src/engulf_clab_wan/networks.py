@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from engulf_api import StateStore, WorkspaceState
-from engulf_host_exec import require_root_access, root_command
 
 from .errors import WanError
 from .logging import info
@@ -191,11 +190,8 @@ def dhcp_wan_bridges(
 
 
 def require_root(bridges: Sequence[object], marker_label: str = "DHCP WAN") -> None:
-    if bridges:
-        try:
-            require_root_access()
-        except (OSError, subprocess.CalledProcessError) as error:
-            raise WanError(f"{marker_label} bridge setup requires sudo access: {error}") from error
+    if bridges and hasattr(os, "geteuid") and os.geteuid() != 0:
+        raise WanError(f"{marker_label} bridge setup requires root")
 
 
 def interface_exists(name: str) -> bool:
@@ -235,7 +231,7 @@ def require_commands(commands: list[str]) -> None:
 
 def run_quiet(argv: list[str]) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        root_command(argv),
+        argv,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -405,16 +401,13 @@ def _pid_from_state(state: StateStore, filename: str) -> int:
     except json.JSONDecodeError:
         value = content
     if isinstance(value, dict):
-        value = value.get("pid")
-    if isinstance(value, bool) or not isinstance(value, (str, int)):
-        raise WanError(f"invalid DHCP server PID record: {filename}")
+        pid = value.get("pid")
+        if isinstance(pid, int):
+            return pid
     try:
-        pid = int(value)
+        return int(value)
     except (TypeError, ValueError) as error:
         raise WanError(f"invalid DHCP server PID record: {filename}") from error
-    if pid <= 0:
-        raise WanError(f"invalid DHCP server PID record: {filename}")
-    return pid
 
 
 def stop_pid_file(state: StateStore, filename: str) -> None:
@@ -432,12 +425,7 @@ def stop_pid_file(state: StateStore, filename: str) -> None:
                 f"DHCP server pid={pid} does not match managed configuration"
             )
         info(f"stopping DHCP server pid={pid}")
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except PermissionError:
-            # Recover helpers launched as root by older versions, after the same
-            # managed PID/configuration check used for user-owned helpers.
-            run(["kill", "-TERM", str(pid)])
+        os.kill(pid, signal.SIGTERM)
         for _ in range(20):
             if not process_alive(pid):
                 break
@@ -474,31 +462,21 @@ def start_dhcp_server(state: StateStore, bridge: DhcpWanBridge) -> None:
             f"pool={bridge.pool_start}-{bridge.pool_end} dns={bridge.dns}"
         )
         process = subprocess.Popen(
-            root_command(
-                [
-                    sys.executable,
-                    "-I",
-                    "-m",
-                    "engulf_clab_wan.dhcp_server",
-                    str(config_file),
-                    str(pid_file),
-                    "--uid", str(os.getuid()),
-                    "--gid", str(os.getgid()),
-                ],
-                non_interactive=True,
-                background=True,
-            ),
+            [
+                sys.executable,
+                "-m",
+                "engulf_clab_wan.dhcp_server",
+                str(config_file),
+                str(pid_file),
+            ],
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
-            # sudo must authenticate in the caller's session before it detaches;
-            # starting a new session here would lose the tty-scoped sudo ticket.
-            start_new_session=os.geteuid() == 0,
+            start_new_session=True,
         )
 
     for _ in range(20):
-        # sudo -b exits successfully before its background child publishes a PID.
-        if process.poll() not in (None, 0):
+        if process.poll() is not None:
             break
         if state.exists(pid_name):
             try:

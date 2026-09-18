@@ -52,24 +52,12 @@ root (or elevated on Windows) therefore fails before any plugin is loaded or
 goal setup runs: the launcher prints the refusal on stderr and exits with the
 Engulf framework error code (70).
 
-Run `eclab` as your normal user. Privileged Containerlab operations automatically
-use `sudo` unless the selected binary provides root SUID access to the caller's
-`clab_admins` group. `eclab sudoless` configures that alternative. Help, completion,
-version queries and ordinary topology generation do not request sudo.
-
-Docker helpers also use sudo when the selected local Unix socket is inaccessible
-to the caller. They preserve the user's Docker configuration and selected
-endpoint; accessible sockets, rootless Docker and remote endpoints run directly.
-Managed WAN operations use sudo separately because Containerlab SUID does not
-grant host-network privileges to Python plugins. Sudo prompts normally and
-enforces the host's policy; unattended callers need prior authorization or
-cached credentials. Git, Go, Make, plugin state and build staging run as the user.
-
-The selected child executable is resolved before sudo changes PATH. Containerlab
-children retain `CLAB_*`, `DOCKER_*` and the caller's Docker configuration; other
-environment variables follow sudo's policy. Custom `ContainerlabApp` executables
-whose names are neither `containerlab` nor `clab` retain generic direct execution.
-The elevated-startup gate remains in force for the wrapper itself.
+This is a startup-consent gate, not a sandbox. Run `eclab` as an unprivileged
+user and grant it access to the Docker socket or the specific host privileges
+required by the Containerlab features you use. There is no command-line,
+environment, or configuration override; adding an
+`engulf.privilege_opt_in.v1.goal.v1` entry point would require a deliberate
+contract change to the shared goal, not to this wrapper.
 
 ## Shell completion
 

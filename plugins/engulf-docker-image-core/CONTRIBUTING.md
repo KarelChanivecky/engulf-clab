@@ -5,11 +5,6 @@ assumptions beyond Dockerfile syntax. Provider callbacks are discovery only;
 all host work happens during build execution. Never use a shell for Docker
 commands or invoke callback-bound API objects from worker threads.
 
-Docker execution uses `engulf-host-exec` to select sudo only for an inaccessible
-local socket, preserving the caller's context and configuration. Authenticate
-before starting parallel workers. Vrnetlab Make runs as the caller with a scoped
-Docker shim; elevating Make would leave root-owned staging artifacts.
-
 Preserve dependency-first ordering, authority-first provider selection,
 terminal rejection, execution-time offer fallback, the default pull offer,
 requirement-local parameters, cycle detection, conflict detection, complete lease

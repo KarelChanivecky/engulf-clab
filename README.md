@@ -459,7 +459,6 @@ required host tools, and cleanup behavior.
 | `engulf-clab-schema` | `engulf_clab.schema` | Compiles active declarations with exact Containerlab/vrnetlab sources into catalogs, provider references, and validation schemas. |
 | `engulf-docker-image-api` | Contract only | Application-neutral image graph, parameter, provider, and Engulf goal-plugin contracts. |
 | `engulf-docker-image-core` | Library/goal | Recursive Dockerfile dependency resolution, provider backtracking, and dependency-first builds. |
-| `engulf-host-exec` | Library only | Sudo-aware host and Docker child commands with caller configuration and unprivileged Make builds. |
 | `engulf-clab-containers-api` | Contract only | Typed contract for independently published container collections. |
 | `engulf-clab-containers` | `engulf_clab.containers` | Injects collection runtime fields and registers the collection image provider. |
 | `engulf-clab-containers-core` | `eclab.containers` | Core host-connector and WAN-access collection. |

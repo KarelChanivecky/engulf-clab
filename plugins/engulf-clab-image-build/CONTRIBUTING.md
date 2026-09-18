@@ -5,10 +5,6 @@ provider, Dockerfile, recursion, and scheduling policy in the neutral API/core
 packages. The adapter may inspect the parser's materialized topology but must
 not parse provider-specific controls or import provider implementations.
 
-The neutral executor selects sudo for inaccessible local Docker sockets using
-`engulf-host-exec`. Keep that decision at the execution boundary and retain
-unprivileged Make/staging and existing scheduler leases.
-
 Resolve images and per-node parameters through the parser's EffectiveNode API,
 including inherited kind/group selectors. Force derived pull policy using that
 same effective node set; never leave an inherited image outside the build graph.

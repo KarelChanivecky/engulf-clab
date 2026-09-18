@@ -495,22 +495,6 @@ class OfflineBundleTestCase(unittest.TestCase):
         ):
             _bundle_offline_images(topology, Path(directory))
 
-    def test_export_keeps_archive_creation_in_unprivileged_parent(self) -> None:
-        topology = {"topology": {"nodes": {"router": {"image": "router:1"}}}}
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            patch("engulf_clab_freeze.command.shutil.which", return_value="/usr/bin/docker"),
-            patch("engulf_clab_freeze.command.docker_command", side_effect=lambda args: ["sudo", "--", *args]),
-            patch("engulf_clab_freeze.command.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run,
-        ):
-            staging = Path(directory)
-            _bundle_offline_images(topology, staging)
-            command = run.call_args.args[0]
-            self.assertEqual(command, ["sudo", "--", "docker", "image", "save", "router:1"])
-            self.assertEqual(run.call_args.kwargs["stdout"].name, str(staging / "tools/docker/images.tar"))
-            self.assertTrue(run.call_args.kwargs["stdout"].closed)
-            self.assertTrue((staging / "tools/docker/images.tar").is_file())
-
     def test_offline_freeze_excludes_vendor_image_but_keeps_vrnetlab_type(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             staging = Path(directory)
@@ -551,7 +535,7 @@ class OfflineBundleTestCase(unittest.TestCase):
         launcher = _launcher("lab.clab.yml", offline=True)
         self.assertIn('export CONTAINERLAB_BIN="$containerlab"', launcher)
         self.assertIn('export VRNETLAB_DIR="$vrnetlab"', launcher)
-        self.assertIn('"$runtime/bin/python" -m engulf_host_exec image load --input', launcher)
+        self.assertIn("docker image load --input", launcher)
         self.assertNotIn("pip install", launcher)
 
 

@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_host_exec import docker_command
-
 from .allocation import Address, Network, node_slots
 from .errors import HostCheckError
 from .probes import TraceStrategy, select_trace_strategy
@@ -311,8 +309,7 @@ def probe_candidate(
 
 def _run(arguments: Sequence[str]) -> str:
     try:
-        command = docker_command(arguments) if arguments[0] == "docker" else arguments
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        result = subprocess.run(arguments, check=False, capture_output=True, text=True)
     except OSError as error:
         raise HostCheckError(f"could not run {arguments[0]}: {error}") from error
     if result.returncode:

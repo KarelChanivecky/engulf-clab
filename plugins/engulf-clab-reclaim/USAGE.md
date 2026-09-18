@@ -1,12 +1,5 @@
 # Reclaim lab storage
 
-Docker operations use sudo when the selected local Unix socket is inaccessible.
-The caller's Docker endpoint, context and configuration are retained. Accessible
-sockets, rootless Docker and remote endpoints execute directly. Run eclab as the
-normal user; sudo prompts for the child operation, and a missing or denied sudo
-command fails normally. Noninteractive runs need cached credentials or sudoers
-authorization. Filesystem inspection and plugin state remain unprivileged.
-
 Install `engulf-clab-reclaim` beside `engulf-clab`. The active plugin
 adds:
 

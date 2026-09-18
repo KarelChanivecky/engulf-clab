@@ -196,7 +196,6 @@ PLUGIN_SCHEMA = (
         "Read allocation, explicit-address, availability, and lifecycle behavior.",
     )
     .refer("USAGE.md")
-    .require_host_tool("sudo", "Used when the caller cannot access the selected local Docker socket.")
 )
 
 
@@ -242,8 +241,7 @@ class StickyIPPlugin(SchemaBackedPlugin):
             "ECLAB_STICKY_IP_EXCLUDES configure private allocation space.\n"
             "  Inherited host/none/container network-mode nodes receive no address slot.\n"
             "  Python UDP probes use the Linux ICMP error queue; unavailable probes "
-            "are skipped with an info message.\n"
-            "  Docker inspection uses sudo when local socket access requires it."
+            "are skipped with an info message."
         )
 
     def analyze_call(

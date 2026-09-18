@@ -26,7 +26,6 @@ from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
     resolve_image_expression,
 )
-from engulf_host_exec import docker_command
 
 from .command import _FREEZE_KEY, _LABEL_PREFIX, _archive_root_name, _state_prefix
 
@@ -706,7 +705,7 @@ def _load_images(into: Path, selected: Mapping[str, str], notes: list[str]) -> N
             continue
         archive = into / relative
         loaded = subprocess.run(
-            docker_command(["docker", "image", "load", "--input", str(archive)]),
+            ["docker", "image", "load", "--input", str(archive)],
             capture_output=True,
             text=True,
             check=False,
@@ -719,7 +718,7 @@ def _load_images(into: Path, selected: Mapping[str, str], notes: list[str]) -> N
 
 def _image_present(reference: str) -> bool:
     result = subprocess.run(
-        docker_command(["docker", "image", "inspect", reference]),
+        ["docker", "image", "inspect", reference],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,

@@ -10,8 +10,6 @@
 - Merge materialized topology roots with invocation graph fragments after
   mutators and before writer serialization.
 - Build only in `prepare_call`; keep analysis side-effect free.
-- Privilege selection belongs to the neutral executor and `engulf-host-exec`;
-  do not elevate the application or duplicate Docker-access checks here.
 - Declare lab-parser, lab-writer, and schema ordering only in
   `engulf.plugins.v1.dependency.engulf_clab_image_build` package metadata. Do
   not restore `plugin_dependencies`; Engulf rejects code-declared edges.

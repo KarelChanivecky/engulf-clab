@@ -13,7 +13,6 @@ discovers those installed entry points when `engulf-clab` runs.
 
 | Distribution | Installed capability |
 | --- | --- |
-| `engulf-host-exec` | Shared sudo-aware host and Docker command execution. |
 | `engulf-clab-schema-api` | Stable partitioned-pipeline declaration and invocation-state contract. |
 | `engulf-clab-schema` | Last-running compiler for one executable-selected inherited pipeline and exact Containerlab source. |
 | `engulf-clab-develop-eclab-lab` | Static eclab command that installs and refreshes only the `develop-eclab-lab` Codex skill. |

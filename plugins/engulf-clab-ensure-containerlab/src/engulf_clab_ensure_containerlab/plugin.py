@@ -174,7 +174,8 @@ PLUGIN_SCHEMA = (
     .require_host_tool("go", "Building a missing Containerlab binary from source requires Go.")
     .require_host_tool(
         "sudo",
-        "Host setup and privileged Containerlab children use sudo when sudo-less access is absent.",
+        "The sudoless command changes binary ownership, mode, and two host group memberships.",
+        commands=(SUDOLESS_COMMAND,),
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
@@ -264,8 +265,7 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
             "  CONTAINERLAB_{BIN,DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
             "matching CLI options override them.\n"
             "  Resolution: BIN, DIR, PATH, then managed checkout; Docker is required, "
-            "and source builds require Go.\n"
-            "  Privileged Containerlab operations use sudo unless sudo-less access is available."
+            "and source builds require Go."
         )
 
     def analyze_call(

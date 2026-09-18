@@ -24,28 +24,6 @@ from engulf_docker_image_core import (
 
 
 class BuildTest(unittest.TestCase):
-    def test_authenticates_before_dispatch_and_elevates_only_docker(self) -> None:
-        image = ResolvedImage(
-            "example/app:latest",
-            ImageRequirement("example/app"),
-            ImageProvision("example/app", DockerPullRecipe("example/app")),
-            "org.example.provider",
-            (),
-        )
-        api = Mock(spec=InvocationAPI)
-        api.leases.return_value = nullcontext()
-        events: list[object] = []
-        with (
-            patch("engulf_docker_image_core.build.shutil.which", return_value="/usr/bin/docker"),
-            patch("engulf_docker_image_core.build.docker_needs_sudo", return_value=True),
-            patch("engulf_docker_image_core.build.require_root_access", side_effect=lambda: events.append("auth")),
-            patch("engulf_docker_image_core.build.docker_command", side_effect=lambda argv: ["sudo", "--", *argv]),
-            patch("engulf_docker_image_core.build.subprocess.run", side_effect=lambda argv, **_kwargs: events.append(argv)),
-        ):
-            outcome = build_resolved_graph(ResolvedImageGraph((image.image,), (image,)), api=api)
-        self.assertEqual(events, ["auth", ["sudo", "--", "docker", "pull", "example/app:latest"]])
-        self.assertEqual(outcome.pulled, (image.image,))
-
     def test_build_recipe_cannot_bypass_graph_with_pull(self) -> None:
         provision = ImageProvision(
             "example/app",

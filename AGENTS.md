@@ -29,10 +29,6 @@ wrapper and separately publishable Engulf plugin packages.
   selected topology, or the current directory when no filesystem topology is
   selected. Keep this identity stable for persisted workspace state.
 - The wrapper uses `ExecutableWrapperGoal` and `PluginPolicy.declared()`.
-- The Containerlab goal specializes its child execution boundary for sudo fallback.
-  Shared host/Docker argv construction belongs to `engulf-host-exec`; keep the
-  application unprivileged, preserve the caller's Docker endpoint/configuration,
-  and never retry a failed mutation speculatively with sudo.
 - The wrapper application (and its `eclab` console launcher) depends on
   `engulf>=0.1,<1`, the release line that gates elevated startup. eclab refuses
   privilege: no distribution in this monorepo may declare an
