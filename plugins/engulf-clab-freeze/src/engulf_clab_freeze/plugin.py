@@ -77,7 +77,10 @@ PLUGIN_SCHEMA = (
         commands=("freeze",),
         implies=("include exact cached Containerlab and vrnetlab source material",),
     )
-    .add_command("defrost", "Expand a frozen archive into a runnable lab directory.")
+    .add_command(
+        "defrost",
+        "Expand a frozen archive into a runnable lab directory and restore its env initializer.",
+    )
     .add_cli_argument(
         "defrost",
         "ARCHIVE",
@@ -120,6 +123,11 @@ PLUGIN_SCHEMA = (
     .add_cli_flag(
         "--load-images",
         "Load selected bundled image archives into Docker now.",
+        command="defrost",
+    )
+    .add_cli_flag(
+        "--skip-env-init",
+        "Do not run the archive's recipient environment initializer.",
         command="defrost",
     )
     .add_cli_flag(

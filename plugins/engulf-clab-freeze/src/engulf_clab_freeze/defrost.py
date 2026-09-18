@@ -21,13 +21,20 @@ from engulf_api import PluginLogger
 from engulf_clab_freeze_api import DefrostContext, discover_contributors
 from engulf_clab_freeze_api import FreezeError as ContributorError
 from engulf_clab_lab_parser import effective_nodes, parse_topology_yaml
+from engulf_clab_lab_parser.environment import EnvFileError, topology_environment
 from engulf_clab_lab_parser.session import WRITER_TEMP_PREFIX
 from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
     resolve_image_expression,
 )
 
-from .command import _FREEZE_KEY, _LABEL_PREFIX, _archive_root_name, _state_prefix
+from .command import (
+    _ENV_INITIALIZER,
+    _FREEZE_KEY,
+    _LABEL_PREFIX,
+    _archive_root_name,
+    _state_prefix,
+)
 
 # Keys the recipient's plugins read back. They use the fixed `ECLAB` prefix for
 # exactly the reason freeze writes it: engulf-clab-license-pool and
@@ -103,6 +110,7 @@ def main(
             prepare_runtime=not arguments.no_runtime,
             select_images=not arguments.no_images,
             load_images=arguments.load_images,
+            initialize_env=not arguments.skip_env_init,
             force=arguments.force,
             application_name=application_name,
             logger=logger,
@@ -171,6 +179,11 @@ def _parser(
         action="store_true",
         help="load matched bundled image archives into Docker now instead of at deploy",
     )
+    parser.add_argument(
+        "--skip-env-init",
+        action="store_true",
+        help="do not run the archive's recipient environment initializer",
+    )
     for contributor in contributors:
         contributor.add_defrost_arguments(parser)
     return parser
@@ -197,6 +210,7 @@ def defrost(
     prepare_runtime: bool = True,
     select_images: bool = True,
     load_images: bool = False,
+    initialize_env: bool = True,
     force: bool = False,
     application_name: str = "eclab",
     logger: PluginLogger | None = None,
@@ -227,9 +241,18 @@ def defrost(
         document = _load_document(topology_path)
         metadata = _freeze_metadata(document, notes)
         offline = bool(metadata.get("offline"))
-        _restore_executables(root, notes, offline=offline)
+        has_env_initializer = metadata.get("env_initializer") == _ENV_INITIALIZER
+        _restore_executables(
+            root, notes, offline=offline, initialize_env=has_env_initializer
+        )
         if prepare_runtime:
             _verify_runtime(root, offline=offline)
+        if initialize_env and has_env_initializer and _run_environment_initializer(
+            root, notes
+        ):
+            current_environment = _initialized_environment(
+                topology_path, current_environment
+            )
         selected: dict[str, str] = {}
         if select_images:
             selected = _select_image_archives(
@@ -430,13 +453,19 @@ def _nodes(document: dict[str, Any]) -> dict[str, Any]:
     return nodes
 
 
-def _restore_executables(root: Path, notes: list[str], *, offline: bool) -> None:
+def _restore_executables(
+    root: Path, notes: list[str], *, offline: bool, initialize_env: bool
+) -> None:
     """Restore the launcher and bundled tool permissions the recipient runs."""
-    launcher = root / "run-eclab.sh"
-    if launcher.is_file():
-        launcher.chmod(0o755)
-    else:
-        notes.append("archive has no run-eclab.sh launcher")
+    executables = [Path("run-eclab.sh")]
+    if initialize_env:
+        executables.append(Path("initialize-env.sh"))
+    for relative in executables:
+        path = root / relative
+        if path.is_file():
+            path.chmod(0o755)
+        elif relative.name == "run-eclab.sh":
+            notes.append("archive has no run-eclab.sh launcher")
     if not offline:
         return
     for relative in (
@@ -447,6 +476,35 @@ def _restore_executables(root: Path, notes: list[str], *, offline: bool) -> None
         path = root / relative
         if path.is_file():
             path.chmod(path.stat().st_mode | 0o111)
+
+
+def _run_environment_initializer(root: Path, notes: list[str]) -> bool:
+    """Run the archive-provided recipient env helper before other resolution."""
+    initializer = root / "initialize-env.sh"
+    if not initializer.exists():
+        return False
+    if initializer.is_symlink() or not initializer.is_file():
+        raise DefrostError("initialize-env.sh is not a regular file")
+    try:
+        result = subprocess.run([str(initializer)], cwd=root, check=False)
+    except OSError as error:
+        raise DefrostError(f"could not run initialize-env.sh: {error}") from error
+    if result.returncode:
+        raise DefrostError(
+            f"initialize-env.sh failed with exit code {result.returncode}"
+        )
+    notes.append("ran initialize-env.sh")
+    return True
+
+
+def _initialized_environment(
+    topology_path: Path, environment: Mapping[str, str]
+) -> Mapping[str, str]:
+    """Layer the newly written sibling env file for defrost-time resolution."""
+    try:
+        return topology_environment(topology_path, environment)
+    except (OSError, EnvFileError) as error:
+        raise DefrostError(f"could not read the initialized env file: {error}") from error
 
 
 def _verify_runtime(root: Path, *, offline: bool) -> None:

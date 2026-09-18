@@ -545,7 +545,10 @@ resources. Do not edit plugin state files while a deployment is running.
 `eclab freeze` leaves the source lab
 unchanged and creates one sanitized archive. It contains the copied frozen
 topology, exact Python package lock, best-effort wheelhouse, copied external VM
-inputs, and `run-eclab.sh`. The launcher reuses a compatible installed `eclab`,
+inputs, `initialize-env.sh`, and `run-eclab.sh`. The initializer asks the
+recipient for non-empty values for unresolved topology variables and writes
+them to the topology's private sibling `.env` file with restrictive permissions.
+The launcher reuses a compatible installed `eclab`,
 offers to use an incompatible one, or creates a lab-local virtual environment.
 With `--offline`, freeze instead includes the active installed eclab virtual
 environment, the resolved Containerlab executable, the actual vrnetlab checkout,
@@ -582,8 +585,9 @@ after exclusions are omitted.
 
 `eclab defrost ARCHIVE` reverses that on the receiving side. It expands the
 archive into `<archive-name>` or `--into DIRECTORY`, removes the
-`x-engulf-clab-freeze` metadata, restores launcher and bundled tool
-permissions, prepares the runtime, points nodes at bundled Docker image
+`x-engulf-clab-freeze` metadata, restores launcher, initializer, and bundled
+tool permissions, runs the initializer unless `--skip-env-init` is supplied,
+prepares the runtime, points nodes at bundled Docker image
 archives that carry their exact image, and resolves every redacted license from
 `--license NODE=VALUE`, `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, or an
 interactive prompt. It stages beside the destination and publishes atomically,

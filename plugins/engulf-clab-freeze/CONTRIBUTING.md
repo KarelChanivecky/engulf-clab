@@ -44,6 +44,11 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   exclusion.
 - Redact every node license, remove every `*_LIC_CLAMP`, exclude likely license
   files, and fail when generated lab-local license copies exist.
+- Generate `initialize-env.sh` only from the final staged topology, after
+  contributor and offline rewrites. Keep variable discovery aligned with the
+  parser's `$NAME` and `${NAME...}` syntax, and test shell quoting, empty
+  answers, mode `0600`, defrost execution in staging, and
+  `--skip-env-init` suppression.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, defrost's per-node license
   variables and `ECLAB_IMAGE_ARCHIVE` key, and both lease names — never derive

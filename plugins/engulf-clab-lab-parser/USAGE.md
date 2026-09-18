@@ -77,7 +77,9 @@ topology.
 `eclab freeze` excludes `*.env` from the archive it builds and records the
 omission in `FREEZE-WARNINGS.txt`. A frozen topology therefore keeps its
 unresolved references, and whoever defrosts it supplies their own file, the
-same way they supply their own licenses.
+same way they supply their own licenses. Frozen eclab archives include an
+`initialize-env.sh` helper that collects non-empty recipient answers into this
+file without embedding the source owner's values.
 
 ## Topology selection
 

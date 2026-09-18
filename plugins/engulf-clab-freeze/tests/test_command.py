@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -18,6 +19,7 @@ from engulf_clab_freeze.command import (
     _confirm_overwrite,
     _copy_external_vrnetlab_inputs,
     _download_wheels,
+    _environment_references,
     _launcher,
     _offline_image_references,
     _remove_offline_vrnetlab_inputs,
@@ -27,6 +29,14 @@ from engulf_clab_freeze.command import (
 
 
 class FreezeCommandTestCase(unittest.TestCase):
+    def test_environment_reference_discovery_matches_supported_forms(self) -> None:
+        self.assertEqual(
+            _environment_references(
+                "$IMAGE ${DEFAULT_IMAGE:-$FALLBACK_IMAGE} $$LITERAL $5"
+            ),
+            {"IMAGE", "DEFAULT_IMAGE", "FALLBACK_IMAGE"},
+        )
+
     def test_main_returns_argparse_exit_codes_instead_of_exiting_the_plugin(
         self,
     ) -> None:
@@ -162,6 +172,10 @@ class FreezeCommandTestCase(unittest.TestCase):
                 self.assertEqual(definition["license"], "__ECLAB_LICENSE_PROMPT__")
                 self.assertNotIn("ECLAB_LIC_CLAMP", definition["env"])
             self.assertEqual(frozen["x-engulf-clab-freeze"]["licenses"], "prompt")
+            self.assertEqual(
+                frozen["x-engulf-clab-freeze"]["env_initializer"],
+                "initialize-env.sh",
+            )
 
     def test_freeze_refuses_generated_license_copies(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -629,6 +643,56 @@ class WheelhouseTestCase(unittest.TestCase):
 
 
 class FreezePrivateEnvironmentTest(unittest.TestCase):
+    def test_freeze_adds_a_recipient_env_initializer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "lab"
+            root.mkdir()
+            topology = root / "lab.clab.yml"
+            topology.write_text(
+                "name: demo\n"
+                "topology:\n"
+                "  nodes:\n"
+                "    router:\n"
+                "      image: $ROUTER_IMAGE\n"
+                "      env:\n"
+                "        API_TOKEN: $API_TOKEN\n"
+                "        LITERAL: $$NOT_AN_INPUT\n",
+                encoding="utf-8",
+            )
+            (root / "lab.env").write_text("API_TOKEN=hunter2\n", encoding="utf-8")
+            archive = Path(directory) / "share.tar.gz"
+
+            with patch("engulf_clab_freeze.command._download_wheels"):
+                freeze(topology, archive)
+
+            with tarfile.open(archive, "r:gz") as tar:
+                names = tar.getnames()
+                script = tar.extractfile("share/initialize-env.sh").read()
+
+            recipient = Path(directory) / "recipient"
+            recipient.mkdir()
+            initializer = recipient / "initialize-env.sh"
+            initializer.write_bytes(script)
+            initializer.chmod(0o755)
+            completed = subprocess.run(
+                [str(initializer)],
+                input="\nrouter:1\n",
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                (recipient / "lab.env").read_text(encoding="utf-8"),
+                'ROUTER_IMAGE="router:1"\n',
+            )
+            self.assertEqual((recipient / "lab.env").stat().st_mode & 0o777, 0o600)
+            self.assertIn("API_TOKEN", script.decode())
+            self.assertNotIn("NOT_AN_INPUT", script.decode())
+            self.assertNotIn("hunter2", script.decode())
+            self.assertNotIn("share/lab.env", names)
+
     def test_freeze_resolves_the_env_file_but_leaves_it_out_of_the_archive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"

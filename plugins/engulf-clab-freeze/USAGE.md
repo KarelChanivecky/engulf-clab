@@ -58,7 +58,10 @@ recipient for a file, pool directory, or `$VARIABLE` at deploy. Every
 `*_LIC_CLAMP` entry is removed. Possible license files are excluded by suffix
 (`.lic`, `.license`, `.licence`) and reported. A lab's private `*.env` files
 are excluded and reported the same way: the topology keeps its unresolved
-expressions, and the recipient supplies their own file after defrost. Freeze fails if generated
+expressions, and the recipient supplies their own file after defrost. The archive
+also contains a generated `initialize-env.sh` helper; it asks for values for the
+variables still referenced by the topology and writes only non-empty answers to
+the topology's expected sibling env file. Freeze fails if generated
 `.<state-prefix-lowercase>/licenses` copies exist in the lab, including the
 legacy `.engulf-clab/licenses` location; successfully destroy the licensed lab
 first or reconcile legacy state deliberately.
@@ -77,9 +80,11 @@ and `.engulf-clab-lab-*.clab.yaml` files produced by the lab writer are also
 excluded: they are deploy-time renderings, not portable authored topology. Add
 Git-ignore-style patterns in
 `.<state-prefix-lowercase>-freezeignore` (`.eclab-freezeignore` for base
-eclab). This state-directory prefix is derived from the active application's
-short product name, unlike the fixed `ECLAB` label prefix used for the license
-marker: branding-only editions may keep `eclab` and share `.eclab/`, while a
+eclab). The reserved source name `initialize-env.sh` is replaced by the
+generated recipient helper. This state-directory prefix is derived from the
+active application's short product name, unlike the fixed `ECLAB` label prefix
+used for the license marker: branding-only editions may keep `eclab` and share
+`.eclab/`, while a
 superset executable with its own schema pipeline uses that pipeline ID and
 therefore gets separate state. Empty excluded directories are omitted. Internal
 symlinks are preserved; symlinks escaping the lab are rejected rather than
@@ -102,6 +107,7 @@ containing:
 | `requirements.freeze.txt` | Exact wrapper, active plugin, and transitive package versions. |
 | `wheelhouse/` | Available exact local or downloaded wheels; may be absent. |
 | `.eclab-freeze.env` | Verifiable non-secret Containerlab/vrnetlab repository and revision provenance. |
+| `initialize-env.sh` | Recipient-side helper that writes topology variables into its private env file. |
 | `run-eclab.sh` | Launcher using the frozen topology. |
 
 Normal mode copies configured external vrnetlab inputs into the staged lab,
@@ -111,6 +117,7 @@ inputs and requires the entitled recipient to select them locally.
 ```bash
 tar -xzf demo.tar.gz
 cd demo
+./initialize-env.sh
 ./run-eclab.sh
 ./run-eclab.sh destroy -t lab.clab.yml
 ./run-eclab.sh inspect -t lab.clab.yml
@@ -132,13 +139,16 @@ startup configs, Dockerfiles, and packages are executable or privileged input.
 `defrost` is the reverse command: it expands one archive, prepares the runtime,
 selects bundled Docker image archives, asks for the licenses freeze redacted,
 and removes the `x-engulf-clab-freeze` metadata so the result is an ordinary
-lab. It never deploys and never contacts a registry.
+lab. It restores the executable permission on `initialize-env.sh` and runs it
+automatically unless `--skip-env-init` is supplied. It never deploys and never
+contacts a registry.
 
 ```bash
 eclab defrost demo.tar.gz
 eclab defrost demo.tar.gz --into labs/demo
 eclab defrost demo.tar.gz --license router=/pools/routers --license '$SITE_POOL'
 eclab defrost demo.tar.gz --no-license-prompt --no-runtime
+eclab defrost demo.tar.gz --skip-env-init
 ```
 
 | Option | Meaning |
@@ -150,6 +160,7 @@ eclab defrost demo.tar.gz --no-license-prompt --no-runtime
 | `--no-runtime` | Skip runtime preparation and leave it to `run-eclab.sh`. |
 | `--no-images` | Skip bundled image archive selection. |
 | `--load-images` | Load matched bundled archives into Docker now instead of at deploy. Needs Docker and container-runtime authorization. |
+| `--skip-env-init` | Skip running `initialize-env.sh` during defrost. |
 
 The archive must be a `.tar.gz` or `.tgz` regular file with exactly one root
 directory, and the topology carrying `x-engulf-clab-freeze` selects itself.
@@ -167,6 +178,15 @@ absolute and must exist. A node nobody answers keeps its marker, and deploy
 prompts for it as usual. Answers are never logged or written to the defrost
 record: an expanded lab holds real license selections, so do not commit or
 re-share that directory. Freeze redacts them again on the next archive.
+
+Defrost runs `./initialize-env.sh` before image, vrnetlab, and license
+resolution. It prompts once for each referenced variable, in stable name order;
+an empty answer refuses that variable and writes nothing. Values are appended
+using the parser's supported dotenv syntax to the expected sibling file, such as
+`lab.env`, with mode `0600`. The helper never copies the source owner's excluded
+env file and does not log the entered values. Use `--skip-env-init` to skip
+running it and leave the env file untouched, or run it manually later to
+replace or add answers; existing file contents are preserved.
 
 Any `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz` file in
 the lab is inspected as a `docker save` stream, and a node whose image matches a

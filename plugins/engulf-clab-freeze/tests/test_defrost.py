@@ -23,19 +23,24 @@ from engulf_clab_freeze.defrost import (
 FREEZE_KEY = "x-engulf-clab-freeze"
 
 
-def frozen_topology(nodes: dict[str, object], *, offline: bool = False) -> str:
+def frozen_topology(
+    nodes: dict[str, object], *, offline: bool = False, env_initializer: bool = False
+) -> str:
+    metadata = {
+        "format": 1,
+        "application": "engulf-clab",
+        "packages": [{"name": "engulf-clab", "version": "0.1.0"}],
+        "tools": {"containerlab": None, "vrnetlab": None},
+        "licenses": "prompt",
+        "offline": offline,
+    }
+    if env_initializer:
+        metadata["env_initializer"] = "initialize-env.sh"
     return yaml.safe_dump(
         {
             "name": "demo",
             "topology": {"nodes": nodes},
-            FREEZE_KEY: {
-                "format": 1,
-                "application": "engulf-clab",
-                "packages": [{"name": "engulf-clab", "version": "0.1.0"}],
-                "tools": {"containerlab": None, "vrnetlab": None},
-                "licenses": "prompt",
-                "offline": offline,
-            },
+            FREEZE_KEY: metadata,
         },
         sort_keys=False,
     )
@@ -99,6 +104,7 @@ class DefrostCommandTestCase(unittest.TestCase):
                 prepare_runtime=True,
                 select_images=True,
                 load_images=False,
+                initialize_env=True,
                 force=False,
                 application_name="eclab",
                 logger=None,
@@ -129,6 +135,7 @@ class DefrostCommandTestCase(unittest.TestCase):
                             "--no-runtime",
                             "--no-images",
                             "--load-images",
+                            "--skip-env-init",
                         ],
                         cwd=base,
                     ),
@@ -143,6 +150,7 @@ class DefrostCommandTestCase(unittest.TestCase):
                 prepare_runtime=False,
                 select_images=False,
                 load_images=True,
+                initialize_env=False,
                 force=True,
                 application_name="eclab",
                 logger=None,
@@ -201,7 +209,12 @@ class DefrostTestCase(unittest.TestCase):
     def test_defrost_publishes_a_lab_without_freeze_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            archive = build_archive(base / "share.tar.gz", "share", minimal_lab())
+            files = minimal_lab()
+            files["initialize-env.sh"] = "#!/usr/bin/env bash\n"
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
+            files["lab.clab.yml"] = yaml.safe_dump(document, sort_keys=False)
+            archive = build_archive(base / "share.tar.gz", "share", files)
             pool = base / "pool"
             pool.mkdir()
 
@@ -223,12 +236,67 @@ class DefrostTestCase(unittest.TestCase):
                 document["topology"]["nodes"]["router"]["license"], str(pool)
             )
             self.assertEqual((lab / "run-eclab.sh").stat().st_mode & 0o777, 0o755)
+            self.assertEqual((lab / "initialize-env.sh").stat().st_mode & 0o777, 0o755)
             record = json.loads(
                 (lab / ".eclab-defrost.json").read_text(encoding="utf-8")
             )
             self.assertEqual(record["archive"], "share.tar.gz")
             self.assertEqual(record["topology"], "lab.clab.yml")
             self.assertEqual(record["freeze"]["licenses"], "prompt")
+
+    def test_defrost_runs_the_env_initializer_before_publishing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files["initialize-env.sh"] = (
+                "#!/usr/bin/env bash\n"
+                "printf ran > initializer-ran\n"
+            )
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
+            files["lab.clab.yml"] = yaml.safe_dump(document, sort_keys=False)
+            archive = build_archive(base / "share.tar.gz", "share", files)
+
+            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False)
+
+            self.assertEqual((base / "demo/initializer-ran").read_text(), "ran")
+
+    def test_defrost_can_skip_the_env_initializer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files["initialize-env.sh"] = (
+                "#!/usr/bin/env bash\n"
+                "printf ran > initializer-ran\n"
+            )
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
+            files["lab.clab.yml"] = yaml.safe_dump(document, sort_keys=False)
+            archive = build_archive(base / "share.tar.gz", "share", files)
+
+            defrost(
+                archive,
+                base / "demo",
+                initialize_env=False,
+                prepare_runtime=False,
+                prompt_licenses=False,
+            )
+
+            self.assertFalse((base / "demo/initializer-ran").exists())
+
+    def test_defrost_does_not_run_unmarked_legacy_initializer_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files["initialize-env.sh"] = (
+                "#!/usr/bin/env bash\n"
+                "printf ran > initializer-ran\n"
+            )
+            archive = build_archive(base / "share.tar.gz", "share", files)
+
+            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False)
+
+            self.assertFalse((base / "demo/initializer-ran").exists())
 
     def test_defrost_drops_a_legacy_lab_writer_topology(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

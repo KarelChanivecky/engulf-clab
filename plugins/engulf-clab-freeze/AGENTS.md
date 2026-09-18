@@ -53,6 +53,13 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   files, and fail when generated lab-local license copies exist.
 - Sanitize every declaration origin, including shadowed and unused kinds/groups.
   Resolve defrost image/archive selections and license prompts with EffectiveNode.
+- Generate `initialize-env.sh` from the final frozen topology's environment
+  references. It is recipient-run, writes only non-empty answers to the
+  topology's expected sibling `.env` file with mode `0600`, and never carries
+  source values into the archive; defrost restores its executable bit and runs
+  it before recipient resolution unless `--skip-env-init` is selected. The
+  format-2 metadata marker gates execution so unmarked legacy files are never
+  treated as generated helpers.
 - Freeze's offline image and vrnetlab-input paths use the same EffectiveNode
   snapshots, while sanitizing generated input paths at every declaration origin.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable

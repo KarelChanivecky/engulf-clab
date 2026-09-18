@@ -9,6 +9,7 @@ import importlib.metadata
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ from engulf_clab_lab_parser import (
     parse_topology_yaml,
     topology_declarations,
 )
+from engulf_clab_lab_parser.environment import env_file_for_topology
 from engulf_clab_lab_parser.session import (
     WRITER_TEMP_PREFIX,
     TopologyError,
@@ -56,6 +58,7 @@ _BUILTIN_IGNORES = frozenset(
         "__pycache__",
         "build",
         "dist",
+        "initialize-env.sh",
     }
 )
 _LICENSE_SUFFIXES = (".lic", ".license", ".licence")
@@ -64,6 +67,7 @@ _LICENSE_SUFFIXES = (".lic", ".license", ".licence")
 # with it -- the recipient supplies their own.
 _PRIVATE_SUFFIXES = (".env",)
 _FREEZE_KEY = "x-engulf-clab-freeze"
+_ENV_INITIALIZER = "initialize-env.sh"
 
 
 class FreezeError(RuntimeError):
@@ -274,6 +278,7 @@ def freeze(
             copied_topology.write_text(
                 yaml.safe_dump(offline_topology, sort_keys=False), encoding="utf-8"
             )
+        _write_environment_initializer(copied_topology, staging)
         _prune_empty_directories(staging)
         (staging / "FREEZE-WARNINGS.txt").write_text(
             "\n".join(f"- {warning}" for warning in warnings)
@@ -459,6 +464,148 @@ def _copy_source(
     return warnings
 
 
+def _write_environment_initializer(copied_topology: Path, staging_root: Path) -> None:
+    """Add the recipient-side helper for the topology's private env file."""
+    document = parse_topology_yaml(copied_topology.read_text(encoding="utf-8"))
+    references: set[str] = set()
+    if isinstance(document, dict):
+        document = dict(document)
+        document.pop(_FREEZE_KEY, None)
+    _collect_environment_references(document, references)
+    env_name = env_file_for_topology(copied_topology).name
+    script = staging_root / _ENV_INITIALIZER
+    script.write_text(
+        _environment_initializer_script(env_name, sorted(references)),
+        encoding="utf-8",
+    )
+    os.chmod(script, 0o755)
+
+
+def _collect_environment_references(value: object, references: set[str]) -> None:
+    if isinstance(value, str):
+        references.update(_environment_references(value))
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            _collect_environment_references(key, references)
+            _collect_environment_references(item, references)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_environment_references(item, references)
+
+
+def _environment_references(value: str) -> set[str]:
+    """Find the variable names accepted by the lab parser's expansion syntax."""
+    references: set[str] = set()
+    index = 0
+    while index < len(value):
+        if value[index] != "$":
+            index += 1
+            continue
+        if index + 1 >= len(value) or value[index + 1] == "$":
+            index += 2
+            continue
+        following = value[index + 1]
+        if following == "{":
+            start = index + 2
+            end = start
+            while end < len(value) and _environment_character(value[end]):
+                end += 1
+            name = value[start:end]
+            if name and not name[0].isdigit():
+                references.add(name)
+            # Continue one character later so nested defaults such as
+            # ${IMAGE:-$DEFAULT_IMAGE} are also offered to the recipient.
+            index += 2
+            continue
+        if not _environment_character(following) or following.isdigit():
+            index += 1
+            continue
+        end = index + 2
+        while end < len(value) and _environment_character(value[end]):
+            end += 1
+        references.add(value[index + 1 : end])
+        index = end
+    return references
+
+
+def _environment_character(value: str) -> bool:
+    return value == "_" or value.isalnum()
+
+
+def _environment_initializer_script(env_name: str, references: list[str]) -> str:
+    quoted_env_name = shlex.quote(env_name)
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "umask 077",
+        'root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"',
+        f'env_file="$root"/{quoted_env_name}',
+        "",
+        'if [[ -L "$env_file" || ( -e "$env_file" && ! -f "$env_file" ) ]]; then',
+        '    printf \'refusing to write a non-regular env file: %s\\n\' "$env_file" >&2',
+        "    exit 1",
+        "fi",
+        "",
+        'tmp=""',
+        "cleanup() {",
+        '    [[ -z "$tmp" ]] || rm -f -- "$tmp"',
+        "}",
+        "trap cleanup EXIT",
+        "changed=0",
+    ]
+    if not references:
+        lines.extend(
+            [
+                'printf \'no topology environment values need initialization.\\n\'',
+                "exit 0",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "append_value() {",
+                '    local name="$1" value="$2" escaped',
+                "    if [[ -z \"$tmp\" ]]; then",
+                '        tmp="$(mktemp "$env_file.tmp.XXXXXX")"',
+                '        if [[ -f "$env_file" ]]; then cat "$env_file" > "$tmp"; fi',
+                '        chmod 600 "$tmp"',
+                "    fi",
+                "    escaped=\"$(printf '%s' \"$value\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\"",
+                '    printf \'%s="%s"\\n\' "$name" "$escaped" >> "$tmp"',
+                "    changed=1",
+                "}",
+                "",
+            ]
+        )
+        for name in references:
+            lines.extend(
+                [
+                    f'printf \'Value to initialize {name} (empty to refuse): \'',
+                    "IFS= read -r value || value=",
+                    'if [[ -z "$value" ]]; then',
+                    f'    printf \'refused {name}.\\n\'',
+                    "else",
+                    f'    append_value {name} "$value"',
+                    "fi",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                'if [[ "$changed" -eq 1 ]]; then',
+                '    mv -f -- "$tmp" "$env_file"',
+                '    tmp=""',
+                '    chmod 600 "$env_file"',
+                '    printf \'wrote recipient values to %s\\n\' "$env_file"',
+                "else",
+                '    printf \'no environment values were added.\\n\'',
+                "fi",
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _prune_empty_directories(root: Path) -> None:
     """Remove empty source directories left after exclusions from staging."""
     for candidate in sorted(
@@ -520,6 +667,7 @@ def _freeze_topology(
         "tools": _tool_provenance(current_environment),
         "licenses": "prompt",
         "offline": offline,
+        "env_initializer": _ENV_INITIALIZER,
     }
     copied[_FREEZE_KEY] = freeze_metadata
     copied_path.write_text(yaml.safe_dump(copied, sort_keys=False), encoding="utf-8")
