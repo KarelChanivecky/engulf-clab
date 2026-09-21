@@ -170,6 +170,7 @@ def build_requests_from_topology(
     environ: Mapping[str, str] | None = None,
     *,
     image_selectors: Mapping[str, str] | None = None,
+    allow_unresolved_sources: bool = False,
 ) -> list[BuildRequest]:
     current_env = environ if environ is not None else os.environ
     selectors = {} if image_selectors is None else dict(image_selectors)
@@ -227,13 +228,17 @@ def build_requests_from_topology(
         )
         source = None
         if source_value is not None:
-            source = resolve_source_value(
-                source_value,
-                lab_name=lab_name,
-                node_name=node.name,
-                topology_dir=topology_path.resolve().parent,
-                environ=current_env,
-            )
+            try:
+                source = resolve_source_value(
+                    source_value,
+                    lab_name=lab_name,
+                    node_name=node.name,
+                    topology_dir=topology_path.resolve().parent,
+                    environ=current_env,
+                )
+            except VrnetlabError:
+                if not allow_unresolved_sources:
+                    raise
 
         requests.append(
             BuildRequest(

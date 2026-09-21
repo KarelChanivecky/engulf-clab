@@ -33,6 +33,8 @@ topology:
 | `ECLAB_IMAGE_ARCHIVE` | Archive path; opts the node into archive-backed provisioning. |
 | `ECLAB_IMAGE_ARCHIVE_REF` | Reference inside the archive to retag as the node `image`. |
 | `ECLAB_IMAGE_ARCHIVE_RELOAD` | Boolean string; load on every deploy instead of accepting an existing local tag. |
+| `ECLAB_IMAGE_ARCHIVE_MANIFEST` | Checksummed frozen image manifest, including recursive build dependencies. |
+| `ECLAB_FREEZE_*` | Recipient archive-path variables selected by a lean manifest. |
 
 The archive is a `docker save` stream and must be named `.tar`, `.tar.gz`,
 `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz`. A qcow2 or raw disk image is
@@ -58,6 +60,28 @@ marker as `"true"` preserves its spelling. Accepted boolean spellings are `true`
 `0`, `yes`, `no`, `on`, and `off`.
 
 ## Provisioning behavior
+
+Freeze-generated labs select `images.freeze.json` through
+`ECLAB_IMAGE_ARCHIVE_MANIFEST`. Its format-1 `images` list records explicit
+acquisition decisions; archive entries name the expected image, a contained
+relative archive path, and its SHA-256. Optional source references select a
+retag source. Paths are relative to the manifest, and missing artifacts,
+escaping paths, or checksum mismatches fail before provisioning. Registry,
+build, and external entries document decisions but do not add archive recipes.
+Lean entries may name an `archive_variable`; its value comes from the selecting
+node's effective `ECLAB_FREEZE_*` environment entry and may point to a
+recipient-owned external archive.
+
+Manifest recipes are available for recursive Dockerfile dependencies even when
+those images have no topology node. They reload at deploy to restore the frozen
+content instead of accepting an unrelated existing tag. The manifest is read
+once per invocation topology, and the normal provider conflict checks still
+apply if a node also declares a competing archive for the same image.
+
+This package also declares archive acquisition facts to freeze through
+`engulf_clab.freeze.images.v1`. Default freeze includes the selected saved-image
+archive once and preserves its source/retag rule; `--lean` replaces its path
+with a recipient variable. Neither discovery nor freeze loads the archive.
 
 The provider offers a load recipe at `PREFERRED` authority for the node's exact
 image tag, ahead of the dispatcher's low-authority pull fallback. A failed load

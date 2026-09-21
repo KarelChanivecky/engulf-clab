@@ -103,3 +103,7 @@ never restore code-level `plugin_dependencies`.
   with no invocation api), and both dispatch paths must see the same provider
   instance. Ordering must keep this plugin's `prepare_call` before
   `engulf_clab.image_build`'s so the map is populated before resolution.
+- Keep `freeze.py` discovery read-only and separate from preparation. Its
+  `allow_unresolved_sources` config option permits unavailable input facts only
+  during freeze; normal deployment still rejects unresolved source variables.
+  Report all build controls so captured images cannot re-enable a rebuild.

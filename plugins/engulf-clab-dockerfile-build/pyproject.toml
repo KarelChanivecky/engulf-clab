@@ -4,12 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-dockerfile-build"
-version = "0.1.1"
+version = "0.1.2"
 description = "Contribute eclab Dockerfile node recipes to the shared image build graph"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+    "engulf-clab-freeze-api>=1.1,<2",
+    "engulf-docker-image-core>=1.0,<2",
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
     "engulf-clab-schema-api>=1.0.0,<3",
@@ -25,6 +27,9 @@ dependencies = [
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "engulf_clab.dockerfile_build" = "engulf_clab_dockerfile_build:plugin"
+
+[project.entry-points."engulf_clab.freeze.images.v1"]
+"engulf_clab.dockerfile_build" = "engulf_clab_dockerfile_build.freeze:image_sources"
 
 [project.entry-points."engulf.plugins.v1.dependency.engulf_clab_dockerfile_build"]
 "engulf_clab.lab_parser" = "preprocess=before; postprocess=none"

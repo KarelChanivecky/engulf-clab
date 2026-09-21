@@ -18,8 +18,13 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 from engulf_api import PluginLogger
-from engulf_clab_freeze_api import DefrostContext, discover_contributors
+from engulf_clab_freeze_api import (
+    IMAGE_MANIFEST_ENV,
+    DefrostContext,
+    discover_contributors,
+)
 from engulf_clab_freeze_api import FreezeError as ContributorError
+from engulf_clab_freeze_api.manifest import read_image_manifest
 from engulf_clab_lab_parser import effective_nodes, parse_topology_yaml
 from engulf_clab_lab_parser.environment import EnvFileError, topology_environment
 from engulf_clab_lab_parser.session import WRITER_TEMP_PREFIX
@@ -27,6 +32,7 @@ from engulf_clab_vrnetlab_build.config import (
     build_requests_from_topology,
     resolve_image_expression,
 )
+from engulf_docker_image_core import loaded_archive_references
 
 from .command import (
     _ENV_INITIALIZER,
@@ -247,14 +253,37 @@ def defrost(
         )
         if prepare_runtime:
             _verify_runtime(root, offline=offline)
-        if initialize_env and has_env_initializer and _run_environment_initializer(
-            root, notes
+        if (
+            initialize_env
+            and has_env_initializer
+            and _run_environment_initializer(root, notes)
         ):
             current_environment = _initialized_environment(
                 topology_path, current_environment
             )
         selected: dict[str, str] = {}
-        if select_images:
+        image_plan = metadata.get("image_plan")
+        if image_plan is not None:
+            if (
+                not isinstance(image_plan, dict)
+                or image_plan.get("manifest") != "images.freeze.json"
+            ):
+                raise DefrostError("invalid frozen image plan")
+            try:
+                entries = read_image_manifest(root / "images.freeze.json")
+            except ContributorError as error:
+                raise DefrostError(str(error)) from error
+            selected = {
+                entry["image"]: entry["archive"]
+                for entry in entries
+                if entry.get("archive")
+            }
+            if not select_images:
+                selected = {}
+                for node in document["topology"]["nodes"].values():
+                    if isinstance(node, dict) and isinstance(node.get("env"), dict):
+                        node["env"].pop(IMAGE_MANIFEST_ENV, None)
+        elif select_images:
             selected = _select_image_archives(
                 root, topology_path, document, notes, environment=current_environment
             )
@@ -301,7 +330,10 @@ def defrost(
     if prepare_runtime:
         _prepare_runtime(into, notes, offline=offline)
     if load_images:
-        _load_images(into, selected, notes)
+        if image_plan is not None and select_images:
+            _load_manifest_images(into, entries, notes)
+        else:
+            _load_images(into, selected, notes)
     _write_record(
         into / record_name, archive, topology_path.relative_to(root), metadata, notes
     )
@@ -504,7 +536,9 @@ def _initialized_environment(
     try:
         return topology_environment(topology_path, environment)
     except (OSError, EnvFileError) as error:
-        raise DefrostError(f"could not read the initialized env file: {error}") from error
+        raise DefrostError(
+            f"could not read the initialized env file: {error}"
+        ) from error
 
 
 def _verify_runtime(root: Path, *, offline: bool) -> None:
@@ -772,6 +806,58 @@ def _load_images(into: Path, selected: Mapping[str, str], notes: list[str]) -> N
             notes.append(f"could not load {relative}; deploy will retry")
         else:
             notes.append(f"loaded {reference} from the bundled {relative}")
+
+
+def _load_manifest_images(
+    into: Path, entries: list[dict[str, Any]], notes: list[str]
+) -> None:
+    """Load verified bundle artifacts, including bases without topology nodes."""
+    loaded: dict[str, tuple[str, ...]] = {}
+    for entry in entries:
+        relative = entry.get("archive")
+        if not relative:
+            continue
+        reference = entry["image"]
+        if relative not in loaded:
+            try:
+                result = subprocess.run(
+                    ["docker", "image", "load", "--input", str(into / relative)],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            except (OSError, subprocess.CalledProcessError):
+                notes.append(f"could not load {relative}; deploy will retry")
+                continue
+            loaded[relative] = loaded_archive_references(result.stdout)
+        references = loaded[relative]
+        source = entry.get("source") or entry.get("image_id")
+        if source is None:
+            source = (
+                reference
+                if reference in references
+                else references[0]
+                if len(references) == 1
+                else None
+            )
+        if source is None:
+            notes.append(
+                f"could not select the saved image for {reference}; deploy will retry"
+            )
+            continue
+        if source != reference:
+            try:
+                subprocess.run(
+                    ["docker", "image", "tag", source, reference],
+                    check=True,
+                    capture_output=True,
+                )
+            except (OSError, subprocess.CalledProcessError):
+                notes.append(
+                    f"could not retag the saved image as {reference}; deploy will retry"
+                )
+                continue
+        notes.append(f"loaded {reference} from the bundled {relative}")
 
 
 def _image_present(reference: str) -> bool:

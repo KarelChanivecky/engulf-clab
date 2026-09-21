@@ -70,8 +70,19 @@ and atomic so a failure cannot leave a partial output at its requested destinati
 - The lab-writer's hidden `.engulf-clab-lab-*` topology is derived deploy output,
   not portable source. Freeze must omit it, and defrost must remove it from
   legacy archives before publication.
-- Never archive generated vrnetlab appliance images or vendor VM inputs in
-  offline mode. Preserve entitled recipient selection and local rebuild.
+- Use the common image acquisition planner in every mode. Default freeze
+  bundles unavailable dependencies; lean replaces their inputs with recipient
+  variables; offline accepts only bundled artifacts or declared offline builds.
+  Do not reintroduce blanket vrnetlab or image-name exclusions.
+- Discover recipe facts through the freeze image-source entry-point group,
+  never by running deploy preparation. Providers own recipe controls and input
+  discovery. Capture Docker images by immutable ID and keep image identity,
+  checksums, platform, dependencies, and decisions in the manifest.
+- New defrost uses the explicit image manifest and validates it before
+  publication. Keep incidental archive scanning only for legacy archives.
+  The archive provider must supply dependency-only images as well as roots.
+- Preserve every source file. Rewrite only staging; disable captured builds
+  at every inherited origin and preserve recipient variables in lean mode.
 - Write the archive to a staged path and publish only after all work succeeds.
   Track it in workspace state without nesting previous outputs.
 - Both commands perform all work in `before_goal` and have no `prepare_call`

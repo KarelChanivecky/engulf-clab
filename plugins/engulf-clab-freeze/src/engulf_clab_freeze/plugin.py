@@ -45,6 +45,25 @@ PLUGIN_SCHEMA = (
         command="freeze",
     )
     .add_cli_flag(
+        "--lean",
+        "Replace non-portable image inputs with recipient variables instead of bundling image artifacts.",
+        command="freeze",
+    )
+    .add_cli_flag(
+        "--external-image",
+        "Declare an image that the recipient supplies; repeat for additional dependencies.",
+        command="freeze",
+        values=ValueType.IMAGE_REFERENCE,
+        repeatable=True,
+    )
+    .add_cli_flag(
+        "--bundle-image",
+        "Export an image even when a registry or complete build recipe is available.",
+        command="freeze",
+        values=ValueType.IMAGE_REFERENCE,
+        repeatable=True,
+    )
+    .add_cli_flag(
         "--include-pki-secrets",
         "Include exportable PKI identities when the PKI contributor is installed.",
         command="freeze",
@@ -75,7 +94,21 @@ PLUGIN_SCHEMA = (
     .annotate(
         "--offline",
         commands=("freeze",),
-        implies=("include exact cached Containerlab and vrnetlab source material",),
+        conflicts_with=("--lean", "--external-image"),
+        implies=(
+            "bundle runtime/tools and images whose rebuild may require network access",
+        ),
+    )
+    .annotate(
+        "--lean", commands=("freeze",), conflicts_with=("--offline", "--bundle-image")
+    )
+    .annotate("--external-image", commands=("freeze",), conflicts_with=("--offline",))
+    .annotate(
+        "--bundle-image",
+        commands=("freeze",),
+        conflicts_with=("--lean",),
+        host_tools=("docker",),
+        privilege=Privilege.CONTAINER_RUNTIME,
     )
     .add_command(
         "defrost",
@@ -197,6 +230,9 @@ PLUGIN_SCHEMA = (
         "Create a sanitized portable archive without deploying or destroying the lab."
     )
     .use_case(
+        "Bundle image dependencies unavailable from a registry or a complete included recipe; use --lean for recipient inputs."
+    )
+    .use_case(
         "Expand a received archive into a lab with local licenses, images, and runtime."
     )
     .reject(
@@ -291,8 +327,11 @@ class FreezePlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--offline] [--include-pki-secrets]  "
+            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--lean | --offline] [--include-pki-secrets]  "
             "Create a sanitized portable lab archive\n"
+            "    Default: bundle unavailable image dependencies; retain complete build recipes.\n"
+            "    --lean: replace image inputs with recipient variables.\n"
+            "    --external-image IMAGE / --bundle-image IMAGE: override acquisition (repeatable).\n"
             "  defrost ARCHIVE [--into DIRECTORY] [--pki-authority BINDING=REF]  "
             "Expand a frozen archive into a runnable lab"
         )

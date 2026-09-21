@@ -60,6 +60,12 @@ mutators can affect declarations, then append only immutable graph values.
 
 ## Validation
 
+`freeze.py` owns read-only portability declarations under
+`engulf_clab.freeze.images.v1`. It uses EffectiveNode and the shared core
+Dockerfile analyzer. Missing inputs remain representable; arbitrary extra build
+arguments prevent a completeness claim. Keep its owned controls and build-only
+semantics aligned with deployment, and run freeze consumer tests when changing it.
+
 Run the narrowest checks that exercise the changed boundary:
 
 ```bash

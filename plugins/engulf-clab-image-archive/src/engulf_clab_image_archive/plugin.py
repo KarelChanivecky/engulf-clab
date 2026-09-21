@@ -6,6 +6,7 @@ from engulf_api import (
     Invocation,
     InvocationAPI,
 )
+from engulf_clab_freeze_api import IMAGE_MANIFEST_ENV
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
     TopologySession,
@@ -51,6 +52,21 @@ PLUGIN_ID = "engulf_clab.image_archive"
 
 PLUGIN_SCHEMA = (
     PluginSchema(PLUGIN_ID, package="engulf_clab_image_archive")
+    .add_node_var(
+        IMAGE_MANIFEST_ENV,
+        "Provide bundled root and build-dependency images from a checksummed freeze image manifest.",
+        values=ValueType.FILE_PATH,
+    )
+    .add_node_var(
+        "ECLAB_FREEZE_*",
+        "Recipient-supplied image archive inputs referenced by a lean freeze manifest.",
+        values=ValueType.STRING,
+    )
+    .annotate(
+        IMAGE_MANIFEST_ENV, commands=("deploy", "redeploy"),
+        path_base=PathBase.TOPOLOGY_DIRECTORY,
+        implies=("manifest archive paths are relative to the manifest and checked before loading",),
+    )
     .add_node_var(
         ARCHIVE_ENV,
         "Create this node's image by loading a saved Docker image archive.",
@@ -148,6 +164,8 @@ class ImageArchivePlugin(SchemaBackedPlugin):
             f"    {ARCHIVE_ENV}         Saved Docker image archive to load\n"
             f"    {ARCHIVE_REF_ENV}     Archive reference retagged as the node image\n"
             f"    {ARCHIVE_RELOAD_ENV}  Load again even when the tag exists locally\n"
+            f"    {IMAGE_MANIFEST_ENV}  Frozen root/dependency image manifest\n"
+            "    ECLAB_FREEZE_*  Recipient archive variables used by a lean manifest\n"
             "  The archive is a docker save stream (.tar, .tar.gz, .tgz, .tar.bz2, "
             ".tbz2, .tar.xz, or .txz).\n"
             "  This plugin's provider offers a load recipe for the node image tag ahead "

@@ -26,25 +26,93 @@ or `topology.yaml`) and defaults to `<lab-directory-name>.tar.gz`. Pass `-t`,
 `--topo`, or `--topology` when selection is ambiguous or the topology is
 elsewhere. Output must end in `.tar.gz` or `.tgz` and its parent must exist.
 
-Freeze does not deploy, destroy, or inspect the lab. It runs under a
+Freeze does not deploy or destroy the lab. It reads image metadata and may
+export existing Docker images; it never builds, pulls, or loads an image. It runs under a
 workspace-scoped freeze lease, so two concurrent freezes of the same workspace
 block each other.
 
-## Normal and offline bundles
+## Default, lean, and offline bundles
+
+Default freeze includes the image dependencies a recipient cannot otherwise
+obtain or rebuild. Installed image owners describe their recipes through
+`engulf_clab.freeze.images.v1`; freeze resolves inherited node settings and walks
+the complete declared image dependency graph, including Dockerfile `FROM` and
+external `COPY --from` references. This classification uses the selected source,
+not an image-name prefix or filename extension.
+
+| Selected source | Default freeze |
+| --- | --- |
+| Verified registry image, such as Debian | Record the registry identity; omit image bytes. |
+| Complete lab-local Dockerfile/context | Keep the recipe and recursively resolve its bases; omit the output image. |
+| Declared saved-image archive | Include it once and record its exact source/retag selection. |
+| vrnetlab with a lab-local QCOW included in the archive | Keep its input and builder selection for recipient rebuilding. |
+| Build with external, excluded, missing, or otherwise unaccounted-for inputs | Export the existing resulting image and disable that build in the portable copy. |
+| Unknown acquisition source | Export the existing local image, or fail if unavailable. |
+
+Dockerfile file inputs must survive freeze exclusions. Context completeness is
+conservative: an omitted context file or extra Docker build arguments can require
+capturing the output even when a particular build would not use that input.
+Normal rebuilds may use package repositories or Dockerfile downloads and are not
+a promise of byte-identical outputs. Use `--bundle-image IMAGE` to capture an
+exact existing image instead. Repeat it for additional roots or dependencies.
+
+Freeze probes registry manifests without pulling layers. When a local tag
+exists, the remote image must match its configuration identity; another image
+under the same registry tag does not substitute for it. A failed or unavailable
+probe means unknown availability, not proof of an offline-only source. Registry
+access uses the caller's Docker configuration; recipient access to private
+registries remains an assumption. `--external-image IMAGE` explicitly leaves
+an image for the recipient to supply and records that exception. It conflicts
+with `--bundle-image` for the same image and is unavailable with `--offline`.
+
+```bash
+eclab freeze -t lab.clab.yml
+eclab freeze -t lab.clab.yml --lean
+eclab freeze -t lab.clab.yml --bundle-image example/app:1
+eclab freeze -t lab.clab.yml --external-image registry.example/team/router:1
+```
+
+`--lean` replaces non-portable image selections with `${ECLAB_FREEZE_...}`
+variables and includes no newly exported image artifacts. It replaces saved-image
+archive paths, VM input paths, incomplete build-input paths, and unknown root
+image references. Referenced lab-local image archives and VM inputs are omitted
+too; other lab files still follow normal exclusions. Complete Dockerfile recipes
+and public image tags stay intact. An unavailable recursive base gets a recipient
+archive variable so its expected tag remains usable by its Dockerfile. The
+generated `initialize-env.sh` asks for these values alongside existing topology
+variables. It carries no source path defaults. Unresolved root image expressions
+are allowed only in lean mode. `--lean` conflicts with `--offline` and
+`--bundle-image`; it does not parameterize IP addresses, ports, or unrelated lab
+settings.
+
+Default freeze requires every selected image to resolve. Missing required
+artifacts fail atomically with the dependency chain. Export requires Docker
+daemon authorization; an existing declared archive can be packaged without
+Docker. Images are saved by immutable image ID, deduplicated, and recorded with
+checksums and platform information when available.
+
+Archive-backed images need tag references: Docker cannot retag a loaded image
+as `name@sha256:...`. Registry digest references may remain remote, but a digest
+reference requiring capture fails with guidance to select a tag or explicitly
+leave it external. Freeze does not publish an archive that cannot restore its
+requested reference.
 
 | Behavior | Normal | `--offline` |
 | --- | --- | --- |
 | Python runtime | Reuses or installs locked packages | Bundles the active eclab virtual environment |
 | Containerlab/vrnetlab | Uses recorded provenance and normal resolution | Uses bundled executable and checkout only |
-| Ordinary Docker images | May be pulled by the recipient | Bundled from the local daemon and loaded when missing |
-| vrnetlab VM input | External input is copied and rewritten relative | Recipient supplies entitled input and rebuilds locally |
+| Registry images | May be pulled by the recipient | Bundled from the local daemon |
+| Build outputs | Omitted when the included recipe is complete | Bundled unless the provider establishes offline rebuildability |
+| vrnetlab image | Rebuild from included input, otherwise bundle output | Bundle output; no recipient QCOW is required |
 | Package index | May fill wheelhouse gaps | Never used at runtime |
 
 Offline creation fails if eclab is not running in a virtual environment, a
-required tool is unavailable, or an ordinary topology image is absent locally.
+required tool is unavailable, or a required image has neither a usable archive
+nor a local Docker image.
 It remains platform-specific and needs compatible Docker, Linux networking
-privileges, and QEMU/KVM where required. Generated vrnetlab appliance images,
-vendor VM inputs, and licenses are never bundled.
+privileges, and QEMU/KVM where required. License files and allocations remain
+excluded in every mode. VM inputs are never imported automatically from outside
+the lab; default freeze captures the resulting image instead.
 
 ## Sanitization and exclusions
 
@@ -109,10 +177,15 @@ containing:
 | `.eclab-freeze.env` | Verifiable non-secret Containerlab/vrnetlab repository and revision provenance. |
 | `initialize-env.sh` | Recipient-side helper that writes topology variables into its private env file. |
 | `run-eclab.sh` | Launcher using the frozen topology. |
+| `images.freeze.json` | Acquisition decisions, checksums, image identities, and build dependencies. |
+| `images/` | Exported images and copied external image archives, when needed. |
 
-Normal mode copies configured external vrnetlab inputs into the staged lab,
-rewrites them as relative paths, and records hashes. Offline mode removes those
-inputs and requires the entitled recipient to select them locally.
+The frozen topology selects its manifest with
+`env.ECLAB_IMAGE_ARCHIVE_MANIFEST`. The archive provider makes its images
+available to both runtime nodes and recursive build dependencies. Captured
+outputs replace their build controls, including inherited settings. Normal
+included build inputs are rewritten relative to the topology. The source lab
+is unchanged.
 
 ```bash
 tar -xzf demo.tar.gz
@@ -128,7 +201,7 @@ normal launcher reuses a compatible eclab. Interactively, the recipient may
 accept an incompatible installed eclab or a user-site installation; otherwise
 the launcher creates `.eclab-venv` from the wheelhouse/package index. An
 offline launcher uses only bundled runtime/tools, disables checkout updates,
-and may load bundled ordinary images. Both use the host Docker daemon and
+and provisions bundled images through the image archive provider. Both use the host Docker daemon and
 privileges.
 
 Review the archive and package lock before execution: topologies, scripts,
@@ -188,7 +261,15 @@ env file and does not log the entered values. Use `--skip-env-init` to skip
 running it and leave the env file untouched, or run it manually later to
 replace or add answers; existing file contents are preserved.
 
-Any `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz` file in
+New archives validate their image manifest and checksums before publication.
+Their explicit acquisition selections are retained; an incidental tarball does
+not replace a recorded recipe. Deploy loads and retags manifest images from
+their declared artifacts, including build-only dependencies. `--load-images`
+also loads the manifest's bundled dependencies immediately, deduplicating loads
+and restoring target tags. `--no-images` disables manifest selection in the
+restored topology.
+
+For legacy archives without an image plan, any `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz` file in
 the lab is inspected as a `docker save` stream, and a node whose image matches a
 reference the archive carries gets `ECLAB_IMAGE_ARCHIVE` pointing at it, so
 `engulf-clab-image-archive` loads that image at deploy instead of pulling.
@@ -221,7 +302,7 @@ succeed. Failure leaves no partial requested output.
   can fall back to its package index, so it is not guaranteed offline. Offline
   mode bundles the runtime itself and does not use the wheelhouse.
 - For offline failures, use the installed eclab virtual environment, resolve
-  Containerlab/vrnetlab, and ensure ordinary images exist in Docker.
+  Containerlab/vrnetlab, and ensure required images exist in Docker or declared archives.
 - If an old archive is unexpectedly excluded, remove it and freeze again; stale
   tracking records are pruned automatically.
 - Replace an escaping symlink with a lab-local copy or exclude it explicitly.
@@ -229,7 +310,12 @@ succeed. Failure leaves no partial requested output.
   sanitization reversal, image selection, and license answers succeed. A failure
   leaves no partial destination, and a replaced directory is restored.
 - Pass `--into` when the archive filename does not name the directory you want.
-- If defrost reports a node still needs an entitled vrnetlab image input, supply
-  it locally and rebuild; offline archives never carry vendor VM inputs.
+- For a lean or legacy archive with a missing vrnetlab input, supply its recipient
+  variable and rebuild. Default archives with captured outputs need no QCOW.
+- If a registry probe cannot establish availability, make the selected image
+  available locally, restore registry access, use `--lean`, or declare the
+  intended recipient dependency with `--external-image`.
+- A manifest checksum failure means the artifact no longer matches its recorded
+  content; recreate or obtain an intact freeze rather than changing the checksum.
 - If runtime preparation fails, run `./run-eclab.sh` in the expanded lab: it
   retries the same installation interactively.

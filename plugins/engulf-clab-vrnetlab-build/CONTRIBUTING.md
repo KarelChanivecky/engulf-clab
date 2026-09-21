@@ -93,6 +93,13 @@ not on the Python class.
 
 ## Validation
 
+`freeze.py` declares read-only portability through the freeze image-source
+entry-point group. Reuse config source precedence with
+`allow_unresolved_sources=True` only for that discovery path; deploy must still
+report unset source variables. Report the source disk/archive as a binary input
+and every build-enabling control so freeze can replace a build with its captured
+output. This hook must never locate a checkout, stage inputs, or run Make/Docker.
+
 Run the narrowest checks that exercise the changed boundary:
 
 ```bash

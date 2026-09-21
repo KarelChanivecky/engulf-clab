@@ -25,6 +25,14 @@ the dispatcher that consumes this provider during deploy and single-source redep
 
 ## Invariants
 
+- `freeze.py` declares image portability through `engulf_clab.freeze.images.v1`.
+  Missing paths are facts during freeze discovery; deploy still validates them.
+- Manifest parsing reuses freeze-api validation and never inspects image tar
+  contents. Add manifest dependencies to the same provider map as node images,
+  require explicit recipient variables for lean entries, and force manifest
+  reload so a stale local tag cannot replace frozen content. Keep discovery
+  package metadata and schema declarations synchronized.
+
 - Keep the fixed `ECLAB` prefix in `config.LABEL_PREFIX`; never derive it from
   application metadata.
 - `analyze_call` validates and never touches Docker. `prepare_call` refreshes the

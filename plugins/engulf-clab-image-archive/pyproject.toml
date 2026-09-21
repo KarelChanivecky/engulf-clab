@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-image-archive"
-version = "0.1.3"
+version = "0.2.0"
 description = "Create node images from saved Docker image archives before engulf-clab deploys"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+    "engulf-clab-freeze-api>=1.1,<2",
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
     "engulf-clab-schema-api>=1.0.0,<3",
@@ -25,6 +26,9 @@ dependencies = [
 
 [project.entry-points."engulf.plugins.v1.application.engulf_clab"]
 "engulf_clab.image_archive" = "engulf_clab_image_archive:plugin"
+
+[project.entry-points."engulf_clab.freeze.images.v1"]
+"engulf_clab.image_archive" = "engulf_clab_image_archive.freeze:image_sources"
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_docker_image"]
 "org.engulf.docker.image-archive" = "engulf_clab_image_archive:image_plugin"

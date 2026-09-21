@@ -56,3 +56,7 @@ mutators can affect declarations, then append only immutable graph values.
   changing materialized-topology behavior. Mock Docker in automated tests.
 - Keep `PLUGIN_SCHEMA` aligned with every node variable and retain the
   last-running schema dependency. Run `make check-skill` after changes.
+- `freeze.py` declares read-only image portability under the freeze image-source
+  entry-point group. Use EffectiveNode and the core Dockerfile dependency
+  analyzer; do not build or require missing inputs to exist during discovery.
+  Unknown extra build inputs must conservatively prevent a rebuildability claim.

@@ -12,20 +12,23 @@ from types import SimpleNamespace
 from unittest.mock import ANY, patch
 
 import yaml
+import pytest
 from engulf_clab_freeze.command import (
     FreezeError,
-    _bundle_offline_images,
     _bundle_offline_vrnetlab,
     _confirm_overwrite,
-    _copy_external_vrnetlab_inputs,
     _download_wheels,
     _environment_references,
     _launcher,
-    _offline_image_references,
-    _remove_offline_vrnetlab_inputs,
     freeze,
     main,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_image_host_work(monkeypatch):
+    monkeypatch.setattr("engulf_clab_freeze.images.inspect_image", lambda _reference: None)
+    monkeypatch.setattr("engulf_clab_freeze.images.registry_identity", lambda _reference, _local: "sha256:" + "a" * 64)
 
 
 class FreezeCommandTestCase(unittest.TestCase):
@@ -65,6 +68,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
                 offline=False,
+                lean=False, external_images=(), bundle_images=(),
                 user_state=None,
                 application_name="eclab",
                 environment=None,
@@ -90,6 +94,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
                 offline=False,
+                lean=False, external_images=(), bundle_images=(),
                 user_state=None,
                 application_name="eclab",
                 environment=None,
@@ -126,6 +131,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
                 offline=True,
+                lean=False, external_images=(), bundle_images=(),
                 user_state=user_state,
                 application_name="eclab",
                 environment=None,
@@ -230,43 +236,6 @@ class FreezeCommandTestCase(unittest.TestCase):
                     application_name="vendor clab",
                 )
 
-    def test_freeze_rewrites_external_vrnetlab_input_with_fixed_prefix(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source_root = root / "lab"
-            staging = root / "staging"
-            source_root.mkdir()
-            staging.mkdir()
-            source = root / "router.qcow2"
-            source.write_bytes(b"image")
-            topology_path = source_root / "lab.clab.yml"
-            topology = {
-                "name": "demo",
-                "topology": {
-                    "nodes": {
-                        "router": {
-                            "image": "generated:latest",
-                            "env": {
-                                "ECLAB_VRNETLAB_TYPE": "vendor/router",
-                                "ECLAB_VRNETLAB_IMG_PATH": str(source),
-                            },
-                        }
-                    }
-                },
-            }
-            warnings: list[str] = []
-            _copy_external_vrnetlab_inputs(
-                topology,
-                topology_path,
-                source_root,
-                staging,
-                warnings,
-            )
-            environment = topology["topology"]["nodes"]["router"]["env"]
-            self.assertEqual(
-                environment["ECLAB_VRNETLAB_IMG_PATH"],
-                "assets/images/router/router.qcow2",
-            )
 
     def test_existing_archive_is_left_unchanged_when_overwrite_is_declined(
         self,
@@ -392,7 +361,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                     "engulf_clab_freeze.command._bundle_offline_vrnetlab",
                     return_value=False,
                 ) as vrnetlab,
-                patch("engulf_clab_freeze.command._bundle_offline_images") as images,
+                patch("engulf_clab_freeze.command.freeze_images", return_value={}) as images,
             ):
                 freeze(
                     topology,
@@ -438,118 +407,16 @@ class OfflineBundleTestCase(unittest.TestCase):
             self.assertTrue((bundled / "common" / "vrnetlab.py").is_file())
             self.assertTrue((bundled / "vendor" / "router" / "Makefile").is_file())
 
-    def test_image_references_are_resolved_and_deduplicated(self) -> None:
-        topology = {
-            "topology": {
-                "nodes": {
-                    "one": {"image": "${ROUTER_IMAGE}"},
-                    "two": {"image": "router:1"},
-                    "vm": {
-                        "image": "generated-vrnetlab:latest",
-                        "env": {"ECLAB_VRNETLAB_TYPE": "vendor/router"},
-                    },
-                }
-            }
-        }
-        with patch.dict(
-            "engulf_clab_freeze.command.os.environ", {"ROUTER_IMAGE": "router:1"}
-        ):
-            self.assertEqual(_offline_image_references(topology), ("router:1",))
-        self.assertEqual(topology["topology"]["nodes"]["one"]["image"], "router:1")
 
-    def test_offline_image_references_use_an_inherited_image(self) -> None:
-        topology = {
-            "topology": {
-                "defaults": {"image": "router:1"},
-                "kinds": {"linux": {"env": {"KEEP": "yes"}}},
-                "nodes": {"router": {"kind": "linux"}},
-            }
-        }
 
-        self.assertEqual(_offline_image_references(topology), ("router:1",))
-        self.assertEqual(topology["topology"]["nodes"]["router"]["image"], "router:1")
 
-    def test_offline_vrnetlab_paths_are_removed_from_every_declaration_level(self) -> None:
-        path_key = "ECLAB_VRNETLAB_IMG_PATH"
-        topology = {
-            "topology": {
-                "defaults": {"env": {path_key: "default.qcow2"}},
-                "kinds": {"linux": {"env": {path_key: "kind.qcow2"}}},
-                "groups": {"clients": {"env": {path_key: "group.qcow2"}}},
-                "nodes": {"router": {"kind": "linux", "group": "clients", "env": {path_key: "node.qcow2"}}},
-            }
-        }
 
-        _remove_offline_vrnetlab_inputs(
-            topology, Path("/tmp/lab.clab.yml"), Path("/tmp"), []
-        )
 
-        declarations = topology["topology"]
-        for definition in (
-            declarations["defaults"],
-            declarations["kinds"]["linux"],
-            declarations["groups"]["clients"],
-            declarations["nodes"]["router"],
-        ):
-            self.assertNotIn(path_key, definition.get("env", {}))
-
-    def test_missing_local_image_makes_offline_freeze_fail(self) -> None:
-        topology = {"topology": {"nodes": {"router": {"image": "router:1"}}}}
-        with (
-            patch(
-                "engulf_clab_freeze.command.shutil.which",
-                return_value="/usr/bin/docker",
-            ),
-            patch(
-                "engulf_clab_freeze.command.subprocess.run",
-                return_value=SimpleNamespace(returncode=1),
-            ),
-            tempfile.TemporaryDirectory() as directory,
-            self.assertRaisesRegex(FreezeError, "deploy or pull first"),
-        ):
-            _bundle_offline_images(topology, Path(directory))
-
-    def test_offline_freeze_excludes_vendor_image_but_keeps_vrnetlab_type(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            staging = Path(directory)
-            source = staging / "router.qcow2"
-            source.write_bytes(b"vendor image")
-            topology = {
-                "name": "demo",
-                "topology": {
-                    "nodes": {
-                        "router": {
-                            "image": "generated-vrnetlab:latest",
-                            "env": {
-                                "ECLAB_VRNETLAB_TYPE": "vendor/router",
-                                "ECLAB_VRNETLAB_IMG_PATH": "router.qcow2",
-                                "KEEP": "yes",
-                            },
-                        }
-                    }
-                },
-            }
-            warnings: list[str] = []
-
-            _remove_offline_vrnetlab_inputs(
-                topology, staging / "lab.clab.yml", staging, warnings
-            )
-
-            environment = topology["topology"]["nodes"]["router"]["env"]
-            self.assertEqual(
-                environment,
-                {"ECLAB_VRNETLAB_TYPE": "vendor/router", "KEEP": "yes"},
-            )
-            self.assertFalse(source.exists())
-            self.assertIn(
-                "excluded recipient-selected vrnetlab image input", warnings[0]
-            )
-
-    def test_offline_launcher_forces_bundled_tools_and_loads_images(self) -> None:
+    def test_offline_launcher_forces_bundled_tools_and_leaves_images_to_provider(self) -> None:
         launcher = _launcher("lab.clab.yml", offline=True)
         self.assertIn('export CONTAINERLAB_BIN="$containerlab"', launcher)
         self.assertIn('export VRNETLAB_DIR="$vrnetlab"', launcher)
-        self.assertIn("docker image load --input", launcher)
+        self.assertNotIn("docker image load", launcher)
         self.assertNotIn("pip install", launcher)
 
 
@@ -663,7 +530,7 @@ class FreezePrivateEnvironmentTest(unittest.TestCase):
             archive = Path(directory) / "share.tar.gz"
 
             with patch("engulf_clab_freeze.command._download_wheels"):
-                freeze(topology, archive)
+                freeze(topology, archive, lean=True)
 
             with tarfile.open(archive, "r:gz") as tar:
                 names = tar.getnames()

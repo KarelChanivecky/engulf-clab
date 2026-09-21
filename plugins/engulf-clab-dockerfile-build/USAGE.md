@@ -122,6 +122,16 @@ tags when unrelated labs must not overwrite the same Docker identity.
 
 ## Runtime schema discovery
 
+Freeze uses this package's `engulf_clab.freeze.images.v1` declaration to discover
+Dockerfiles, contexts, arguments, build-only nodes, and recursive image inputs
+without running builds. A complete included recipe stays a build in default
+freeze. Missing or excluded context files and extra build arguments are treated
+conservatively: freeze captures the existing output. Offline freeze captures
+Dockerfile outputs because arbitrary build instructions may need the network.
+Lean freeze parameterizes missing input paths instead. Captured build-only
+nodes are removed from the frozen runtime topology; their image remains
+available through the manifest to recipes that depend on it.
+
 The plugin records its Dockerfile node variables and snapshots this packaged
 `USAGE.md` during `before_goal`. Dispatcher controls and node-local image
 parameters are declared by `engulf_clab.image_build`.

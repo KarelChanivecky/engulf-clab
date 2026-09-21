@@ -88,6 +88,16 @@ source.
 
 ## Validation and build lifecycle
 
+Freeze discovers this package's image inputs through
+`engulf_clab.freeze.images.v1` without preparing or running builds. Default
+freeze retains a rebuild only when its VM input is included in the lab;
+otherwise it exports the existing container image and removes build controls
+from the portable topology. It does not copy external QCOW files automatically.
+Offline freeze captures the output because builders may require network access.
+Lean freeze substitutes a recipient VM-input variable, omits referenced
+lab-local VM inputs, and retains the builder selection. Missing or unset inputs
+are permitted during freeze discovery; normal deploy validation is unchanged.
+
 The ensure plugin supplies a vrnetlab checkout. Analysis is side-effect free
 and validates topology shape, node fields, requested image and source syntax,
 positive job count, and builder-relative type safety before preparation begins.

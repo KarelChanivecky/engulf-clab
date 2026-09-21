@@ -60,8 +60,8 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   it before recipient resolution unless `--skip-env-init` is selected. The
   format-2 metadata marker gates execution so unmarked legacy files are never
   treated as generated helpers.
-- Freeze's offline image and vrnetlab-input paths use the same EffectiveNode
-  snapshots, while sanitizing generated input paths at every declaration origin.
+- All image planning uses EffectiveNode snapshots, while sanitizing owned
+  acquisition controls at every declaration origin.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, defrost's per-node license
   variables and `ECLAB_IMAGE_ARCHIVE` key, and both lease names — never derive
@@ -80,8 +80,19 @@ and atomic so a failure cannot leave a partial output at its requested destinati
 - Keep normal and offline launchers distinct. Offline execution may use only
   bundled runtime/tools and the host Docker daemon; never fall back to PATH or a
   package index.
-- Never archive generated vrnetlab appliance images or vendor VM inputs in
-  offline mode. Preserve entitled recipient selection and local rebuild.
+- Use the common image acquisition planner in every mode. Default freeze
+  bundles unavailable dependencies; lean replaces their inputs with recipient
+  variables; offline accepts only bundled artifacts or declared offline builds.
+  Do not reintroduce blanket vrnetlab or image-name exclusions.
+- Discover recipe facts through the freeze image-source entry-point group,
+  never by running deploy preparation. Providers own recipe controls and input
+  discovery. Capture Docker images by immutable ID and keep image identity,
+  checksums, platform, dependencies, and decisions in the manifest.
+- New defrost uses the explicit image manifest and validates it before
+  publication. Keep incidental archive scanning only for legacy archives.
+  The archive provider must supply dependency-only images as well as roots.
+- Preserve every source file. Rewrite only staging; disable captured builds
+  at every inherited origin and preserve recipient variables in lean mode.
 - Write the archive to a staged path and publish only after all work succeeds.
   Track it in workspace state without nesting previous outputs.
 - Both commands perform all work in `before_goal` and have no `prepare_call`

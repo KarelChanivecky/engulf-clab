@@ -50,7 +50,11 @@ across editions.
   have the same archive path and SHA-256, source reference, and reload policy;
   diagnostics must name both nodes.
 - Default to `only_if_missing=True` and let `ECLAB_IMAGE_ARCHIVE_RELOAD` opt into
-  loading on every deploy.
+  loading on every deploy. Manifest recipes always reload to restore recorded content.
+- Validate image manifests through freeze-api before populating the provider;
+  their dependency-only images participate in ordinary recursive resolution.
+  Keep `freeze.py` discovery read-only and allow missing paths there, while
+  deploy analysis continues to require usable files.
 - Never choose a member of a multi-image archive implicitly; require
   `ECLAB_IMAGE_ARCHIVE_REF` when the archive does not carry the node image.
 - Do not extract, inspect, or rewrite archive contents in this plugin; `docker
