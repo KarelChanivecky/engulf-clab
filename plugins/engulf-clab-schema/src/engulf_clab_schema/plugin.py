@@ -39,6 +39,7 @@ from .cache import (
     cache_record,
     cached_bundle_fingerprint,
     load_cached_bundle,
+    prune_cached_artifacts,
     schema_input_fingerprint,
 )
 from .compiler import compile_schema_bundle
@@ -70,6 +71,21 @@ PLUGIN_SCHEMA = (
         lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
         path_base=PathBase.INVOCATION_DIRECTORY,
         implies=("The supplied file is the complete base schema for the selected binary.",),
+    )
+    .add_runtime_var(
+        "ECLAB_NODE_KINDS",
+        "Restrict the compiled node-kind catalog to a comma-separated kind allowlist.",
+        values=ValueType.STRING,
+    )
+    .annotate(
+        "ECLAB_NODE_KINDS",
+        lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
+        requires=("every named kind must exist in the selected base schema",),
+        implies=(
+            "Only the named kinds get node-kinds guidance records",
+            "unset compiles the full base-schema catalog",
+        ),
+        examples=("ECLAB_NODE_KINDS=linux,bridge,fortinet_fortigate eclab deploy",),
     )
     .use_case("Describe the exact Containerlab source and active Engulf plugin controls.")
     .reject("Do not substitute an unrelated latest Containerlab schema for the selected source.")
@@ -354,6 +370,11 @@ def _cache_bundle(
         )
     )
     temporary.replace(latest)
+    prune_cached_artifacts(
+        root,
+        pipeline_id=bundle.pipeline_id,
+        keep=bundle.fingerprint,
+    )
 
 
 plugin = SchemaGeneratorPlugin()

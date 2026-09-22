@@ -17,6 +17,7 @@ from engulf_clab_schema.cache import (
     bundle_directory_complete,
     cached_bundle_fingerprint,
     load_cached_bundle,
+    prune_cached_artifacts,
     schema_input_fingerprint,
 )
 from engulf_clab_schema.plugin import _cache_bundle
@@ -182,6 +183,55 @@ def test_cached_bundle_is_reused_and_incomplete_artifacts_are_repaired(tmp_path:
     assert cached_bundle_fingerprint(tmp_path, "inputs-one") is None
     _cache_bundle(tmp_path, bundle, "inputs-one")
     assert bundle_directory_complete(target, fingerprint)
+
+
+def test_cache_retains_only_latest_fingerprint_and_ignores_unknown_entries(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "pipelines" / "eclab" / "artifacts"
+    artifacts.mkdir(parents=True)
+    old = artifacts / ("a" * 64)
+    old.mkdir()
+    (old / "stale-file").write_text("stale")
+    unknown = artifacts / "keep-me"
+    unknown.mkdir()
+    symlink = artifacts / ("c" * 64)
+    symlink.symlink_to(unknown, target_is_directory=True)
+
+    keep = "b" * 64
+    prune_cached_artifacts(tmp_path, keep=keep)
+
+    assert not old.exists()
+    assert unknown.is_dir()
+    assert symlink.is_symlink()
+
+
+def test_cache_publish_prunes_previous_bundle(tmp_path: Path) -> None:
+    def bundle(fingerprint: str) -> CompiledSchemaBundle:
+        manifest = {
+            "fingerprint": fingerprint,
+            "pipeline": {"id": "eclab", "lineage": ["eclab"]},
+            "plugins": [],
+            "node_kinds": None,
+        }
+        return CompiledSchemaBundle(
+            fingerprint=fingerprint,
+            manifest=(json.dumps(manifest) + "\n").encode(),
+            topology_schema=b"{}\n",
+            catalog_json=b"{}\n",
+            catalog_markdown=b"# Catalog\n",
+            references=(),
+        )
+
+    old = "d" * 64
+    current = "e" * 64
+    _cache_bundle(tmp_path, bundle(old), "old-input")
+    _cache_bundle(tmp_path, bundle(current), "current-input")
+
+    artifacts = tmp_path / "pipelines" / "eclab" / "artifacts"
+    assert not (artifacts / old).exists()
+    assert (artifacts / current).is_dir()
+    assert cached_bundle_fingerprint(tmp_path, "current-input") == current
 
 
 def test_pipeline_caches_are_isolated_and_legacy_unscoped_cache_is_ignored(

@@ -204,3 +204,110 @@ def _commit(repository: Path) -> str:
         text=True,
     )
     return process.stdout.strip()
+
+
+def _multi_kind_base(kinds: list[str]) -> BaseSchema:
+    document = {
+        "properties": {},
+        "definitions": {
+            "node-config": {
+                "properties": {"kind": {"type": "string", "enum": kinds}}
+            }
+        },
+    }
+    content = json.dumps(document).encode()
+    return BaseSchema(
+        document,
+        content,
+        "checkout",
+        None,
+        None,
+        None,
+        False,
+        hashlib.sha256(content).hexdigest(),
+    )
+
+
+def test_node_kind_allowlist_restricts_the_catalog(tmp_path: Path) -> None:
+    containerlab = tmp_path / "containerlab"
+    containerlab.mkdir()
+    vrnetlab = tmp_path / "vrnetlab"
+    (vrnetlab / "common").mkdir(parents=True)
+    (vrnetlab / "common" / "vrnetlab.py").write_text("# marker\n", encoding="utf-8")
+    state = State(tmp_path / "state")
+    state.directory.mkdir()
+    base = _multi_kind_base(["linux", "bridge", "fortinet_fortigate", "arista_ceos"])
+
+    catalog = resolve_node_kind_catalog(
+        state,  # type: ignore[arg-type]
+        {
+            "VRNETLAB_DIR": str(vrnetlab),
+            "ECLAB_NODE_KINDS": "linux,bridge,fortinet_fortigate",
+        },
+        base,
+        ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=containerlab),
+    )
+
+    assert [item.kind for item in catalog.kinds] == [
+        "bridge",
+        "fortinet_fortigate",
+        "linux",
+    ]
+
+
+def test_node_kind_allowlist_unset_compiles_every_kind(tmp_path: Path) -> None:
+    containerlab = tmp_path / "containerlab"
+    containerlab.mkdir()
+    vrnetlab = tmp_path / "vrnetlab"
+    (vrnetlab / "common").mkdir(parents=True)
+    (vrnetlab / "common" / "vrnetlab.py").write_text("# marker\n", encoding="utf-8")
+    state = State(tmp_path / "state")
+    state.directory.mkdir()
+    base = _multi_kind_base(["linux", "bridge", "fortinet_fortigate", "arista_ceos"])
+
+    catalog = resolve_node_kind_catalog(
+        state,  # type: ignore[arg-type]
+        {"VRNETLAB_DIR": str(vrnetlab)},
+        base,
+        ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=containerlab),
+    )
+
+    assert len(catalog.kinds) == 4
+
+
+def test_node_kind_allowlist_rejects_unknown_kinds(tmp_path: Path) -> None:
+    containerlab = tmp_path / "containerlab"
+    containerlab.mkdir()
+    vrnetlab = tmp_path / "vrnetlab"
+    (vrnetlab / "common").mkdir(parents=True)
+    (vrnetlab / "common" / "vrnetlab.py").write_text("# marker\n", encoding="utf-8")
+    state = State(tmp_path / "state")
+    state.directory.mkdir()
+    base = _multi_kind_base(["linux", "bridge"])
+
+    with pytest.raises(Exception, match="absent from the base schema.*not_a_kind"):
+        resolve_node_kind_catalog(
+            state,  # type: ignore[arg-type]
+            {"VRNETLAB_DIR": str(vrnetlab), "ECLAB_NODE_KINDS": "linux,not_a_kind"},
+            base,
+            ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=containerlab),
+        )
+
+
+def test_node_kind_allowlist_rejects_an_empty_selection(tmp_path: Path) -> None:
+    containerlab = tmp_path / "containerlab"
+    containerlab.mkdir()
+    vrnetlab = tmp_path / "vrnetlab"
+    (vrnetlab / "common").mkdir(parents=True)
+    (vrnetlab / "common" / "vrnetlab.py").write_text("# marker\n", encoding="utf-8")
+    state = State(tmp_path / "state")
+    state.directory.mkdir()
+    base = _multi_kind_base(["linux", "bridge"])
+
+    with pytest.raises(Exception, match="at least one valid node kind"):
+        resolve_node_kind_catalog(
+            state,  # type: ignore[arg-type]
+            {"VRNETLAB_DIR": str(vrnetlab), "ECLAB_NODE_KINDS": ",,"},
+            base,
+            ContainerlabSourceHint(ContainerlabSourceKind.CHECKOUT, checkout=containerlab),
+        )

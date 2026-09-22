@@ -114,7 +114,7 @@ def resolve_node_kind_catalog(
 ) -> NodeKindCatalog:
     containerlab = _containerlab_view(state, base, containerlab_hint)
     vrnetlab = _vrnetlab_view(state, environment, vrnetlab_hint, refresh=refresh)
-    kinds = _schema_kinds(base.document)
+    kinds = _filtered_kinds(_schema_kinds(base.document), environment)
     index_content = containerlab.read(_CONTAINERLAB_KIND_INDEX.as_posix())
     index = _kind_document_index(index_content)
     vrnetlab_readmes = _vrnetlab_readmes(vrnetlab.paths)
@@ -311,6 +311,44 @@ def _schema_kinds(document: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(
         sorted({value for value in values if isinstance(value, str) and _SAFE_KIND.fullmatch(value)})
     )
+
+
+NODE_KIND_ALLOWLIST_ENVIRONMENT = "ECLAB_NODE_KINDS"
+"""Comma-separated node-kind allowlist for the compiled catalog.
+
+Every kind in the base schema gets a ``node-kinds/<kind>/`` record with its
+containerlab and vrnetlab guidance — for the full containerlab catalog that
+is ~160 files and ~500 KiB materialized into every runtime artifact and
+every generated-skill install. An edition that only ever deploys a few
+kinds sets this to exactly those, and the catalog (plus the guidance
+bytes it fingerprints and copies) shrinks accordingly. Unset means every
+kind; an empty value is invalid (it would compile a catalog with no kinds
+at all and silently strand every specialized node).
+"""
+
+
+def _filtered_kinds(
+    kinds: tuple[str, ...], environment: Mapping[str, str]
+) -> tuple[str, ...]:
+    configured = environment.get(NODE_KIND_ALLOWLIST_ENVIRONMENT, "").strip()
+    if not configured:
+        return kinds
+    allowed = {
+        item.strip()
+        for item in configured.split(",")
+        if item.strip() and _SAFE_KIND.fullmatch(item.strip())
+    }
+    if not allowed:
+        raise NodeKindSourceError(
+            f"{NODE_KIND_ALLOWLIST_ENVIRONMENT} must name at least one valid node kind: {configured!r}"
+        )
+    unknown = allowed.difference(kinds)
+    if unknown:
+        raise NodeKindSourceError(
+            f"{NODE_KIND_ALLOWLIST_ENVIRONMENT} names kinds absent from the base schema: "
+            + ", ".join(sorted(unknown))
+        )
+    return tuple(kind for kind in kinds if kind in allowed)
 
 
 def _kind_document_index(content: bytes | None) -> dict[str, tuple[str, str]]:

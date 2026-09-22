@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shutil
 import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import fields, is_dataclass
@@ -25,9 +27,10 @@ from engulf_clab_schema_api import (
 )
 
 from .compiler import COMPILER_VERSION, FORMAT_VERSION
+from .node_kinds import NODE_KIND_ALLOWLIST_ENVIRONMENT
 from .source import SCHEMA_RELATIVE, checkout_for_binary
 
-CACHE_FORMAT_VERSION = 2
+CACHE_FORMAT_VERSION = 3
 _README_NAMES = frozenset({"readme", "readme.md", "readme.markdown", "readme.txt"})
 _TOP_LEVEL_ARTIFACTS = (
     "manifest.json",
@@ -35,6 +38,7 @@ _TOP_LEVEL_ARTIFACTS = (
     "catalog.json",
     "catalog.md",
 )
+_FINGERPRINT_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def schema_input_fingerprint(
@@ -66,6 +70,10 @@ def schema_input_fingerprint(
         "plugins": _stable(tuple(entries)),
         "containerlab": _containerlab_input(containerlab, environment),
         "vrnetlab": _vrnetlab_input(vrnetlab, environment),
+        # The node-kind allowlist changes the compiled catalog without
+        # changing any cheap source input; without it here, a changed
+        # allowlist would keep serving the stale cached bundle.
+        "node_kinds": environment.get(NODE_KIND_ALLOWLIST_ENVIRONMENT, ""),
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -241,6 +249,40 @@ def cache_record(
         )
         + "\n"
     ).encode()
+
+
+def prune_cached_artifacts(
+    root: Path,
+    *,
+    pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+    keep: str,
+) -> None:
+    """Remove stale fingerprinted bundles while preserving the active bundle.
+
+    Only directories named like generated SHA-256 fingerprints are owned by
+    this cache. Unknown entries, symlinks, and staging files are deliberately
+    left alone so cleanup cannot remove unrelated state.
+    """
+    if not _fingerprint(keep):
+        raise ValueError("cannot retain an invalid schema artifact fingerprint")
+    artifacts = _pipeline_root(root, pipeline_id) / "artifacts"
+    if not artifacts.is_dir() or artifacts.is_symlink():
+        return
+    try:
+        entries = tuple(artifacts.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name == keep or not _fingerprint(entry.name):
+            continue
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        try:
+            shutil.rmtree(entry)
+        except OSError:
+            # Retention is housekeeping; a stale directory must not turn a
+            # successfully published schema bundle into a failed invocation.
+            continue
 
 
 def _pipeline_root(root: Path, pipeline_id: str) -> Path:
@@ -473,11 +515,7 @@ def _stable(value: object) -> object:
 
 
 def _fingerprint(value: object) -> TypeGuard[str]:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
+    return isinstance(value, str) and _FINGERPRINT_PATTERN.fullmatch(value) is not None
 
 
 def _add_manifest_path(paths: set[str], value: object, *, key: str) -> bool:

@@ -65,7 +65,10 @@ and a superset edition may declare one parent and contribute to its own child
 pipeline. Artifacts are fingerprinted under
 `pipelines/<pipeline-id>/artifacts/<fingerprint>/`, with a separate
 `pipelines/<pipeline-id>/latest.json` cache record, allowing edition skills to
-coexist.
+coexist. After a new bundle is published, the cache retains only that
+pipeline's latest fingerprinted bundle. Cleanup runs after the atomic pointer
+update, so a cache hit remains a cheap pointer-and-manifest check; unknown
+entries and symlinks in the artifacts directory are not removed.
 
 Normal tracked-skill refresh is lazy, best effort, and happens after executable
 preparation. When no generated skill is tracked, no schema work is requested at
