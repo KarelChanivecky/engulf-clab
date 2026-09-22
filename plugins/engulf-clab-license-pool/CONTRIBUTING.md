@@ -1,5 +1,10 @@
 # Plugin Instructions
 
+The pure allocation contract lives in the sibling
+`engulf-clab-license-pool-lib` distribution. Keep Engulf callbacks, leases,
+state transactions, topology mutation, file copying, and diagnostics in this
+plugin package; do not move framework imports into the library.
+
 License allocation is user-scoped shared state. Hold all affected pool leases
 while claiming or releasing licenses; source topologies are modified only
 through the shared topology editor.
@@ -24,6 +29,20 @@ through the shared topology editor.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.
+- `init-license-pool [PATH] [--kind KIND]` canonicalizes an existing directory
+  into ordered user-state registration. One path has one effective kind;
+  re-registering it updates that kind without changing its position. Runtime
+  discovery removes registrations whose directories disappeared. Parse only
+  the first positional path and the plugin-owned `--kind`; tolerate all
+  unclaimed arguments so independently installed plugins can extend the command.
+  Registration records its exit status in invocation context and returns `None`
+  from `before_goal`; `analyze_call()` preempts Containerlab only after all
+  plugins have analyzed the command.
+- Automatic requests are either the explicit `ECLAB_AUTO_LICENSE` marker or an
+  unresolved license `$VARIABLE` without effective
+  `ECLAB_DISABLE_AUTO_LICENSE=true`. Match only registrations for the node's
+  effective `kind`; preserve an active claim, otherwise try matching pools in
+  registration order until one has an available license.
 - Preserve allocation preference, history, clamp exclusion, retry stability,
   pool-local regular-file selection, and deterministic lab-copy paths. Sticky
   selection prefers the claim's historical file before a never-used file.
@@ -48,8 +67,9 @@ through the shared topology editor.
   node-specific noninteractive values before the global value. Never log the
   resolved path or content as a diagnostic secret.
 - Log one info-level selected-license diagnostic per node only after its
-  lab-local copy succeeds. Include the node and source basename through `%r`
-  logger arguments; never include the resolved source or generated-copy path.
+  lab-local copy succeeds. Include the node, source basename, and selected pool
+  through `%r` logger arguments; direct-file selections use `None` for the pool.
+  Never include the resolved source or generated-copy path.
 - Keep runtime help, `USAGE.md`, freeze redaction, MCP profile restrictions, and
   state tests synchronized.
 - Run frozen-prompt tests plus parser/writer/freeze tests after behavior changes.

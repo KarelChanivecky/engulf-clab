@@ -36,6 +36,9 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
         self.assertIn("--eclab-license-pool-strategy", rendered)
         self.assertIn("least-recently-used (default), sticky, or round-robin", rendered)
         self.assertIn("ECLAB_LICENSE_POOL_STRATEGY", rendered)
+        self.assertIn("init-license-pool [PATH] [--kind KIND]", rendered)
+        self.assertIn("license: ECLAB_AUTO_LICENSE", rendered)
+        self.assertIn("ECLAB_DISABLE_AUTO_LICENSE", rendered)
         self.assertIn("selected license basename", rendered)
         self.assertNotIn("VENDOR_CLAB_LICENSE", rendered)
 

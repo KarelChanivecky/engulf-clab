@@ -57,6 +57,7 @@ for a particular environment or edition.
 | [Map IPv4 or IPv6 lab VIPs to external hosts][core-host] | [Give a lab node outbound access through a NAT container][core-wan] |
 | [Provide DHCP from a WAN-access container][core-wan] | [Build PKI-aware application containers from Debian or Fedora bases][pki-bases] |
 | [Allocate node licenses from shared directory pools][license-inputs] | [Keep the same pooled license for a stable node identity][license-lifecycle] |
+| [Register product-specific pools for automatic allocation][license-auto] | [Fall back from an undefined license variable to a matching node-kind pool][license-auto] |
 | [Select pooled licenses by sticky, round-robin, or least-recently-used policy][license-strategy] | [Clamp a node to a specific license file][license-inputs] |
 | [Resolve redacted licenses when deploying a defrosted lab][license-frozen] | [Share license pools safely across concurrently managed labs][license-lifecycle] |
 | [Assign stable IPv4 management addresses][sticky-config] | [Assign stable IPv6 management addresses][sticky-config] |
@@ -131,6 +132,7 @@ for a particular environment or edition.
 [core-wan]: plugins/engulf-clab-containers-core/USAGE.md#wan-access
 [pki-bases]: plugins/engulf-clab-containers-pki/USAGE.md#inherit-a-base
 [license-inputs]: plugins/engulf-clab-license-pool/USAGE.md#inputs
+[license-auto]: plugins/engulf-clab-license-pool/USAGE.md#registered-pools-and-automatic-allocation
 [license-strategy]: plugins/engulf-clab-license-pool/USAGE.md#selection-strategies
 [license-lifecycle]: plugins/engulf-clab-license-pool/USAGE.md#allocation-lifecycle
 [license-frozen]: plugins/engulf-clab-license-pool/USAGE.md#frozen-prompts-and-security
@@ -470,7 +472,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-image-archive` | `engulf_clab.image_archive` | Creates node images from saved Docker image archives selected per node. |
 | `engulf-clab-ensure-vrnetlab` | `engulf_clab.ensure_vrnetlab` | Finds or provisions a vrnetlab checkout. |
 | `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
-| `engulf-clab-license-pool` | `engulf_clab.license_pool` | Shares license files safely across labs. |
+| `engulf-clab-license-pool` | `engulf_clab.license_pool` | Registers product-specific pools and shares license files safely across labs. |
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
 | `engulf-clab-lab-registry-api` | Contract only | Typed access to the shared persistent lab inventory. |
 | `engulf-clab-lab-registry` | `engulf_clab.lab_registry` | Tracks deployed and explicitly discovered labs for inventory consumers. |

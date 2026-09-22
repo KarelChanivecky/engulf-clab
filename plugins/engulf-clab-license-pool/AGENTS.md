@@ -24,6 +24,20 @@ through the shared topology editor.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.
+- Keep `init-license-pool [PATH] [--kind KIND]` a user-state control command.
+  Canonical paths are unique and ordered; re-registration updates the kind in
+  place. Consume only the first positional path and the plugin-owned `--kind`;
+  ignore unclaimed extension arguments instead of rejecting them. Prune missing
+  registered directories during deploy-time discovery. Return `None` from
+  `before_goal` after registration and preempt Containerlab through an
+  `analyze_call()` contribution so every plugin can observe the command.
+- Match registered pools against the effective node `kind`. Explicit
+  `ECLAB_AUTO_LICENSE` always requests automatic allocation; an unresolved
+  license `$VARIABLE` requests it unless effective node env sets
+  `ECLAB_DISABLE_AUTO_LICENSE=true`.
+- Preserve an active automatic claim across retries. Otherwise scan matching
+  registered pools in registration order and select from the first pool with
+  an available license under the invocation's configured strategy.
 - Preserve allocation preference, history, clamp exclusion, retry stability,
   pool-local regular-file selection, and deterministic lab-copy paths. Sticky
   selection prefers the claim's historical file before a never-used file.
@@ -47,8 +61,9 @@ through the shared topology editor.
   node-specific noninteractive values before the global value. Never log the
   resolved path or content as a diagnostic secret.
 - Log one info-level selected-license diagnostic per node only after its
-  lab-local copy succeeds. Include the node and source basename through `%r`
-  logger arguments; never include the resolved source or generated-copy path.
+  lab-local copy succeeds. Include the node, source basename, and selected pool
+  through `%r` logger arguments; direct-file selections use `None` for the pool.
+  Never include the resolved source or generated-copy path.
 - Keep runtime help, `USAGE.md`, freeze redaction, MCP profile restrictions, and
   state tests synchronized.
 - Run frozen-prompt tests plus parser/writer/freeze tests after behavior changes.

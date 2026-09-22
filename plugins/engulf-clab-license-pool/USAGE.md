@@ -7,6 +7,47 @@ single-source redeploy.
 Install with `python -m pip install engulf-clab-license-pool`, or through
 `engulf-clab-all-plugins`.
 
+## Registered pools and automatic allocation
+
+Register an existing pool directory for one Containerlab node kind:
+
+```bash
+eclab init-license-pool [PATH] [--kind KIND]
+```
+
+`PATH` defaults to the invocation directory and `KIND` defaults to
+`fortinet_fortigate`. The command stores the canonical directory and kind in
+ordered user state; it does not copy, inspect, or log license contents.
+Re-registering the same path updates its kind in place. There may be multiple
+pools for a kind. An active claim remains stable; a new claim scans matching
+pools in registration order and uses the first one with an available license.
+The plugin consumes the first positional argument as `PATH` and its own
+`--kind` option. It ignores additional options and positional arguments so
+other plugins can extend the command without this plugin rejecting their
+inputs. A missing or invalid value for the plugin-owned `--kind` still fails.
+Containerlab itself is preempted only after every active plugin's `before_goal`
+and `analyze_call` callbacks have received the command, allowing other plugins
+to extend it. Wrapper preemption skips `prepare_call` because no external call
+will be attempted.
+
+Set `license: ECLAB_AUTO_LICENSE` to request registered-pool allocation
+explicitly. An unresolved variable such as `license: $FORTIGATE_LICENSES` also
+falls back to registered pools when the variable is absent. Set effective node
+environment `ECLAB_DISABLE_AUTO_LICENSE: "true"` to disable only this implicit
+unresolved-variable fallback; the explicit marker still requests automatic
+allocation. Relative and absolute license paths retain their normal file or
+directory meaning and never trigger this fallback.
+
+Automatic allocation requires the node's effective `kind` to match the
+registration exactly. The kind may be inherited through Containerlab defaults,
+kind, group, or node scope. Using a registered directory explicitly also checks
+that match, preventing a product-specific pool from being applied to the wrong
+node kind. A request fails before Containerlab starts when no matching pool is
+registered or every matching pool is out of licenses.
+
+At deploy-time discovery, registrations whose directories no longer exist are
+removed from user state. Restore and re-register a moved pool before retrying.
+
 ## Inputs
 
 Set a node's `license` to `$POOL_NAME`, then set that invocation environment
@@ -47,10 +88,13 @@ eclab deploy -t lab.clab.yml \
 
 | Input | Meaning |
 | --- | --- |
+| `eclab init-license-pool [PATH] [--kind KIND]` | Register or update an ordered automatic pool. |
+| `license: ECLAB_AUTO_LICENSE` | Allocate from the first registered matching-kind pool with capacity. |
 | `license: $POOL_NAME` | Allocate from the directory named by that invocation variable. |
 | `license: <directory>` | Allocate from that directory, however the path was written. |
 | `env.FOS_UUID` | Recommended stable node identity; node name is the fallback. |
 | `env.ECLAB_LIC_CLAMP` | Require one exact pool filename/path; fails when absent or claimed. |
+| `env.ECLAB_DISABLE_AUTO_LICENSE` | When true, do not use registered pools for an unresolved variable. |
 | `--eclab-license-pool-strategy` | Per-invocation `sticky`, `round-robin`, or `least-recently-used`. |
 | `ECLAB_LICENSE_POOL_STRATEGY` | Persistent strategy default; `least-recently-used` when unset. |
 | `--eclab-license VALUE` | Global file, pool, or `$VARIABLE` for a frozen-license prompt. |
@@ -95,8 +139,9 @@ workspaces cannot claim the same file. The selected source is copied beneath:
 ```
 
 Only the temporary topology receives that copy's path. The source YAML, pool
-file, and license contents are unchanged. Pool/file identities are retained in
-user state, but license contents are not. A failed, preempted, interrupted, or
+file, and license contents are unchanged. Pool/file identities and ordered
+registered-pool paths and kinds are retained in user state, but license contents
+are not. A failed, preempted, interrupted, or
 cancelled deploy or redeploy rolls back the claims and lab copies first created by that
 invocation. If this plugin completes preparation but a later plugin fails
 preparation, the preparation unwind performs the same rollback before
@@ -119,8 +164,9 @@ copy directory; different names separate it. Branding-only editions may keep
 `eclab` and share `.eclab/licenses/`, while a superset executable with its own
 schema pipeline uses its pipeline ID as `short_product_name` and therefore gets
 a separate copy directory. Canonical pool allocation remains shared. Deploy
-logs one selected basename per licensed node, never the pool path, generated
-path, or contents. Basenames and node names are escaped in that diagnostic so
+logs one selected basename and pool per licensed node, never the generated
+path or license contents. Direct-file selections report `None` as the pool.
+Basenames, pool paths, and node names are escaped in that diagnostic so
 unusual filesystem or topology characters cannot inject extra log lines.
 Logical use sequence numbers avoid any dependence on host clocks or file
 timestamps.
@@ -156,9 +202,16 @@ the reading plugin's `context_reads`.
 The plugin reads the context back at the point of publication and logs the
 provenance it holds at debug level. Reading marks the context consumed, so an
 edition that ships no reader for this extension point does not trip the
-framework's warning that a context was written but never read. As with the
-selection log, only the basename and a pooled/direct flag are recorded; pool
-and source paths stay out of the logs.
+framework's warning that a context was written but never read. The debug log
+records only the basename and pooled/direct flag; the info-level selection log
+additionally records the selected pool. Resolved source and generated-copy
+paths stay out of the logs.
+
+An alternate edition allocator may use the shared library registry and publish
+`LicenseAllocationHandoff` through
+`LICENSE_ALLOCATION_HANDOFF_CONTEXT`. When present for an invocation, this
+plugin skips allocation and cleanup. The alternate provider must own leases,
+copies, rollback, and destroy cleanup.
 
 ## Frozen prompts and security
 
@@ -177,12 +230,19 @@ secrets are not. Under MCP, pool variables and frozen-license values are
 profile-owned secrets, and `ECLAB_LICENSE_POOL_STRATEGY` is profile-owned too —
 set it in the profile's ordinary environment map. Caller overrides are rejected
 so an agent cannot make the root daemon copy an arbitrary host file. Use an
-environment variable for local CLI operation.
+environment variable for local CLI operation. `init-license-pool` registers a
+path visible to the account running eclab; when a service owns execution, run
+the command through that same trusted service context rather than registering a
+client-only path.
 
 ## Troubleshooting
 
 - Confirm a pool variable's exact case and its value in the same CLI
   environment or MCP profile actually used for deploy.
+- Confirm `init-license-pool` used the exact effective node kind shown in the
+  topology. Kinds are case-sensitive and missing directories are deregistered.
+- If automatic selection reports no available license, inspect matching pools
+  in registration order and release inactive claims with normal lab destroy.
 - Confirm regular license files are directly inside the pool directory and
   readable by the launcher or service account; under MCP the reader is the root
   daemon, not the caller.

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-license-pool-lib"
+version = "2.0.0"
+description = "Reusable license-pool allocation library for engulf-clab integrations"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_license_pool_lib"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/engulf_clab_license_pool_lib"]

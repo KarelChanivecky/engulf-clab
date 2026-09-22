@@ -7,10 +7,9 @@ import shutil
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any
 
 from engulf_api import (
     ApplicationMetadata,
@@ -27,6 +26,18 @@ from engulf_clab_lab_parser import (
     editor,
     effective_nodes,
     is_topology_mutation_command,
+)
+from engulf_clab_license_pool_lib import (
+    LICENSE_ALLOCATION_HANDOFF_CONTEXT,
+    AllocationRequest,
+    LicenseAllocationHandoff,
+    LicensePoolError,
+    LicensePoolManager,
+    LicenseStrategy,
+    PoolManagerRequest,
+    PoolState,
+    coerce_strategy,
+    run_pool_managers,
 )
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
@@ -49,9 +60,12 @@ from engulf_executable_wrapper_api import (
     PreparedCallEvent,
 )
 
+from .selector import selector
+
 _FILE = "license-pools.json"
-_STATE_VERSION = 2
+_STATE_VERSION = 3
 _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
+_INIT_LICENSE_POOL_EXIT_CONTEXT = "engulf_clab.license_pool.init_exit"
 
 # Published for plugins outside this package -- typically an edition-specific
 # one that must reason about the license a node actually received, such as
@@ -60,6 +74,9 @@ _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation
 # topology by this point holds the copied path rather than the pool origin.
 LICENSE_SELECTION_CONTEXT = "engulf_clab.license_pool.selection"
 _NON_ALPHANUMERIC = re.compile(r"[^A-Z0-9]+")
+_VARIABLE_REFERENCE = re.compile(
+    r"^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$"
+)
 _LEGACY_STATE_DIRECTORY = ".engulf-clab"
 # Allocation identity rides on the node environment rather than a top-level
 # `uuid:` field. Containerlab's own schema has no `uuid` node property, so a
@@ -79,12 +96,10 @@ UUID_ENVIRONMENT = "FOS_UUID"
 # as they share the same short_product_name.
 LABEL_PREFIX = "ECLAB"
 LICENSE_POOL_STRATEGY_ENVIRONMENT = f"{LABEL_PREFIX}_LICENSE_POOL_STRATEGY"
-
-
-class LicenseStrategy(StrEnum):
-    STICKY = "sticky"
-    ROUND_ROBIN = "round-robin"
-    LEAST_RECENTLY_USED = "least-recently-used"
+AUTO_LICENSE = f"{LABEL_PREFIX}_AUTO_LICENSE"
+DISABLE_AUTO_LICENSE_ENVIRONMENT = f"{LABEL_PREFIX}_DISABLE_AUTO_LICENSE"
+DEFAULT_LICENSE_KIND = "fortinet_fortigate"
+INIT_LICENSE_POOL_COMMAND = "init-license-pool"
 
 
 _STRATEGY_VALUES = (
@@ -103,15 +118,30 @@ _STRATEGY_VALUES = (
 )
 
 
-class LicensePoolError(RuntimeError):
-    pass
-
-
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.license_pool", package="engulf_clab_license_pool")
+    .add_command(
+        INIT_LICENSE_POOL_COMMAND,
+        "Register an ordered product-specific license pool for automatic allocation.",
+    )
+    .add_cli_argument(
+        INIT_LICENSE_POOL_COMMAND,
+        "PATH",
+        "Select the license-pool directory to register.",
+        values=ValueType.DIRECTORY_PATH,
+        required=False,
+        default=".",
+    )
+    .add_cli_flag(
+        "--kind",
+        "Associate the pool with this Containerlab node kind.",
+        command=INIT_LICENSE_POOL_COMMAND,
+        values=ValueType.STRING,
+        default=DEFAULT_LICENSE_KIND,
+    )
     .add_node_prop(
         "license",
-        "Select a license pool with $NAME or a directory path, or request a frozen-lab license prompt.",
+        "Select a license source, or request automatic allocation from a registered pool.",
         values=ValueType.STRING,
     )
     .add_node_var(
@@ -123,6 +153,12 @@ PLUGIN_SCHEMA = (
         "ECLAB_LIC_CLAMP",
         "Require a specific available license filename or path from the selected pool.",
         values=ValueType.FILE_PATH,
+    )
+    .add_node_var(
+        DISABLE_AUTO_LICENSE_ENVIRONMENT,
+        "Disable fallback to registered pools for an unresolved license variable.",
+        values=ValueType.BOOLEAN,
+        default=False,
     )
     .add_runtime_var(
         LICENSE_POOL_STRATEGY_ENVIRONMENT,
@@ -154,6 +190,25 @@ PLUGIN_SCHEMA = (
         values=(ValueType.FILE_PATH, ValueType.DIRECTORY_PATH, ValueType.STRING),
     )
     .annotate(
+        INIT_LICENSE_POOL_COMMAND,
+        lifecycle=(LifecycleStage.BEFORE_GOAL,),
+        implies=(
+            "the canonical pool path and node kind are stored in ordered user state",
+            "normal Containerlab execution is preempted",
+        ),
+        examples=("eclab init-license-pool ./licenses --kind fortinet_fortigate",),
+    )
+    .annotate(
+        "PATH",
+        commands=(INIT_LICENSE_POOL_COMMAND,),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+    )
+    .annotate(
+        "--kind",
+        commands=(INIT_LICENSE_POOL_COMMAND,),
+        implies=("automatic allocation validates the effective node kind",),
+    )
+    .annotate(
         "license",
         commands=("deploy", "destroy"),
         lifecycle=(LifecycleStage.PREPARE_CALL, LifecycleStage.AFTER_CALL),
@@ -168,6 +223,7 @@ PLUGIN_SCHEMA = (
         examples=(
             "$ROUTER_LICENSE_POOL",
             "/srv/licenses/router",
+            AUTO_LICENSE,
             "__ECLAB_LICENSE_PROMPT__",
         ),
     )
@@ -181,6 +237,11 @@ PLUGIN_SCHEMA = (
         commands=("deploy", "redeploy"),
         requires=("license selects a $POOL",),
         path_base=PathBase.LICENSE_POOL,
+    )
+    .annotate(
+        DISABLE_AUTO_LICENSE_ENVIRONMENT,
+        commands=("deploy", "redeploy"),
+        requires=("license names an undefined $VARIABLE",),
     )
     .annotate(
         "--eclab-license-pool-strategy",
@@ -266,6 +327,20 @@ class _InvocationAllocation:
 
 
 @dataclass(frozen=True, slots=True)
+class _RegisteredPool:
+    path: str
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class _AutomaticRequest:
+    node: str
+    pools: tuple[str, ...]
+    clamp: str | None
+    claim: str
+
+
+@dataclass(frozen=True, slots=True)
 class LicenseSelection:
     """One node's resolved license, as published on LICENSE_SELECTION_CONTEXT.
 
@@ -320,32 +395,77 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             {
                 TOPOLOGY_CONTEXT,
                 _INVOCATION_ALLOCATION_CONTEXT,
+                _INIT_LICENSE_POOL_EXIT_CONTEXT,
                 LICENSE_SELECTION_CONTEXT,
+                LICENSE_ALLOCATION_HANDOFF_CONTEXT,
             }
         )
         | SCHEMA_CONTEXTS
     )
     context_writes = (
-        frozenset({_INVOCATION_ALLOCATION_CONTEXT, LICENSE_SELECTION_CONTEXT})
+        frozenset(
+            {
+                _INVOCATION_ALLOCATION_CONTEXT,
+                _INIT_LICENSE_POOL_EXIT_CONTEXT,
+                LICENSE_SELECTION_CONTEXT,
+            }
+        )
         | SCHEMA_CONTEXTS
     )
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
     ) -> GoalResult[object] | None:
-        del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
+        if (
+            not invocation.arguments
+            or invocation.arguments[0] != INIT_LICENSE_POOL_COMMAND
+        ):
+            return None
+        application_name = api.application.short_product_name or api.application.product
+        try:
+            pool, kind = _parse_init_license_pool(
+                invocation.arguments[1:], invocation.cwd
+            )
+            with api.leases(("license-pool-registry",)):
+                manager = LicensePoolManager(api.state(StateScope.USER))
+                managed = run_pool_managers(
+                    (manager,),
+                    manager,
+                    PoolManagerRequest(path=pool, kind=kind),
+                )
+                created = managed.changed
+        except (LicensePoolError, OSError, ValueError) as error:
+            api.logger.error(
+                "%s %s: %s", application_name, INIT_LICENSE_POOL_COMMAND, error
+            )
+            exit_code = 2
+        else:
+            api.logger.info(
+                "%s license pool for node kind=%r",
+                "registered" if created else "updated",
+                kind,
+            )
+            exit_code = 0
+        api.set_context(
+            _INIT_LICENSE_POOL_EXIT_CONTEXT,
+            exit_code,
+            allow_unused=True,
+        )
         return None
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering license-pool help")
         contract = license_contract(api.application)
         return (
+            f"  {INIT_LICENSE_POOL_COMMAND} [PATH] [--kind KIND]  Register an automatic license pool\n"
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
             "    license: <directory>        Allocate from that pool directory directly\n"
+            f"    license: {AUTO_LICENSE}  Allocate from the first registered pool for the node kind\n"
             f"    env.{UUID_ENVIRONMENT}: <uuid>     Recommended stable allocation identity\n"
             f"    env.{contract.clamp_environment}: file   Require this available pool filename/path\n"
+            f"    env.{DISABLE_AUTO_LICENSE_ENVIRONMENT}: true  Disable unresolved-variable fallback\n"
             f"    license: {contract.prompt_marker}  Prompt for a file, pool, or $VARIABLE in frozen labs\n"
             "  --eclab-license-pool-strategy STRATEGY\n"
             "      least-recently-used (default), sticky, or round-robin\n"
@@ -354,18 +474,30 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             f"  {contract.license_environment} is the persistent environment default; "
             "--eclab-license wins.\n"
             f"  {contract.license_environment}_<NODE> remains the per-node prompt override.\n"
+            "  Registered pools are matched to the effective node kind in registration order.\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
-            "  Deploy and redeploy log each selected license basename with its node; source paths stay private.\n"
+            "  Deploy and redeploy log each selected license basename, pool, and node.\n"
             "  Failed deployment rolls back new claims; successful destroy releases workspace claims."
         )
 
     def analyze_call(
         self, event: BeforeCallEvent, api: InvocationAPI
     ) -> CallContribution | None:
-        return None
+        if (
+            not event.wrapper_args
+            or event.wrapper_args[0] != INIT_LICENSE_POOL_COMMAND
+        ):
+            return None
+        exit_code = api.require_context(_INIT_LICENSE_POOL_EXIT_CONTEXT)
+        if type(exit_code) is not int:
+            raise LicensePoolError("invalid init-license-pool invocation context")
+        return CallContribution(preempt_exit_code=exit_code)
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
         if not is_topology_mutation_command(event.wrapper_args):
+            return
+        handoff = api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT)
+        if isinstance(handoff, LicenseAllocationHandoff):
             return
         session = api.require_context(TOPOLOGY_CONTEXT)
         if not isinstance(session, TopologySession):
@@ -375,24 +507,53 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         workspace = api.state(StateScope.WORKSPACE).root
         contract = license_contract(api.application)
         strategy = _license_strategy(event.environment)
-        requests = _requests(topology, event.environment, workspace, contract)
+        state = api.state(StateScope.USER)
+        registered = _registered_pools(state)
+        requests = _requests(
+            topology,
+            event.environment,
+            workspace,
+            contract,
+            registered=registered,
+        )
+        automatic = _automatic_requests(
+            topology,
+            event.environment,
+            workspace,
+            contract,
+            registered,
+        )
         prompt_requests, direct = _prompt_requests(
             topology, event.environment, workspace, contract
         )
         requests.extend(prompt_requests)
-        if not requests and not direct:
+        if not requests and not automatic and not direct:
             return
         with api.leases(
-            tuple(sorted({_lease(pool) for _node, pool, _clamp, _claim in requests}))
+            tuple(
+                sorted(
+                    {
+                        _lease(pool)
+                        for _node, pool, _clamp, _claim in requests
+                    }
+                    | {
+                        _lease(pool)
+                        for request in automatic
+                        for pool in request.pools
+                    }
+                )
+            )
         ):
-            state = api.state(StateScope.USER)
-            assigned, created_claims = _claim_with_created(state, requests, strategy)
+            assigned, created_claims = _claim_all_with_created(
+                state, requests, automatic, strategy
+            )
         allocation = _InvocationAllocation(claims=created_claims)
         try:
             api.set_context(_INVOCATION_ALLOCATION_CONTEXT, allocation)
             assigned.update({claim: source for claim, source in direct.values()})
             mutation = editor(api, self.plugin_id)
             selections = [(node, claim) for node, _pool, _clamp, claim in requests]
+            selections.extend((request.node, request.claim) for request in automatic)
             selections.extend(
                 (node, claim) for node, (claim, _source) in direct.items()
             )
@@ -400,6 +561,12 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             # answers that resolved to a pool were folded into `requests` above,
             # so they are correctly reported as pooled.
             pools = {node: pool for node, pool, _clamp, _claim in requests}
+            pools.update(
+                {
+                    request.node: str(Path(assigned[request.claim]).parent)
+                    for request in automatic
+                }
+            )
             published: dict[str, LicenseSelection] = {}
             for node, claim in selections:
                 source = Path(assigned[claim])
@@ -418,8 +585,9 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                     api.set_context(_INVOCATION_ALLOCATION_CONTEXT, allocation)
                 copied = _copy_to_lab(source, session.path.parent, claim, contract)
                 api.logger.info(
-                    "selected license basename=%r for node=%r",
+                    "selected license basename=%r from pool=%r for node=%r",
                     source.name,
+                    published[node].pool,
                     node,
                 )
                 mutation.modify(("topology", "nodes", node, "license"), str(copied))
@@ -440,11 +608,15 @@ class LicensePoolPlugin(SchemaBackedPlugin):
     def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
         if not is_topology_mutation_command(event.wrapper_args):
             return
+        if isinstance(api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT), LicenseAllocationHandoff):
+            return
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if isinstance(allocation, _InvocationAllocation):
             self._rollback_deploy(api, allocation)
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        if isinstance(api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT), LicenseAllocationHandoff):
+            return
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if is_topology_mutation_command(event.wrapper_args):
             if isinstance(allocation, _InvocationAllocation) and (
@@ -498,10 +670,10 @@ def _pool(
     plugin reads the topology, so `license: $POOL` normally arrives here
     already rendered as the pool directory itself. A pool is therefore
     recognised by the value naming a directory, not by a leading `$`. A bare
-    `$NAME` still survives expansion when the variable is unset, and that case
-    keeps naming the variable in the error rather than reporting a missing
-    file. Anything else -- a regular file, the frozen prompt marker, a path
-    that does not exist -- is not this plugin's to allocate and is left for
+    An exact `$NAME` still survives expansion when the variable is unset; the
+    caller reserves that case for registered-pool fallback before invoking this
+    resolver. Anything else -- a regular file, the frozen prompt marker, or a
+    path that does not exist -- is not this plugin's to allocate and is left for
     Containerlab or `_prompt_requests` to handle.
     """
     # An empty YAML string is not a path selector.  Path("") resolves to the
@@ -509,11 +681,15 @@ def _pool(
     # claim licenses from the process working directory.
     if not value or value == contract.prompt_marker:
         return None
-    if value.startswith("$"):
-        pool_name = value[1:].strip("{}")
+    variable = _VARIABLE_REFERENCE.fullmatch(value)
+    if variable is not None:
+        pool_name = variable.group(1) or variable.group(2)
         if not pool_name or pool_name not in environ:
             raise LicensePoolError(f"license pool ${pool_name} is not set")
-        pool = Path(environ[pool_name]).expanduser().resolve()
+        pool_value = environ[pool_name]
+        if not pool_value:
+            raise LicensePoolError(f"license pool ${pool_name} is empty")
+        pool = Path(pool_value).expanduser().resolve()
         if not pool.is_dir():
             raise LicensePoolError(
                 f"license pool ${pool_name} is not a directory: {pool}"
@@ -528,6 +704,8 @@ def _requests(
     environ: Mapping[str, str],
     workspace: Path,
     contract: LicenseContract,
+    *,
+    registered: tuple[_RegisteredPool, ...] = (),
 ) -> list[tuple[str, str, str | None, str]]:
     nodes = data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict):
@@ -540,6 +718,10 @@ def _requests(
     for node in resolved_nodes:
         license_value = node.data.get("license")
         if not isinstance(license_value, str):
+            continue
+        if license_value == AUTO_LICENSE or _undefined_variable(
+            license_value, environ
+        ) is not None:
             continue
         pool = _pool(license_value, environ, contract)
         if pool is None:
@@ -559,8 +741,94 @@ def _requests(
             raise LicensePoolError(
                 f"node {node.name} {UUID_ENVIRONMENT} must be a nonempty string"
             )
+        registration = next(
+            (item for item in registered if item.path == str(pool)), None
+        )
+        if registration is not None:
+            kind = node.data.get("kind")
+            if kind != registration.kind:
+                raise LicensePoolError(
+                    f"node {node.name} kind {kind!r} does not match registered "
+                    f"license pool kind {registration.kind!r}"
+                )
         result.append((node.name, str(pool), clamp, f"{workspace}:{identity}"))
     return result
+
+
+def _automatic_requests(
+    data: dict[str, Any],
+    environ: Mapping[str, str],
+    workspace: Path,
+    contract: LicenseContract,
+    registered: tuple[_RegisteredPool, ...],
+) -> list[_AutomaticRequest]:
+    nodes = data.get("topology", {}).get("nodes", {})
+    if not isinstance(nodes, dict):
+        raise LicensePoolError("topology.nodes is required")
+    try:
+        resolved_nodes = effective_nodes(data)
+    except TopologyError as error:
+        raise LicensePoolError(str(error)) from error
+    result: list[_AutomaticRequest] = []
+    for node in resolved_nodes:
+        license_value = node.data.get("license")
+        if not isinstance(license_value, str):
+            continue
+        node_env = node.data.get("env", {})
+        if node_env is None:
+            node_env = {}
+        if not isinstance(node_env, Mapping):
+            raise LicensePoolError(f"node {node.name} env must be a YAML mapping")
+        explicit = license_value == AUTO_LICENSE
+        implicit = _undefined_variable(license_value, environ) is not None
+        if not explicit and (not implicit or _auto_license_disabled(node_env)):
+            continue
+        kind = node.data.get("kind")
+        if not isinstance(kind, str) or not kind:
+            raise LicensePoolError(
+                f"node {node.name} requires a kind for automatic license allocation"
+            )
+        pools = tuple(item.path for item in registered if item.kind == kind)
+        if not pools:
+            raise LicensePoolError(
+                f"no registered license pool found for node {node.name} kind {kind!r}"
+            )
+        clamp = node_env.get(contract.clamp_environment)
+        if clamp is not None and not isinstance(clamp, str):
+            raise LicensePoolError(
+                f"node {node.name} {contract.clamp_environment} must be a string"
+            )
+        identity = node_env.get(UUID_ENVIRONMENT, node.name)
+        if not isinstance(identity, str) or not identity:
+            raise LicensePoolError(
+                f"node {node.name} {UUID_ENVIRONMENT} must be a nonempty string"
+            )
+        result.append(
+            _AutomaticRequest(
+                node.name,
+                pools,
+                clamp,
+                f"{workspace}:{identity}",
+            )
+        )
+    return result
+
+
+def _undefined_variable(value: str, environ: Mapping[str, str]) -> str | None:
+    match = _VARIABLE_REFERENCE.fullmatch(value)
+    if match is None:
+        return None
+    variable = match.group(1) or match.group(2)
+    if variable in environ:
+        return None
+    return variable
+
+
+def _auto_license_disabled(environment: Mapping[str, object]) -> bool:
+    value = environment.get(DISABLE_AUTO_LICENSE_ENVIRONMENT)
+    return value is True or (
+        isinstance(value, str) and value.strip().casefold() == "true"
+    )
 
 
 def _prompt_requests(
@@ -622,16 +890,78 @@ def _prompt_requests(
     return pools, direct
 
 
+def _parse_init_license_pool(
+    arguments: tuple[str, ...], cwd: Path
+) -> tuple[Path, str]:
+    path_value = "."
+    kind = DEFAULT_LICENSE_KIND
+    positional = False
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--kind":
+            index += 1
+            if index >= len(arguments):
+                raise LicensePoolError("--kind requires a value")
+            kind = arguments[index]
+        elif argument.startswith("--kind="):
+            kind = argument.partition("=")[2]
+        elif not argument.startswith("-") and not positional:
+            path_value = argument
+            positional = True
+        index += 1
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", kind) is None:
+        raise LicensePoolError(
+            "license pool kind must be a lowercase Containerlab kind token"
+        )
+    candidate = Path(path_value).expanduser()
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+    pool = candidate.resolve()
+    if not pool.is_dir():
+        raise LicensePoolError("license pool path must be an existing directory")
+    return pool, kind
+
+
+def _register_pool(state: Any, pool: Path, kind: str) -> bool:
+    return LicensePoolManager(state).register(pool, kind)
+
+
+def _registered_pools(state: Any) -> tuple[_RegisteredPool, ...]:
+    return tuple(
+        _RegisteredPool(pool.path, pool.kind)
+        for pool in LicensePoolManager(state).registered_pools()
+    )
+
+
 def _load(state: Any) -> dict[str, Any]:
     if not state.exists(_FILE):
-        return {"version": _STATE_VERSION, "pools": {}}
+        return {"version": _STATE_VERSION, "pools": {}, "registrations": []}
     value = json.loads(state.read_text(_FILE))
     if not isinstance(value, dict) or not isinstance(value.get("pools"), dict):
         raise LicensePoolError("invalid license-pool state")
     if value.get("version") == 1:
         _upgrade_state_v1(value)
+    if value.get("version") == 2:
+        _upgrade_state_v2(value)
     if value.get("version") != _STATE_VERSION:
         raise LicensePoolError("invalid license-pool state")
+    registrations = value.get("registrations")
+    if not isinstance(registrations, list):
+        raise LicensePoolError("invalid license-pool state")
+    seen: set[str] = set()
+    for registration in registrations:
+        if (
+            not isinstance(registration, dict)
+            or not isinstance(registration.get("path"), str)
+            or not registration["path"]
+            or not isinstance(registration.get("kind"), str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9_-]*", registration["kind"])
+            is None
+            or registration["path"] in seen
+        ):
+            raise LicensePoolError("invalid license-pool state")
+        seen.add(registration["path"])
     for entry in value["pools"].values():
         _validate_pool_entry(entry)
     return value
@@ -651,58 +981,129 @@ def _claim_with_created(
     requests: list[tuple[str, str, str | None, str]],
     strategy: LicenseStrategy | str = LicenseStrategy.LEAST_RECENTLY_USED,
 ) -> tuple[dict[str, str], tuple[tuple[str, str, str], ...]]:
+    return _claim_all_with_created(state, requests, (), strategy)
+
+
+def _claim_all_with_created(
+    state: Any,
+    requests: list[tuple[str, str, str | None, str]],
+    automatic: tuple[_AutomaticRequest, ...] | list[_AutomaticRequest],
+    strategy: LicenseStrategy | str = LicenseStrategy.LEAST_RECENTLY_USED,
+) -> tuple[dict[str, str], tuple[tuple[str, str, str], ...]]:
     strategy = _coerce_strategy(strategy)
     with state.transaction() as locked:
         registry = _load(locked)
-        out = {}
+        out: dict[str, str] = {}
         created: list[tuple[str, str, str]] = []
         for _node, pool, clamp, claim in requests:
             entry = registry["pools"].setdefault(pool, _new_pool_entry())
             _validate_pool_entry(entry)
-            allocations = entry["allocations"]
-            history = entry["history"]
-            # An empty file cannot carry a license; stray markers such as a
-            # touched `.tst` would otherwise be claimed and served. Dotfiles are
-            # skipped for the same reason: a pool directory accumulates editor
-            # swapfiles, `.DS_Store`, and sync metadata that are not licenses.
-            # The name is tested before resolving, so a dotfile symlinked to a
-            # real license is still ignored -- name the target to use it.
-            files = sorted(
-                str(p.resolve()) for p in Path(pool).iterdir()
-                if p.is_file() and not p.name.startswith(".") and p.stat().st_size > 0
-            )
+            files = _pool_files(pool)
             if not files:
                 raise LicensePoolError(f"license pool is empty: {pool}")
-            existing = next(
-                (path for path, owner in allocations.items() if owner == claim), None
+            choice, was_created = _assign_from_pool(
+                entry, pool, files, clamp, claim, strategy
             )
-            if existing in files:
-                _record_use(entry, existing)
-                out[claim] = existing
-                continue
-            free = [path for path in files if path not in allocations]
-            choice: str | None
-            if clamp:
-                target = (
-                    str((Path(pool) / clamp).resolve())
-                    if not Path(clamp).is_absolute()
-                    else str(Path(clamp).resolve())
+            if choice is None:
+                detail = (
+                    "clamped license is unavailable"
+                    if clamp
+                    else "no available licenses"
                 )
-                if target not in free:
-                    raise LicensePoolError(f"clamped license is unavailable: {target}")
-                choice = target
-                entry["clamped"] = sorted(set(entry["clamped"] + [choice]))
-            else:
-                choice = _select_available(entry, files, free, history, claim, strategy)
-                if choice is None:
-                    raise LicensePoolError(f"no available licenses in pool {pool}")
-            allocations[choice] = claim
-            created.append((pool, choice, claim))
-            history[choice] = claim
-            _record_use(entry, choice)
+                raise LicensePoolError(f"{detail} in pool {pool}")
+            if was_created:
+                created.append((pool, choice, claim))
             out[claim] = choice
+
+        for request in automatic:
+            entries: list[tuple[str, dict[str, Any], list[str]]] = []
+            for pool in request.pools:
+                entry = registry["pools"].setdefault(pool, _new_pool_entry())
+                _validate_pool_entry(entry)
+                entries.append((pool, entry, _pool_files(pool, missing_ok=True)))
+            existing = next(
+                (
+                    (pool, entry, path)
+                    for pool, entry, files in entries
+                    for path, owner in entry["allocations"].items()
+                    if owner == request.claim and path in files
+                ),
+                None,
+            )
+            if existing is not None:
+                _pool_name, entry, path = existing
+                _record_use(entry, path)
+                out[request.claim] = path
+                continue
+            selected: tuple[str, dict[str, Any], str, bool] | None = None
+            for pool, entry, files in entries:
+                if not files:
+                    continue
+                choice, was_created = _assign_from_pool(
+                    entry,
+                    pool,
+                    files,
+                    request.clamp,
+                    request.claim,
+                    strategy,
+                )
+                if choice is not None:
+                    selected = (pool, entry, choice, was_created)
+                    break
+            if selected is None:
+                raise LicensePoolError(
+                    f"no available license in registered pools for node {request.node}"
+                )
+            pool, _entry, choice, was_created = selected
+            if was_created:
+                created.append((pool, choice, request.claim))
+            out[request.claim] = choice
         locked.write_text(_FILE, json.dumps(registry, sort_keys=True) + "\n")
         return out, tuple(created)
+
+
+def _pool_files(pool: str, *, missing_ok: bool = False) -> list[str]:
+    try:
+        entries = Path(pool).iterdir()
+        # An empty file cannot carry a license; stray markers such as a touched
+        # `.tst` would otherwise be served. Dotfiles are skipped by pool name,
+        # including a dotfile symlink to a real license.
+        return sorted(
+            str(path.resolve())
+            for path in entries
+            if path.is_file()
+            and not path.name.startswith(".")
+            and path.stat().st_size > 0
+        )
+    except OSError:
+        if missing_ok:
+            return []
+        raise
+
+
+def _assign_from_pool(
+    entry: dict[str, Any],
+    pool: str,
+    files: list[str],
+    clamp: str | None,
+    claim: str,
+    strategy: LicenseStrategy,
+) -> tuple[str | None, bool]:
+    target = clamp
+    if target and not Path(target).is_absolute():
+        target = str((Path(pool) / target).resolve())
+    state = PoolState.from_mapping(entry)
+    result = selector.select(
+        state,
+        files=files,
+        request=AllocationRequest(claim=claim, clamp=target),
+        strategy=strategy,
+    )
+    if result is None:
+        return None, False
+    entry.clear()
+    entry.update(state.to_mapping())
+    return result.path, result.created
 
 
 def _license_strategy(environ: Mapping[str, str]) -> LicenseStrategy:
@@ -715,13 +1116,7 @@ def _license_strategy(environ: Mapping[str, str]) -> LicenseStrategy:
 
 
 def _coerce_strategy(value: LicenseStrategy | str) -> LicenseStrategy:
-    try:
-        return LicenseStrategy(value)
-    except (TypeError, ValueError) as error:
-        choices = ", ".join(strategy.value for strategy in LicenseStrategy)
-        raise LicensePoolError(
-            f"license pool strategy must be one of: {choices}"
-        ) from error
+    return coerce_strategy(value)
 
 
 def _new_pool_entry() -> dict[str, Any]:
@@ -744,6 +1139,11 @@ def _upgrade_state_v1(registry: dict[str, Any]) -> None:
         entry["round_robin_index"] = 0
         entry["last_used"] = {path: 0 for path in entry["history"]}
         entry["usage_sequence"] = 0
+    registry["version"] = 2
+
+
+def _upgrade_state_v2(registry: dict[str, Any]) -> None:
+    registry["registrations"] = []
     registry["version"] = _STATE_VERSION
 
 
@@ -788,43 +1188,24 @@ def _select_available(
     claim: str,
     strategy: LicenseStrategy,
 ) -> str | None:
-    if strategy is LicenseStrategy.STICKY:
-        never = [path for path in free if path not in history]
-        preferred = [
-            path
-            for path in free
-            if history.get(path) == claim and path not in entry["clamped"]
-        ]
-        normal = [path for path in free if path not in entry["clamped"]]
-        for candidates in (preferred, never, normal, free):
-            if candidates:
-                return candidates[0]
-        return None
-
-    available = [path for path in free if path not in entry["clamped"]] or free
-    if not available:
-        return None
-    if strategy is LicenseStrategy.LEAST_RECENTLY_USED:
-        last_used = cast(dict[str, int], entry["last_used"])
-        return min(
-            available,
-            key=lambda path: (last_used.get(path, -1), path),
-        )
-
-    available_set = set(available)
-    start = cast(int, entry["round_robin_index"]) % len(files)
-    for offset in range(len(files)):
-        index = (start + offset) % len(files)
-        if files[index] in available_set:
-            entry["round_robin_index"] = (index + 1) % len(files)
-            return files[index]
-    return None
+    state = PoolState.from_mapping(entry)
+    result = selector.select(
+        state,
+        files=files,
+        request=AllocationRequest(claim=claim),
+        strategy=strategy,
+    )
+    entry.clear()
+    entry.update(state.to_mapping())
+    return result.path if result is not None else None
 
 
 def _record_use(entry: dict[str, Any], path: str) -> None:
-    sequence = entry["usage_sequence"] + 1
-    entry["usage_sequence"] = sequence
-    entry["last_used"][path] = sequence
+    state = PoolState.from_mapping(entry)
+    state.usage_sequence += 1
+    state.last_used[path] = state.usage_sequence
+    entry.clear()
+    entry.update(state.to_mapping())
 
 
 def _release_workspace(state: Any, workspace: str) -> None:

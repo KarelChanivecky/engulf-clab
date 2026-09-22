@@ -9,10 +9,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
-from engulf_api import ApplicationMetadata, InvocationAPI, StateScope
+from engulf_api import (
+    ApplicationMetadata,
+    BeforeGoalAPI,
+    Invocation,
+    InvocationAPI,
+    StateScope,
+)
 from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_license_pool.plugin import (
     _STATE_VERSION,
+    AUTO_LICENSE,
+    DEFAULT_LICENSE_KIND,
+    DISABLE_AUTO_LICENSE_ENVIRONMENT,
+    INIT_LICENSE_POOL_COMMAND,
     LICENSE_POOL_STRATEGY_ENVIRONMENT,
     LICENSE_SELECTION_CONTEXT,
     PLUGIN_SCHEMA,
@@ -21,9 +31,15 @@ from engulf_clab_license_pool.plugin import (
     LicensePoolPlugin,
     LicenseSelection,
     LicenseStrategy,
+    _automatic_requests,
+    _AutomaticRequest,
     _claim,
+    _claim_all_with_created,
     _license_strategy,
+    _parse_init_license_pool,
     _prompt_requests,
+    _register_pool,
+    _registered_pools,
     _release_workspace,
     _requests,
     _warn_legacy_uuid,
@@ -33,6 +49,7 @@ from engulf_clab_schema_api import OptionKind, register_schema_arguments
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
     ArgumentRegistry,
+    BeforeCallEvent,
     CallMode,
     CallOutcome,
     CompletionContext,
@@ -289,13 +306,348 @@ class LicenseStrategyTestCase(unittest.TestCase):
             self.assertEqual(_filename(assigned, workspace), "b.lic")
             registry = json.loads(state.content["license-pools.json"])
             entry = registry["pools"][str(pool)]
-            self.assertEqual(registry["version"], 2)
+            self.assertEqual(registry["version"], 3)
+            self.assertEqual(registry["registrations"], [])
             self.assertEqual(entry["last_used"][str(first)], 0)
             self.assertGreater(entry["last_used"][str(second)], 0)
 
 
+class RegisteredLicensePoolTestCase(unittest.TestCase):
+    _APPLICATION = ApplicationMetadata(
+        application_id="engulf-clab",
+        display_name="eclab",
+        vendor="Engulf",
+        product="eclab",
+        short_product_name="eclab",
+        version="1.0",
+    )
+
+    def test_schema_declares_init_command_and_auto_controls(self) -> None:
+        options = PLUGIN_SCHEMA.snapshot(self._APPLICATION).options
+        declared = {(option.kind, option.name, option.command) for option in options}
+        self.assertIn((OptionKind.COMMAND, INIT_LICENSE_POOL_COMMAND, None), declared)
+        self.assertIn(
+            (OptionKind.CLI_ARGUMENT, "PATH", INIT_LICENSE_POOL_COMMAND), declared
+        )
+        self.assertIn(
+            (OptionKind.CLI_FLAG, "--kind", INIT_LICENSE_POOL_COMMAND), declared
+        )
+        self.assertIn(
+            (OptionKind.NODE_VAR, DISABLE_AUTO_LICENSE_ENVIRONMENT, None), declared
+        )
+
+    def test_init_command_defaults_and_persists_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = MemoryState()
+            api = Mock(spec=BeforeGoalAPI)
+            api.application = self._APPLICATION
+            api.state.return_value = state
+            api.leases.return_value = nullcontext()
+            api.get_context.return_value = None
+            contexts: dict[str, object] = {}
+            api.set_context.side_effect = lambda key, value, **kwargs: contexts.__setitem__(
+                key, value
+            )
+
+            result = LicensePoolPlugin().before_goal(
+                Invocation((INIT_LICENSE_POOL_COMMAND,), root, {}), api
+            )
+
+            self.assertIsNone(result)
+            self.assertEqual(
+                [
+                    (entry.path, entry.kind)
+                    for entry in _registered_pools(state)
+                ],
+                [(str(root.resolve()), DEFAULT_LICENSE_KIND)],
+            )
+            analyze_api = Mock(spec=InvocationAPI)
+            analyze_api.require_context.side_effect = contexts.__getitem__
+            contribution = LicensePoolPlugin().analyze_call(
+                BeforeCallEvent(
+                    "containerlab",
+                    (INIT_LICENSE_POOL_COMMAND,),
+                    CallMode.NORMAL,
+                ),
+                analyze_api,
+            )
+            self.assertIsNotNone(contribution)
+            assert contribution is not None
+            self.assertEqual(contribution.preempt_exit_code, 0)
+
+    def test_failed_init_is_deferred_to_wrapper_preemption(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            contexts: dict[str, object] = {}
+            before_api = Mock(spec=BeforeGoalAPI)
+            before_api.application = self._APPLICATION
+            before_api.get_context.return_value = None
+            before_api.set_context.side_effect = (
+                lambda key, value, **kwargs: contexts.__setitem__(key, value)
+            )
+
+            result = LicensePoolPlugin().before_goal(
+                Invocation(
+                    (INIT_LICENSE_POOL_COMMAND, str(root / "missing")), root, {}
+                ),
+                before_api,
+            )
+
+            self.assertIsNone(result)
+            analyze_api = Mock(spec=InvocationAPI)
+            analyze_api.require_context.side_effect = contexts.__getitem__
+            contribution = LicensePoolPlugin().analyze_call(
+                BeforeCallEvent(
+                    "containerlab",
+                    (INIT_LICENSE_POOL_COMMAND, str(root / "missing")),
+                    CallMode.NORMAL,
+                ),
+                analyze_api,
+            )
+            self.assertIsNotNone(contribution)
+            assert contribution is not None
+            self.assertEqual(contribution.preempt_exit_code, 2)
+
+    def test_registration_order_update_and_missing_pool_pruning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            state = MemoryState()
+
+            self.assertTrue(_register_pool(state, first, DEFAULT_LICENSE_KIND))
+            self.assertTrue(_register_pool(state, second, "linux"))
+            self.assertFalse(_register_pool(state, first, "nokia_srlinux"))
+            first.rmdir()
+
+            registrations = _registered_pools(state)
+            self.assertEqual(
+                [(entry.path, entry.kind) for entry in registrations],
+                [(str(second.resolve()), "linux")],
+            )
+            stored = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                stored["registrations"],
+                [{"kind": "linux", "path": str(second.resolve())}],
+            )
+
+    def test_parser_resolves_relative_path_and_rejects_invalid_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pool, kind = _parse_init_license_pool(
+                (".", "--kind=fortinet_fortigate"), root
+            )
+            self.assertEqual(pool, root.resolve())
+            self.assertEqual(kind, DEFAULT_LICENSE_KIND)
+            with self.assertRaisesRegex(LicensePoolError, "lowercase"):
+                _parse_init_license_pool(("--kind", "FortiGate"), root)
+
+    def test_parser_ignores_unclaimed_extension_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pool, kind = _parse_init_license_pool(
+                (
+                    "--future-option",
+                    ".",
+                    "extension-positional",
+                    "--future-option=value",
+                    "--kind",
+                    "linux",
+                ),
+                root,
+            )
+
+            self.assertEqual(pool, root.resolve())
+            self.assertEqual(kind, "linux")
+
+
+class AutomaticLicensePoolTestCase(unittest.TestCase):
+    _APPLICATION = RegisteredLicensePoolTestCase._APPLICATION
+
+    def _contract(self):
+        return license_contract(self._APPLICATION)
+
+    @staticmethod
+    def _document(license_value: str, *, kind: str = DEFAULT_LICENSE_KIND, **env):
+        return {
+            "topology": {
+                "nodes": {
+                    "router": {
+                        "kind": kind,
+                        "license": license_value,
+                        "env": env,
+                    }
+                }
+            }
+        }
+
+    def test_unresolved_variable_uses_matching_registered_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            state = MemoryState()
+            _register_pool(state, pool, DEFAULT_LICENSE_KIND)
+
+            requests = _automatic_requests(
+                self._document("$UNDEFINED_POOL"),
+                {},
+                Path("/workspace"),
+                self._contract(),
+                _registered_pools(state),
+            )
+
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0].pools, (str(pool.resolve()),))
+
+    def test_disable_only_blocks_implicit_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            state = MemoryState()
+            _register_pool(state, pool, DEFAULT_LICENSE_KIND)
+            registered = _registered_pools(state)
+            disabled = {DISABLE_AUTO_LICENSE_ENVIRONMENT: "true"}
+
+            self.assertEqual(
+                _automatic_requests(
+                    self._document("$UNDEFINED_POOL", **disabled),
+                    {},
+                    Path("/workspace"),
+                    self._contract(),
+                    registered,
+                ),
+                [],
+            )
+            self.assertEqual(
+                len(
+                    _automatic_requests(
+                        self._document(AUTO_LICENSE, **disabled),
+                        {},
+                        Path("/workspace"),
+                        self._contract(),
+                        registered,
+                    )
+                ),
+                1,
+            )
+
+    def test_variable_expression_used_as_a_path_does_not_trigger_fallback(self) -> None:
+        self.assertEqual(
+            _automatic_requests(
+                self._document("${POOL}/router.lic"),
+                {},
+                Path("/workspace"),
+                self._contract(),
+                (),
+            ),
+            [],
+        )
+
+    def test_registered_pool_rejects_a_mismatched_explicit_node_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            state = MemoryState()
+            _register_pool(state, pool, DEFAULT_LICENSE_KIND)
+            with self.assertRaisesRegex(LicensePoolError, "does not match"):
+                _requests(
+                    self._document(str(pool), kind="linux"),
+                    {},
+                    Path("/workspace"),
+                    self._contract(),
+                    registered=_registered_pools(state),
+                )
+
+    def test_first_registered_pool_with_capacity_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            (first / "one.lic").write_text("first", encoding="utf-8")
+            (second / "two.lic").write_text("second", encoding="utf-8")
+            state = MemoryState()
+            _claim(state, [_request(first, "/occupied")])
+            automatic = [
+                _AutomaticRequest(
+                    "router",
+                    (str(first.resolve()), str(second.resolve())),
+                    None,
+                    "/workspace:router",
+                )
+            ]
+
+            assigned, _created = _claim_all_with_created(state, [], automatic)
+
+            self.assertEqual(
+                Path(assigned["/workspace:router"]).parent, second.resolve()
+            )
+
+    def test_missing_matching_registration_is_an_error(self) -> None:
+        with self.assertRaisesRegex(LicensePoolError, "no registered license pool"):
+            _automatic_requests(
+                self._document(AUTO_LICENSE),
+                {},
+                Path("/workspace"),
+                self._contract(),
+                (),
+            )
+
+    def test_prepare_allocates_auto_marker_from_registered_pool(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "lab"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "router.lic").write_text("license", encoding="utf-8")
+            state = MemoryState()
+            _register_pool(state, pool, DEFAULT_LICENSE_KIND)
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                self._document(AUTO_LICENSE),
+            )
+            contexts: dict[str, object] = {}
+            api = Mock(spec=InvocationAPI)
+            api.application = self._APPLICATION
+            api.require_context.return_value = session
+            api.state.side_effect = lambda scope: (
+                SimpleNamespace(root=workspace)
+                if scope is StateScope.WORKSPACE
+                else state
+            )
+            api.leases.return_value = nullcontext()
+            api.set_context.side_effect = lambda key, value: contexts.__setitem__(
+                key, value
+            )
+            api.get_context.side_effect = lambda key, default=None: contexts.get(
+                key, default
+            )
+
+            LicensePoolPlugin().prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    ("deploy",),
+                    ("deploy", "-t", str(session.path)),
+                    CallMode.NORMAL,
+                    {},
+                ),
+                api,
+            )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                len(registry["pools"][str(pool.resolve())]["allocations"]), 1
+            )
+            self.assertEqual(
+                [path.name for path in (workspace / ".eclab" / "licenses").rglob("*.lic")],
+                ["router.lic"],
+            )
+
+
 class LicenseSelectionLoggingTestCase(unittest.TestCase):
-    def test_prepare_logs_node_and_basename_without_source_paths(self) -> None:
+    def test_prepare_logs_node_basename_and_pool(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             lab = root / "lab"
@@ -349,19 +701,19 @@ class LicenseSelectionLoggingTestCase(unittest.TestCase):
                 api.logger.info.call_args_list,
                 [
                     call(
-                        "selected license basename=%r for node=%r",
+                        "selected license basename=%r from pool=%r for node=%r",
                         "pooled.lic",
+                        str(pool.resolve()),
                         "pooled",
                     ),
                     call(
-                        "selected license basename=%r for node=%r",
+                        "selected license basename=%r from pool=%r for node=%r",
                         "direct.lic",
+                        None,
                         "direct",
                     ),
                 ],
             )
-            rendered_calls = repr(api.logger.info.call_args_list)
-            self.assertNotIn(str(root), rendered_calls)
 
 
 class LicenseDeployRollbackTestCase(unittest.TestCase):
@@ -719,6 +1071,7 @@ class DestroyAllCleanupTestCase(unittest.TestCase):
                         "usage_sequence": 0,
                     },
                 },
+                "registrations": [],
             }
         )
         return state
@@ -852,11 +1205,8 @@ class PoolReferenceTestCase(unittest.TestCase):
                 requests, [("router", str(Path(pool).resolve()), None, "/ws:router")]
             )
 
-    def test_an_unexpanded_reference_still_names_the_missing_variable(self) -> None:
-        with self.assertRaises(LicensePoolError) as raised:
-            self._requests_for("$ROUTER_POOL", {})
-
-        self.assertIn("$ROUTER_POOL is not set", str(raised.exception))
+    def test_an_unexpanded_reference_is_reserved_for_automatic_selection(self) -> None:
+        self.assertEqual(self._requests_for("$ROUTER_POOL", {}), [])
 
     def test_a_braced_reference_resolves_to_its_pool(self) -> None:
         with tempfile.TemporaryDirectory() as pool:

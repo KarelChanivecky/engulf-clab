@@ -29,7 +29,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-containers` | Active collection catalog and temporary topology injection. |
 | `engulf-clab-containers-core` | Maintained host-connector and WAN-access recipes. |
 | `engulf-clab-containers-pki` | PKI-enabled Debian 13 and Fedora 44 bases for direct use or inheritance. |
-| `engulf-clab-license-pool` | Leased shared license selection and lab-local copies. |
+| `engulf-clab-license-pool` | Product-aware pool registration, automatic leased selection, and lab-local copies. |
 | `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
 | `engulf-clab-freeze` | Selective image bundling by default, lean recipient inputs, and offline lab archives. |
 | `engulf-clab-lab-registry-api` and `engulf-clab-lab-registry` | Typed shared inventory plus persistent deploy/redeploy tracking. |

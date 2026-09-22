@@ -23,6 +23,7 @@ PACKAGES := \
 	engulf-clab-containers-core \
 	engulf-clab-vrnetlab-build \
 	engulf-clab-wan \
+	engulf-clab-license-pool-lib \
 	engulf-clab-license-pool \
 	engulf-clab-freeze \
 	engulf-clab-lab-registry \
@@ -63,6 +64,7 @@ DIR_engulf-clab-containers := plugins/engulf-clab-containers
 DIR_engulf-clab-containers-core := plugins/engulf-clab-containers-core
 DIR_engulf-clab-vrnetlab-build := plugins/engulf-clab-vrnetlab-build
 DIR_engulf-clab-wan := plugins/engulf-clab-wan
+DIR_engulf-clab-license-pool-lib := plugins/engulf-clab-license-pool-lib
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool
 DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
 DIR_engulf-clab-lab-registry := plugins/engulf-clab-lab-registry
