@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-schema-api"
-version = "1.0.1"
+version = "1.0.2"
 description = "Typed runtime schema contribution contract for engulf-clab plugins"
 readme = "README.md"
 requires-python = ">=3.12"
