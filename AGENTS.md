@@ -204,6 +204,9 @@ example `engulf_clab.example`.
 - After changing the wrapper or plugins, run the narrowest useful validation:
   bytecode compilation, package install checks, plugin discovery checks, or unit
   tests as appropriate for the change.
+- Tests should work toward at least 85% coverage of first-party code. Improve
+  coverage incrementally as related code is touched; reaching the target is a
+  repository goal, not a requirement to expand every unrelated change.
 - Run direct-consumer tests after changing a shared contract: parser changes
   affect mutators/writer, container API changes affect manager/collections, and
   checkout changes affect both ensure plugins.

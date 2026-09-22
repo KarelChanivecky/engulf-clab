@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-image-build"
-version = "0.1.1"
+version = "0.1.2"
 description = "Containerlab adapter for the application-neutral Docker image build graph"
 readme = "README.md"
 requires-python = ">=3.12"
