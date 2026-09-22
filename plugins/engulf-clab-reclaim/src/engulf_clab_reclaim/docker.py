@@ -143,14 +143,21 @@ class DockerClient:
         # Deliberately omit --force: Docker must protect non-lab consumers that
         # are outside the registry's ownership model.
         try:
-            references = self._image_references(image_id)
+            tags, digests = self._image_references(image_id)
         except DockerError as error:
             if _already_gone(str(error)):
                 return False
             raise
-        return self._run_removal(("image", "rm", *(references or (image_id,))))
+        references = tags or digests or (image_id,)
+        removed = False
+        # Docker removes digest references when their tag is removed. Remove
+        # tags one at a time so the daemon never receives the image ID while
+        # it is still referenced by another repository.
+        for reference in references:
+            removed = self._run_removal(("image", "rm", reference)) or removed
+        return removed
 
-    def _image_references(self, image_id: str) -> tuple[str, ...]:
+    def _image_references(self, image_id: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         payload = _json(
             self._run(("image", "inspect", image_id)),
             "image inspect",
@@ -159,8 +166,8 @@ class DockerClient:
             payload[0], dict
         ):
             raise DockerError("docker image inspect returned invalid JSON")
-        references: list[str] = []
-        for field in ("RepoTags", "RepoDigests"):
+        references: list[list[str]] = [[], []]
+        for index, field in enumerate(("RepoTags", "RepoDigests")):
             values = payload[0].get(field)
             if not isinstance(values, list):
                 continue
@@ -169,10 +176,10 @@ class DockerClient:
                     isinstance(value, str)
                     and value
                     and value != "<none>:<none>"
-                    and value not in references
+                    and value not in references[index]
                 ):
-                    references.append(value)
-        return tuple(references)
+                    references[index].append(value)
+        return tuple(references[0]), tuple(references[1])
 
     def _run_removal(self, arguments: Sequence[str]) -> bool:
         """Run one removal, tolerating an object that is already gone.

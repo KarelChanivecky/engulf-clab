@@ -700,7 +700,7 @@ class DockerTest(unittest.TestCase):
         )
         self.assertNotIn("--force", run.call_args_list[-1].args[0])
 
-    def test_image_removal_removes_all_repository_references_without_force(
+    def test_image_removal_untags_each_repository_without_force(
         self,
     ) -> None:
         docker = DockerClient()
@@ -712,18 +712,16 @@ class DockerTest(unittest.TestCase):
                 }
             ]
         )
-        with patch.object(docker, "_run", side_effect=(inspect, "")) as run:
+        with patch.object(docker, "_run", side_effect=(inspect, "", "")) as run:
             docker.remove_image("sha256:image")
 
         self.assertEqual(
-            run.call_args_list[-1].args[0],
-            (
-                "image",
-                "rm",
-                "example/router:latest",
-                "mirror/router:1",
-                "example/router@sha256:digest",
-            ),
+            [call.args[0] for call in run.call_args_list],
+            [
+                ("image", "inspect", "sha256:image"),
+                ("image", "rm", "example/router:latest"),
+                ("image", "rm", "mirror/router:1"),
+            ],
         )
         self.assertNotIn("--force", run.call_args_list[-1].args[0])
 

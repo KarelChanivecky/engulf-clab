@@ -49,9 +49,11 @@ images also owned by a running or destroyed lab are preserved. Destroyed and
 running labs are not selected by this mode.
 
 Image removal does not use Docker's `--force`. When one image ID has several
-repository tags or digests, reclaim removes those references together so Docker
-can remove the image normally. An image retained by an unrelated container is
-still preserved by Docker and reported as a failure.
+repository tags, reclaim removes those tags one at a time so Docker can remove
+the image normally; Docker removes the corresponding digest references
+automatically. Untagged images are removed by digest or ID. An image retained
+by an unrelated container is still preserved by Docker and reported as a
+failure.
 
 The command never deletes the topology, startup configurations, captures, logs,
 or any other file in a lab directory. It does not prune unrelated containers,

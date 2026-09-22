@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-reclaim"
-version = "0.1.3"
+version = "0.1.4"
 description = "Reclaim lab-owned Docker storage while preserving eclab workspaces"
 readme = "README.md"
 requires-python = ">=3.12"
