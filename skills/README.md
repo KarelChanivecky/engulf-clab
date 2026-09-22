@@ -50,8 +50,9 @@ other executable, so it cannot generate or refresh the eclab target there.
 The installer refuses a symlinked configuration root, a symlinked skills
 directory, and an existing target without its generated-skill ownership marker.
 Recognized prior generations are moved to a backup directory beside the active
-skill. Schema fingerprints remain under `references/runtimes/` so an existing
-conversation can keep using the snapshot it started with.
+skill. The generated skill retains only the active runtime fingerprint under
+`references/runtimes/`; if that runtime is missing or incomplete, the next
+eclab call treats the target as stale and requests a fresh compilation.
 
 ## Refresh lifecycle
 

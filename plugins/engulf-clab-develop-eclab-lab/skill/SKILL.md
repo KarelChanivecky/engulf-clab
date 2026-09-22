@@ -11,8 +11,11 @@ description: Build, refine, validate, operate, and troubleshoot Containerlab lab
    `skills/` directory containing the skill.
 2. Run `@@SHORT_PRODUCT@@ @@INSTALL_COMMAND@@ <CONFIG_ROOT>` to refresh the
    eclab runtime inventory. If it fails, do not treat an older bundle as proof
-   of current availability.
-3. Confirm the executable and schema pipeline in the appended catalog. Use
+   of current availability. If `references/current.json` points to a missing
+   or incomplete runtime, this refresh is required; do not fall back to another
+   fingerprinted runtime.
+3. After refresh, re-read the installed `SKILL.md` and `references/current.json`.
+   Confirm the executable and schema pipeline in the active catalog, using
    runtime help as the command authority.
 4. Route through the catalog. Read only the relevant provider's compact
    `schema.yaml`, then open a routed reference when detailed syntax, lifecycle,

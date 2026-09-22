@@ -29,13 +29,18 @@ The configuration root must already exist and must not be a symlink. The
 installer also refuses a symlinked `skills/` directory, a symlinked target, and
 an unrelated target. Recognized replacements are moved beneath
 `.develop-eclab-lab-backups/<timestamp>` before the staged update is published
-atomically. Only the latest skill backup is retained; older backups are
-removed, while older runtime bundles remain available for existing conversations.
+atomically. Only the latest skill backup and the active runtime bundle are
+retained; older backups and recognized older runtime fingerprint directories
+are removed. Unknown entries and symlinks under `references/runtimes/` are left
+untouched.
 
 Explicitly installed roots are tracked for best-effort refresh after later
 eclab calls. An incomplete recognized target is repaired from the cached bundle.
-Deleting the whole generated target or removing its ownership marker untracks
-that root from automatic refresh. Explicit installation failures return nonzero, while an
+If `references/current.json` points to a missing or incomplete runtime, the
+target is considered stale and the next eclab call requests a fresh schema
+bundle; the skill must not fall back to another fingerprint. Deleting the whole
+generated target or removing its ownership marker untracks that root from
+automatic refresh. Explicit installation failures return nonzero, while an
 automatic refresh failure cannot change the wrapped command's result.
 
 This collector runs only under the base `eclab` executable. A superset edition

@@ -19,7 +19,12 @@
 - A valid explicit install request must enter the schema generator before the
   wrapped goal is preempted. The consumer installs only a compiled context value.
 - Never overwrite an unrecognized or symlinked target. Stage beside the target,
-  preserve fingerprinted runtime bundles, then rename atomically.
+  retain only the active recognized runtime fingerprint, preserve unknown
+  runtime entries and symlinks, then rename atomically.
+- `_installed_fingerprint()` must treat a missing or incomplete active runtime
+  as stale. The tracked-target path must request a fresh schema build so the
+  next eclab call can repair it; the generated skill must not fall back to an
+  older fingerprint.
 - Automatic refresh is best effort and cannot change a wrapped call's result.
   Explicit installation failures must return nonzero.
 - Do not request automatic schema work without a tracked target. Report one

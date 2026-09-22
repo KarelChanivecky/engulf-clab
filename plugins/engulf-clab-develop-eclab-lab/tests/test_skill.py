@@ -1,9 +1,11 @@
 import json
+import shutil
 import tomllib
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 from engulf_api import ApplicationMetadata, GoalResult, Invocation
+from engulf_clab_schema_api import CompiledSchemaBundle
 
 from engulf_clab_develop_lab_skill.plugin import (
     MARKER_NAME,
@@ -12,6 +14,7 @@ from engulf_clab_develop_lab_skill.plugin import (
     _installed_fingerprint,
     _is_eclab_application,
     _prune_backups,
+    _prune_runtimes,
     _skip_automatic_refresh,
     _write_static_skill,
     install_command,
@@ -35,6 +38,36 @@ EXTERNAL_APPLICATION = ApplicationMetadata(
     short_product_name="example-edition",
     version="1.0",
 )
+
+
+class _RecordingAPI:
+    def lease(self, name: str) -> Self:
+        del name
+        return self
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        del args
+
+
+def _bundle(fingerprint: str) -> CompiledSchemaBundle:
+    manifest = {
+        "fingerprint": fingerprint,
+        "pipeline": {"id": "eclab", "lineage": ["eclab"]},
+        "plugins": [],
+        "node_kinds": None,
+    }
+    return CompiledSchemaBundle(
+        fingerprint=fingerprint,
+        manifest=(json.dumps(manifest) + "\n").encode(),
+        topology_schema=b"{}\n",
+        catalog_json=b"{}\n",
+        catalog_markdown=b"# Catalog\n",
+        references=(),
+        pipeline_id="eclab",
+    )
 
 
 def test_help_invocations_do_not_trigger_automatic_schema_refresh() -> None:
@@ -63,6 +96,7 @@ def test_static_eclab_names_and_rendered_skill(tmp_path: Path) -> None:
     assert "Never assign, rename, or use `eth0`" in definition
     assert "## Diagnose in layers" in definition
     assert "Do not infer vendor behavior from the generic skill" in definition
+    assert "do not fall back to another" in definition
     assert "FortiGate" not in definition
     assert len(definition.split()) < 1000
     assert "$develop-eclab-lab" in agent
@@ -120,6 +154,72 @@ def test_installed_fingerprint_requires_a_complete_runtime(tmp_path: Path) -> No
     assert _installed_fingerprint(target) == fingerprint
     (runtime / "catalog.json").unlink()
     assert _installed_fingerprint(target) is None
+    shutil.rmtree(runtime)
+    assert _installed_fingerprint(target) is None
+
+
+def test_prune_runtimes_keeps_active_bundle_and_unrecognized_entries(
+    tmp_path: Path,
+) -> None:
+    runtimes = tmp_path / "runtimes"
+    runtimes.mkdir()
+    keep = "a" * 64
+    old = "b" * 64
+    (runtimes / keep).mkdir()
+    (runtimes / old).mkdir()
+    (runtimes / "notes").mkdir()
+    link = runtimes / "linked"
+    link.symlink_to(runtimes / old, target_is_directory=True)
+
+    _prune_runtimes(runtimes, keep=keep)
+
+    assert (runtimes / keep).is_dir()
+    assert not (runtimes / old).exists()
+    assert (runtimes / "notes").is_dir()
+    assert link.is_symlink()
+
+
+def test_install_discards_runtime_history_without_backing_it_up(tmp_path: Path) -> None:
+    root = tmp_path / "config"
+    root.mkdir()
+    target = root / "skills" / skill_name()
+    _write_static_skill(target)
+    old_fingerprint = "a" * 64
+    old_runtime = target / "references" / "runtimes" / old_fingerprint
+    old_runtime.mkdir(parents=True)
+    manifest = {
+        "fingerprint": old_fingerprint,
+        "pipeline": {"id": "eclab", "lineage": ["eclab"]},
+        "plugins": [],
+        "node_kinds": None,
+    }
+    (old_runtime / "manifest.json").write_text(json.dumps(manifest) + "\n")
+    (old_runtime / "clab.schema.json").write_text("{}\n")
+    (old_runtime / "catalog.json").write_text("{}\n")
+    (old_runtime / "catalog.md").write_text("# Catalog\n")
+    (target / "references" / "current.json").write_text(
+        json.dumps({"fingerprint": old_fingerprint, "pipeline_id": "eclab"}) + "\n"
+    )
+    (target / MARKER_NAME).write_text(
+        json.dumps(
+            {
+                "owner": PLUGIN_ID,
+                "skill_name": skill_name(),
+                "pipeline_id": "eclab",
+                "fingerprint": old_fingerprint,
+            }
+        )
+        + "\n"
+    )
+
+    new_fingerprint = "b" * 64
+    plugin._install(cast(Any, _RecordingAPI()), root, skill_name(), _bundle(new_fingerprint))
+
+    runtimes = target / "references" / "runtimes"
+    assert {entry.name for entry in runtimes.iterdir()} == {new_fingerprint}
+    backups = root / "skills" / f".{skill_name()}-backups"
+    backup = next(entry for entry in backups.iterdir() if entry.is_dir())
+    assert not (backup / "references" / "runtimes").exists()
 
 
 def test_prune_backups_keeps_only_latest_backup(tmp_path: Path) -> None:

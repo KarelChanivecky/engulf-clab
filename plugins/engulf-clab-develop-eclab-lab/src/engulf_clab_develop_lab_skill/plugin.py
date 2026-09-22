@@ -257,7 +257,13 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                 api.logger.warning("stopped tracking unrecognized generated skill %s", target)
                 continue
             retained.append(record)
-            fingerprints.append(_installed_fingerprint(target))
+            fingerprint = _installed_fingerprint(target)
+            if fingerprint is None:
+                api.logger.info(
+                    "generated skill runtime is missing or incomplete; requesting refresh for %s",
+                    target,
+                )
+            fingerprints.append(fingerprint)
         if retained != records:
             _write_targets(state, retained)
         current = (
@@ -297,10 +303,16 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                 if target.is_symlink() or marker is None:
                     raise ValueError(f"refusing to replace unrecognized path: {target}")
                 if _installed_fingerprint(target) == bundle.fingerprint:
+                    _prune_runtimes(
+                        target / "references" / "runtimes",
+                        keep=bundle.fingerprint,
+                    )
                     if backups.is_dir() and not backups.is_symlink():
                         _prune_backups(backups)
                     return target
             staged = Path(tempfile.mkdtemp(prefix=f".{name}.", dir=skills))
+            carried: Path | None = None
+            backup: Path | None = None
             try:
                 _write_static_skill(
                     staged,
@@ -310,11 +322,8 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                 if target.is_dir():
                     previous_runtimes = target / "references" / "runtimes"
                     if previous_runtimes.is_dir() and not previous_runtimes.is_symlink():
-                        shutil.copytree(
-                            previous_runtimes,
-                            staged / "references" / "runtimes",
-                            dirs_exist_ok=True,
-                        )
+                        previous_runtimes.rename(staged / "references" / "runtimes")
+                        carried = previous_runtimes
                 runtime = staged / "references" / "runtimes" / bundle.fingerprint
                 runtime.mkdir(parents=True, exist_ok=True)
                 (runtime / "manifest.json").write_bytes(bundle.manifest)
@@ -358,8 +367,25 @@ class DevelopLabSkillPlugin(SchemaBackedPlugin):
                     backups.mkdir(exist_ok=True)
                     backup = backups / f"{time.time_ns()}"
                     target.replace(backup)
-                    _prune_backups(backups, keep=backup)
                 staged.replace(target)
+                _prune_runtimes(
+                    target / "references" / "runtimes",
+                    keep=bundle.fingerprint,
+                )
+                if backup is not None:
+                    _prune_backups(backups, keep=backup)
+            except BaseException:
+                if backup is not None and backup.exists() and not target.exists():
+                    backup.replace(target)
+                staged_runtimes = staged / "references" / "runtimes"
+                if (
+                    carried is not None
+                    and carried.parent.exists()
+                    and not carried.exists()
+                    and staged_runtimes.is_dir()
+                ):
+                    staged_runtimes.rename(carried)
+                raise
             finally:
                 if staged.exists():
                     shutil.rmtree(staged)
@@ -372,6 +398,34 @@ def install_command() -> str:
 
 def skill_name() -> str:
     return ECLAB_SKILL_NAME
+
+
+def _is_runtime_fingerprint(value: str) -> bool:
+    return len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
+    )
+
+
+def _prune_runtimes(runtimes: Path, *, keep: str) -> None:
+    """Keep the active runtime and leave unrelated entries untouched."""
+    if not _is_runtime_fingerprint(keep):
+        raise ValueError("cannot retain an invalid runtime fingerprint")
+    if not runtimes.is_dir() or runtimes.is_symlink():
+        return
+    try:
+        entries = tuple(runtimes.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name == keep or not _is_runtime_fingerprint(entry.name):
+            continue
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        try:
+            shutil.rmtree(entry)
+        except OSError:
+            # Retention is housekeeping; failure must not invalidate a new install.
+            continue
 
 
 def _prune_backups(backups: Path, *, keep: Path | None = None) -> None:
