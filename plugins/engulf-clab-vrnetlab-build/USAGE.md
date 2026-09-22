@@ -44,8 +44,11 @@ with a nonempty `ECLAB_VRNETLAB_TYPE`. The type, image, and image-source
 environment values inherit through `defaults < kind < group < node`; the node
 view's winning values are used. Place image selectors after the command;
 they are plugin-owned deployment options rather than Containerlab root flags. Each exact
-node or reserved `default` selector may appear once. A bare path remains a
-compatibility spelling of `default=PATH`; prefer the explicit form.
+node or reserved `default` selector may appear once. The node-specific selector
+overrides that node's YAML value; `default=PATH` overrides every node YAML
+source that does not have its own selector and also supplies the fallback. A
+bare path remains a compatibility spelling of `default=PATH`; prefer the
+explicit form.
 
 Completion offers `default=` plus opted-in node names, reading the topology
 selected by `-t`, `--topo`, or `--topology` and otherwise falling back to the
@@ -64,8 +67,8 @@ bandwidth.
 For each opted-in node:
 
 1. exact CLI node selector;
-2. node `env.ECLAB_VRNETLAB_IMG_PATH`;
-3. CLI `default` selector;
+2. CLI `default` selector;
+3. node `env.ECLAB_VRNETLAB_IMG_PATH`;
 4. invocation `ECLAB_VRNETLAB_IMG_PATH`;
 5. legacy `ECLAB_VM_IMG`, then `ECLAB_VM_SRC`.
 

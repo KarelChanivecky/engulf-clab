@@ -12,6 +12,7 @@ from engulf_executable_wrapper_api import (
     CompletionContext,
     CompletionRegistry,
     ExecutableWrapperPlugin,
+    Runtime,
 )
 
 from .builder import PluginSchema
@@ -60,7 +61,14 @@ def register_schema_arguments(
             takes_value=option.value_mode is not None,
             metavar=_metavar(option),
             description=_description(option),
-            value_completer=(None if option.value_mode is None else _ValueCompleter(option)),
+            value_completer=(
+                None
+                if option.value_mode is None
+                else Runtime(
+                    f"schema-value:{option.name}",
+                    _ValueCompleter(option),
+                )
+            ),
             repeatable=option.repeatable,
             when=(
                 _CommandPredicate(command_scopes[option.name])
@@ -79,7 +87,7 @@ def register_schema_completions(
     """Register commands, scoped flags, and positional values from a schema."""
     options = schema.options(application)
     if any(option.kind is OptionKind.COMMAND for option in options):
-        registry.provider(_CommandCompleter(options))
+        registry.provider(Runtime("schema-commands", _CommandCompleter(options)))
 
 
 class _ValueCompleter:

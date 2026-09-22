@@ -39,9 +39,10 @@ not on the Python class.
 - Require image selectors to follow a deploy or single-source redeploy command. Other topology-aware
   plugins receive the same original argument tuple, so treating this option as
   a pre-command global would bypass their command detection.
-- Treat `default` as the reserved CLI fallback selector. Preserve exact-selector
-  precedence over node YAML, followed by `default`, the persistent environment
-  fallback, and legacy aliases. Reject duplicate selectors, unknown nodes, and
+- Treat `default` as the reserved CLI selector for both an explicit override and
+  the fallback. Preserve exact-selector precedence over `default`, followed by
+  node YAML, the persistent environment fallback, and legacy aliases. Reject
+  duplicate selectors, unknown nodes, and
   nodes that do not opt into vrnetlab construction.
 - Keep image completion bounded to parsing the selected local topology and
   listing its opted-in node names and local paths. It must not build images,

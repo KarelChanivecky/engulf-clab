@@ -46,8 +46,10 @@ from engulf_executable_wrapper_api import (
     CompletionCandidate,
     CompletionContext,
     HelpAPI,
+    Match,
     PreparationFailedEvent,
     PreparedCallEvent,
+    Runtime,
 )
 
 from .config import (
@@ -147,7 +149,7 @@ PLUGIN_SCHEMA = (
         commands=("deploy", "redeploy"),
         lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
         path_base=PathBase.TOPOLOGY_DIRECTORY,
-        implies=("specific node, node YAML, default selector, then environment precedence",),
+        implies=("specific node, default selector, node YAML, then environment precedence",),
         examples=("default=/images/router.qcow2", "router=/images/router.zip"),
     )
     .annotate(
@@ -207,18 +209,24 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             takes_value=True,
             metavar="NODE=FILE",
             description="Select a per-node vrnetlab image source",
-            value_completer=complete_image_option,
+            value_completer=Runtime(
+                "image-selector",
+                complete_image_option,
+            ),
             suggest_assignment=False,
             repeatable=True,
-            when=_after_deploy_completion,
+            when=Match.any_prior_word(("deploy", "redeploy")),
         )
         registry.option(
             "--eclab-vrnetlab-build-jobs",
             takes_value=True,
             metavar="POSITIVE_INTEGER",
             description="Limit concurrent vrnetlab image builds",
-            value_completer=_complete_build_jobs,
-            when=_deploy_completion,
+            value_completer=Runtime(
+                "vrnetlab-build-jobs",
+                _complete_build_jobs,
+            ),
+            when=Match.cursor_at(0) | Match.any_prior_word(("deploy", "redeploy")),
             environment=f"{LABEL_PREFIX}_VRNETLAB_BUILD_JOBS",
         )
 
@@ -244,14 +252,14 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             f"    {prefix}_VRNETLAB_TYPE      Opt in and select the vrnetlab builder\n"
             "  Wrapper options:\n"
             "    --eclab-vrnetlab-image NODE=FILE  Select a repeatable node image source\n"
-            "      default=FILE                    Fallback when no node source is selected\n"
+            "      default=FILE                    Override node sources and supply the fallback\n"
             "    --eclab-vrnetlab-build-jobs COUNT Concurrent image builds "
             f"(default: {DEFAULT_VRNETLAB_BUILD_JOBS})\n"
             "  Opted-in node images are provisioned through the image-build graph: "
             "this plugin's provider offers a vrnetlab build recipe for each requested "
             "tag ahead of the pull fallback.\n"
             f"  {prefix}_VRNETLAB_IMG_PATH remains the persistent image fallback; "
-            "node selectors and node YAML win.\n"
+            "CLI selectors win over node YAML.\n"
             f"  {prefix}_VRNETLAB_BUILD_JOBS is the persistent job default; its CLI option wins.\n"
             f"  {prefix}_VM_IMG and {prefix}_VM_SRC remain legacy image-source aliases."
         )

@@ -149,12 +149,12 @@ def _source_setting(
     node_selector = image_selectors.get(node_name)
     if node_selector is not None:
         return node_selector
-    node_value = _optional_string(node_env, image_path_environment, owner="node environment")
-    if node_value is not None:
-        return node_value
     default_selector = image_selectors.get("default")
     if default_selector is not None:
         return default_selector
+    node_value = _optional_string(node_env, image_path_environment, owner="node environment")
+    if node_value is not None:
+        return node_value
     if value := environ.get(image_path_environment):
         return value
     return (

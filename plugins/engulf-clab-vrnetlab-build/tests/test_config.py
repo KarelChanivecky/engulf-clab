@@ -190,7 +190,7 @@ class SourceConfigurationTest(unittest.TestCase):
             with self.assertRaisesRegex(VrnetlabError, "MY_LAB_EDGE_1_IMAGE_SOURCE"):
                 build_requests_from_topology(Path(directory) / "lab.clab.yml", data, {})
 
-    def test_cli_selector_precedence_is_specific_yaml_default_then_environment(self) -> None:
+    def test_cli_selector_precedence_is_specific_default_yaml_then_environment(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             data = {
@@ -233,7 +233,7 @@ class SourceConfigurationTest(unittest.TestCase):
             {request.node_name: request.source for request in requests},
             {
                 "specific": Path("/images/specific-cli.qcow2"),
-                "yaml": Path("/images/yaml.qcow2"),
+                "yaml": Path("/images/default.qcow2"),
                 "fallback": Path("/images/default.qcow2"),
             },
         )

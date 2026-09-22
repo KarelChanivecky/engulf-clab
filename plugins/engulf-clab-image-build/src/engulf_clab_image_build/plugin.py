@@ -52,7 +52,9 @@ from engulf_executable_wrapper_api import (
     CompletionCandidate,
     CompletionContext,
     HelpAPI,
+    Match,
     PreparedCallEvent,
+    Runtime,
 )
 
 PLUGIN_ID = "engulf_clab.image_build"
@@ -181,8 +183,11 @@ class ImageBuildPlugin(SchemaBackedPlugin):
             takes_value=True,
             metavar="POSITIVE_INTEGER",
             description="Limit concurrent provider-backed Docker image builds",
-            value_completer=_complete_image_build_jobs,
-            when=_deploy_completion,
+            value_completer=Runtime(
+                "image-build-jobs",
+                _complete_image_build_jobs,
+            ),
+            when=Match.cursor_at(0) | Match.any_prior_word(("deploy", "redeploy")),
             environment=_JOBS_ENV,
         )
 

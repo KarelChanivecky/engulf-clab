@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from engulf import FRAMEWORK_ERROR_EXIT, GoalPrivilegeError
+from engulf import FRAMEWORK_ERROR_EXIT, GoalPrivilegeError, PluginPolicy
+from engulf_executable_wrapper import ExecutableWrapperGoal
+from engulf_executable_wrapper.completion import (
+    completion_context_for_request,
+    handle_internal_protocol,
+)
 
-from .app import CONTAINERLAB_APPLICATION
+from .app import (
+    CONTAINERLAB_APPLICATION,
+    ContainerlabApp,
+    binary_path,
+    load_completion_artifact,
+    publish_completion_artifact,
+)
 
 
 def main() -> int:
@@ -24,8 +36,12 @@ def main() -> int:
     arguments = tuple(sys.argv[1:])
     if len(arguments) == 2 and arguments[0] == "--eclab-freeze-compatible":
         return _compatible(Path(arguments[1]))
+    if os.environ.get("ENGULF_INTERNAL_PROTOCOL") == "1":
+        return _internal_completion(arguments)
     try:
         with CONTAINERLAB_APPLICATION.create() as application:
+            if isinstance(application.goal, ExecutableWrapperGoal):
+                publish_completion_artifact(application)
             if _plugin_list_requested(arguments) and not _has_plugin_list_diagnostic(
                 application
             ):
@@ -38,6 +54,51 @@ def main() -> int:
     except GoalPrivilegeError as error:
         print(f"eclab: {error}", file=sys.stderr)
         return FRAMEWORK_ERROR_EXIT
+
+
+def _internal_completion(arguments: tuple[str, ...]) -> int:
+    """Answer one merged completion request with lazy plugin activation."""
+    artifact = load_completion_artifact()
+    if artifact is None:
+        try:
+            with CONTAINERLAB_APPLICATION.create() as application:
+                publish_completion_artifact(application)
+                return handle_internal_protocol(_wrapper_goal(application), arguments)
+        except GoalPrivilegeError as error:
+            print(f"eclab: {error}", file=sys.stderr)
+            return FRAMEWORK_ERROR_EXIT
+
+    compiled, _fingerprint = artifact
+    static_goal = ExecutableWrapperGoal.from_compiled_completion(
+        binary_path(),
+        compiled,
+        display_name="eclab",
+        source_completion=True,
+    )
+    if os.environ.get("ENGULF_INTERNAL_ACTION") != "complete-context":
+        return handle_internal_protocol(static_goal, arguments)
+    context = completion_context_for_request(static_goal, arguments)
+    owners = compiled.runtime_owners(context)
+    if not owners:
+        return handle_internal_protocol(static_goal, arguments)
+
+    try:
+        active_ids = frozenset(compiled.runtime_closure(owners))
+        with ContainerlabApp(
+            plugin_policy=PluginPolicy.allow_only(active_ids),
+            source_completion=True,
+        ) as application:
+            return handle_internal_protocol(_wrapper_goal(application), arguments)
+    except GoalPrivilegeError as error:
+        print(f"eclab: {error}", file=sys.stderr)
+        return FRAMEWORK_ERROR_EXIT
+
+
+def _wrapper_goal(application: Any) -> ExecutableWrapperGoal:
+    goal = application.goal
+    if not isinstance(goal, ExecutableWrapperGoal):
+        raise TypeError("eclab application goal is not an executable wrapper")
+    return goal
 
 
 def _compatible(requirements: Path) -> int:

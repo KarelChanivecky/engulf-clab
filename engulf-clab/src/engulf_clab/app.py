@@ -5,8 +5,10 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import sys
+from collections.abc import Iterable, Mapping
 from os import PathLike
 from pathlib import Path
+from typing import Any
 
 from engulf import (
     Application,
@@ -16,7 +18,13 @@ from engulf import (
     StateHomeResolver,
     WorkspaceRootResolver,
 )
-from engulf_executable_wrapper import ExecutableWrapperGoal
+from engulf_executable_wrapper import (
+    CompiledCompletion,
+    CompletionArtifactStore,
+    ExecutableWrapperGoal,
+    compile_completion,
+    completion_environment_fingerprint,
+)
 from engulf_executable_wrapper_api import (
     CallOutcome,
     CompletionCallable,
@@ -47,6 +55,137 @@ def _distribution_version() -> str:
 
 VERSION = _distribution_version()
 CONTAINERLAB_BINARY = "containerlab"
+
+
+def completion_artifact_path(
+    environment: Mapping[str, str] | None = None,
+) -> Path:
+    """Return the per-user persisted completion artifact location."""
+    values = os.environ if environment is None else environment
+    cache_home = values.get("XDG_CACHE_HOME")
+    if cache_home is None:
+        home = values.get("HOME")
+        if not home:
+            raise ValueError("HOME is required to locate the completion artifact")
+        cache_home = str(Path(home).expanduser() / ".cache")
+    cache = Path(cache_home).expanduser()
+    if not cache.is_absolute():
+        raise ValueError("XDG_CACHE_HOME must be an absolute path")
+    return cache / APPLICATION_ID / "completion.json"
+
+
+def completion_installed_metadata() -> dict[str, object]:
+    """Capture import-free installed inputs that invalidate completion."""
+    groups = {
+        "engulf.plugins.v1.application.engulf_clab",
+        "engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper",
+    }
+    entries: Iterable[Any]
+    try:
+        entries = importlib.metadata.entry_points()
+    except (ImportError, OSError, TypeError, ValueError):
+        entries = ()
+    records: list[dict[str, object]] = []
+    for entry in entries:
+        if entry.group not in groups and not entry.group.startswith(
+            "engulf.plugins.v1.dependency."
+        ):
+            continue
+        distribution = entry.dist
+        if distribution is None:
+            distribution_record: dict[str, object] = {}
+        else:
+            try:
+                files = tuple(sorted(str(item) for item in (distribution.files or ())))
+            except (OSError, TypeError, ValueError):
+                files = ()
+            record_stats: list[tuple[str, int, int]] = []
+            for item in files:
+                if not item.endswith(".dist-info/RECORD"):
+                    continue
+                try:
+                    stat = Path(str(distribution.locate_file(item))).stat()
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    continue
+                record_stats.append((item, stat.st_mtime_ns, stat.st_size))
+            distribution_record = {
+                "name": distribution.name,
+                "version": distribution.version,
+                "files": files,
+                "record_stats": tuple(record_stats),
+            }
+        records.append(
+            {
+                "group": entry.group,
+                "name": entry.name,
+                "value": entry.value,
+                "distribution": distribution_record,
+            }
+        )
+    return {
+        "application_id": APPLICATION_ID,
+        "display_name": DISPLAY_NAME,
+        "short_product_name": SHORT_PRODUCT_NAME,
+        "binary": binary_path(),
+        "containerlab_dir": os.environ.get("CONTAINERLAB_DIR"),
+        "framework": {
+            name: importlib.metadata.version(name)
+            for name in (
+                "engulf",
+                "engulf-api",
+                "engulf-executable-wrapper",
+                "engulf-executable-wrapper-api",
+            )
+        },
+        "entry_points": sorted(
+            records,
+            key=lambda item: (
+                str(item["group"]),
+                str(item["name"]),
+                str(item["value"]),
+            ),
+        ),
+    }
+
+
+def load_completion_artifact() -> tuple[CompiledCompletion, str] | None:
+    """Load the current manifest and its fingerprint without activating plugins."""
+    metadata = completion_installed_metadata()
+    fingerprint = completion_environment_fingerprint(metadata)
+    manifest = CompletionArtifactStore().load(
+        completion_artifact_path(), fingerprint=fingerprint
+    )
+    if manifest is None:
+        return None
+    return CompiledCompletion.from_manifest(manifest, {}), fingerprint
+
+
+def publish_completion_artifact(application: Application[CallOutcome]) -> CompiledCompletion:
+    """Compile setup declarations with Engulf's resolved orders and publish them."""
+    goal = application.goal
+    if not isinstance(goal, ExecutableWrapperGoal):
+        raise TypeError("Containerlab application goal is not an executable wrapper")
+    dependencies = {
+        plugin.plugin_id: tuple(dependency.plugin_id for dependency in plugin.dependencies)
+        for plugin in application.active_plugins
+    }
+    compiled = compile_completion(
+        goal.arguments,
+        goal.completions,
+        dependencies=dependencies,
+        preprocess_order=tuple(plugin.plugin_id for plugin in application.active_plugins),
+        postprocess_order=tuple(
+            plugin.plugin_id for plugin in application.postprocess_plugins
+        ),
+    )
+    goal.replace_compiled_completion(compiled)
+    metadata = completion_installed_metadata()
+    CompletionArtifactStore().publish(
+        completion_artifact_path(),
+        compiled.manifest,
+        fingerprint=completion_environment_fingerprint(metadata),
+    )
+    return compiled
 
 
 def binary_path(binary: str = CONTAINERLAB_BINARY) -> str:

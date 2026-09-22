@@ -61,13 +61,19 @@ def parse_image_options(arguments: tuple[str, ...]) -> ParsedImageOptions:
 
 def complete_image_option(context: CompletionContext) -> Iterable[CompletionCandidate]:
     """Complete selector names from the chosen topology and paths after ``=``."""
-    topology_path, node_names = _completion_topology(context.words)
+    request_cwd = Path(context.cwd) if context.cwd is not None else Path.cwd()
+    request_environment = dict(context.environment)
+    topology_path, node_names = _completion_topology(
+        context.words,
+        cwd=request_cwd,
+        environment=request_environment,
+    )
     current = context.current
     if "=" in current:
         target, path_prefix = current.split("=", 1)
         if target != DEFAULT_IMAGE_SELECTOR and target not in node_names:
             return ()
-        base = Path.cwd() if topology_path is None else topology_path.parent
+        base = request_cwd if topology_path is None else topology_path.parent
         return tuple(
             CompletionCandidate(f"{target}={candidate}")
             for candidate in _path_candidates(path_prefix, base=base)
@@ -128,10 +134,15 @@ def _used_selectors(arguments: tuple[str, ...]) -> frozenset[str]:
     return frozenset(used)
 
 
-def _completion_topology(arguments: tuple[str, ...]) -> tuple[Path | None, tuple[str, ...]]:
+def _completion_topology(
+    arguments: tuple[str, ...],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> tuple[Path | None, tuple[str, ...]]:
     try:
-        path = topology_path_from_args(arguments)
-        document = load_topology(path)
+        path = topology_path_from_args(arguments, cwd)
+        document = load_topology(path, environment)
         type_environment = vrnetlab_type_env()
         names: list[str] = []
         for node in topology_nodes(document):

@@ -126,6 +126,36 @@ topology:
             ["default=", "edge-1="],
         )
 
+    def test_uses_context_cwd_without_changing_process_directory(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "lab.clab.yml").write_text(
+                """
+name: selector-lab
+topology:
+  nodes:
+    edge-1:
+      image: vrnetlab/edge:1
+      env:
+        ECLAB_VRNETLAB_TYPE: vendor/edge
+""",
+                encoding="utf-8",
+            )
+            context = CompletionContext(
+                Shell.BASH,
+                "eclab",
+                "containerlab",
+                ("deploy", ""),
+                1,
+                cwd=str(root),
+                environment=(),
+            )
+            candidates = complete_image_option(context)
+
+        self.assertEqual(
+            [candidate.value for candidate in candidates], ["default=", "edge-1="]
+        )
+
     def test_omits_selector_already_used_and_completes_from_topology_directory(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
