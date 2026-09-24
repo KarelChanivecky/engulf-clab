@@ -52,11 +52,6 @@ from .topology import load_topology, topology_needs_vrnetlab, topology_path_from
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.ensure_vrnetlab", package="engulf_clab_ensure_vrnetlab")
-    .add_node_var(
-        "ECLAB_VRNETLAB_TYPE",
-        "Opt a node into vrnetlab and select its builder directory.",
-        values=ValueType.STRING,
-    )
     .add_runtime_var(
         "VRNETLAB_DIR",
         "Select an existing vrnetlab checkout; the matching CLI flag takes precedence.",
@@ -100,14 +95,6 @@ PLUGIN_SCHEMA = (
         "Clamp the checkout to a Git tag, commit, or revision.",
         values=ValueType.STRING,
         environment="VRNETLAB_VERSION",
-    )
-    .annotate(
-        "ECLAB_VRNETLAB_TYPE",
-        commands=("deploy", "redeploy"),
-        lifecycle=(LifecycleStage.ANALYZE_CALL, LifecycleStage.PREPARE_CALL),
-        shared_with=("engulf_clab.vrnetlab_build",),
-        implies=("a vrnetlab checkout is required before image construction",),
-        examples=("vendor/router",),
     )
     .annotate("VRNETLAB_DIR", commands=("deploy", "redeploy"), path_base=PathBase.INVOCATION_DIRECTORY)
     .annotate("VRNETLAB_REPO", commands=("deploy", "redeploy"))
@@ -162,7 +149,10 @@ PLUGIN_SCHEMA = (
         LifecycleStage.PREPARE_CALL,
         "The checkout must be available before the vrnetlab image builder consumes it.",
         after=("engulf_clab.lab_parser",),
-        before=("engulf_clab.vrnetlab_build", "engulf_clab.lab_writer"),
+        before=(
+            "engulf_clab.vrnetlab_build",
+            "engulf_clab.lab_writer",
+        ),
     )
     .route(
         "prepare-vrnetlab",

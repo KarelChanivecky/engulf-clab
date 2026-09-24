@@ -11,8 +11,8 @@ from engulf_docker_image_api import (
     VrnetlabBuildRecipe,
 )
 
-from engulf_clab_vrnetlab_build.config import BuildRequest
 from engulf_clab_vrnetlab_build.provider import VRNETLAB_PROVIDER_ID, VrnetlabBuildProvider
+from engulf_clab_vrnetlab_build.requests import BuildRequest
 
 
 def _make_checkout(root: Path, vendor: str = "vendor", type_name: str = "router") -> Path:

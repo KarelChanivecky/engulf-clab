@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 
-from engulf_clab_ensure_vrnetlab import vrnetlab_type_env
 from engulf_executable_wrapper_api import CompletionCandidate, CompletionContext
 
+from .contract import vrnetlab_type_env
 from .errors import VrnetlabError
 from .topology import load_topology, topology_nodes, topology_path_from_args
 
@@ -92,6 +92,28 @@ def complete_image_option(context: CompletionContext) -> Iterable[CompletionCand
         )
         for target in targets
         if target not in used and f"{target}=".startswith(current)
+    )
+
+
+def complete_image_option_argument(
+    context: CompletionContext,
+) -> Iterable[CompletionCandidate]:
+    """Complete an exact flag into its separate selector argument form."""
+    if context.current != IMAGE_OPTION:
+        return ()
+    words = list(context.words)
+    words.insert(context.cursor_index + 1, "")
+    selector_context = replace(
+        context,
+        words=tuple(words),
+        cursor_index=context.cursor_index + 1,
+    )
+    return tuple(
+        CompletionCandidate(
+            f"{IMAGE_OPTION} {candidate.value}",
+            candidate.description,
+        )
+        for candidate in complete_image_option(selector_context)
     )
 
 

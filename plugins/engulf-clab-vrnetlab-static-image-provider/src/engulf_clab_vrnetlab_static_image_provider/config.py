@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from engulf_clab_ensure_vrnetlab import (
+from .contract import (
     LABEL_PREFIX,
     LEGACY_VRNETLAB_IMAGE_PATH_ENV,
     VRNETLAB_IMAGE_PATH_ENV,
@@ -15,7 +15,6 @@ from engulf_clab_ensure_vrnetlab import (
     vrnetlab_image_path_env,
     vrnetlab_type_env,
 )
-
 from .errors import VrnetlabError
 from .topology import TopologyNode, topology_name, topology_nodes
 
@@ -248,5 +247,20 @@ def build_requests_from_topology(
                 source=source,
             )
         )
+
+    if "default" in selectors:
+        default_nodes = [request for request in requests if request.node_name not in selectors]
+        default_types: dict[str, list[str]] = {}
+        for request in default_nodes:
+            default_types.setdefault(request.builder_type, []).append(request.node_name)
+        if len(default_types) > 1:
+            details = "; ".join(
+                f"{builder_type}: {', '.join(node_names)}"
+                for builder_type, node_names in default_types.items()
+            )
+            raise VrnetlabError(
+                "nodes using the default vrnetlab image source must all use the same "
+                f"{type_environment}; found {details}"
+            )
 
     return requests

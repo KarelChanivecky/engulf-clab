@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-vrnetlab-static-image-provider"
+version = "0.1.0"
+description = "Resolve local static image sources for vrnetlab nodes"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "engulf-clab-freeze-api>=1.1,<2",
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0.0,<3",
+    "engulf-clab-schema>=0.1.0,<1",
+    "engulf-clab-lab-parser>=0.2.0,<1",
+    "engulf-clab-vrnetlab-build-api>=0.1.0,<1",
+    "engulf-clab-vrnetlab-build>=0.1.7,<1",
+    "PyYAML>=6.0",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.vrnetlab_static_image_provider" = "engulf_clab_vrnetlab_static_image_provider:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.vrnetlab_static_image_provider" = "engulf_clab_vrnetlab_static_image_provider:plugin"
+
+[project.entry-points."engulf_clab.freeze.images.v1"]
+"engulf_clab.vrnetlab_static_image_provider" = "engulf_clab_vrnetlab_static_image_provider.freeze:image_sources"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_vrnetlab_static_image_provider"]
+"engulf_clab.lab_parser" = "preprocess=before; postprocess=none"
+"engulf_clab.vrnetlab_build" = "preprocess=after; postprocess=none"
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_vrnetlab_static_image_provider"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_vrnetlab_static_image_provider/README.md"
+"AGENTS.md" = "engulf_clab_vrnetlab_static_image_provider/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_vrnetlab_static_image_provider/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_vrnetlab_static_image_provider/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/AGENTS.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/USAGE.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/engulf_clab_vrnetlab_static_image_provider"]

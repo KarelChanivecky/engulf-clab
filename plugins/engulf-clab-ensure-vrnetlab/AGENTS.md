@@ -4,9 +4,9 @@ This directory contains the `engulf-clab-ensure-vrnetlab` plugin distribution.
 
 ## Purpose
 
-The plugin prepares a vendor-neutral vrnetlab checkout before the build plugin
-runs. It publishes the resolved checkout through Engulf call context and does
-not build vendor images itself.
+The plugin prepares a vendor-neutral vrnetlab checkout before the source
+provider and `engulf-clab-vrnetlab-build` builder run. It publishes the resolved
+checkout through Engulf call context and does not build vendor images itself.
 
 ## Compatibility
 
@@ -53,8 +53,9 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   request. Reject dirty worktrees, leave non-Git checkouts unchanged, and never
   reset, clean, or repair a checkout. Users may remove a managed checkout when
   they intentionally want it recloned.
-- Keep validation vendor-neutral. Requested `vendor/type` builders are validated
-  by the build plugin.
+- Keep validation vendor-neutral. Source syntax belongs to active providers;
+  `ECLAB_VRNETLAB_TYPE` and requested `vendor/type` builders are interpreted by
+  the static image provider and validated by the builder.
 - Do not perform real network clones in automated tests. Mock Git and create
   temporary checkout markers.
 - Keep runtime help, `USAGE.md` opt-in/resolution/update behavior, context IDs, and
@@ -63,5 +64,6 @@ Plugin code imports `engulf_api`, not `engulf`. It derives from
   ensure-checkout tests. Mock Docker/QEMU/Git lookup and never build vendor
   images in unit tests.
 - Build/install the wheel and verify active help/discovery with the downstream
-  builder installed. Keep `PLUGIN_SCHEMA` and its last-running generator
-  dependency aligned with checkout and opt-in controls.
+  builder and a source provider installed. Keep `PLUGIN_SCHEMA` and its
+  last-running generator dependency aligned with checkout controls; source
+  provider schemas declare the node opt-in syntax.

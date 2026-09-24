@@ -1,110 +1,22 @@
 # Plugin Instructions
 
-This directory contains the `engulf-clab-vrnetlab-build` plugin distribution.
+This distribution is the single vrnetlab image builder and Docker image
+provider adapter. It consumes source paths from
+`engulf-clab-vrnetlab-build-api` and build-node metadata from the shared
+topology session.
 
-## Purpose
-
-The plugin finds nodes with `ECLAB_VRNETLAB_TYPE` in their Containerlab
-node environment and ensures their Docker images are built before deploy or single-source redeploy.
-The builder is selected by the vendor/type path beneath a prepared vrnetlab
-checkout. It also registers a Docker image provider
-(`org.engulf.docker.vrnetlab-build`) offering a `VrnetlabBuildRecipe` for each
-opted-in node's requested tag, so the image-build graph resolves those tags by
-building rather than pulling; `prepare_call` refreshes the provider map with
-the discovered build requests, and the same provider instance backs both the
-`IMAGE_PROVIDER_CONTEXT` registration and the
-`engulf.plugins.v1.goal.v1.org_engulf_docker_image` entry point (`image_plugin`).
-
-## Compatibility
-
-- Goal catalog: `engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper`
-- Application declaration: `engulf.plugins.v1.application.engulf_clab`
-- Docker-image goal adapter: `engulf.plugins.v1.goal.v1.org_engulf_docker_image`
-  (`org.engulf.docker.vrnetlab-build`)
-- Plugin import package: `engulf_clab_vrnetlab_build`
-- Executable-wrapper plugin ID: `engulf_clab.vrnetlab_build`
-- Docker-image adapter and provider ID: `org.engulf.docker.vrnetlab-build`
-- Prepared-checkout context ID: `engulf_clab.vrnetlab.path`
-- Required producer plugin ID: `engulf_clab.ensure_vrnetlab`
-
-Plugin code imports `engulf_api`, not `engulf`. It derives from
-`SchemaBackedPlugin`, which remains an executable-wrapper plugin adapter.
-The two goal adapters must keep distinct IDs and targets. Declare wrapper
-ordering in the distribution's
-`engulf.plugins.v1.dependency.engulf_clab_vrnetlab_build` entry-point group;
-never restore code-level `plugin_dependencies`.
-
-## Development Notes
-
-- Keep the concurrency flag bound to its persistent runtime default and read
-  the normalized event environment. The repeatable image-source flag is a
-  plugin-owned `NODE=PATH` option: analyze it without side effects, remove its
-  exact argument indexes, and re-parse the immutable original arguments during
-  preparation. Node `ECLAB_VRNETLAB_TYPE` and topology image-source values
-  remain node `env` controls. Read node image and environment controls from
-  parser `EffectiveNode` snapshots so defaults, kinds, and groups are honored.
-- Require image selectors to follow a deploy or single-source redeploy command. Other topology-aware
-  plugins receive the same original argument tuple, so treating this option as
-  a pre-command global would bypass their command detection.
-- Treat `default` as the reserved CLI selector for both an explicit override and
-  the fallback. Preserve exact-selector precedence over `default`, followed by
-  node YAML, the persistent environment fallback, and legacy aliases. Reject
-  duplicate selectors, unknown nodes, and
-  nodes that do not opt into vrnetlab construction.
-- Keep image completion bounded to parsing the selected local topology and
-  listing its opted-in node names and local paths. It must not build images,
-  discover repositories, touch state, or access the network. Relative path
-  candidates use the topology directory, matching runtime resolution.
-- Keep the plugin vendor-neutral. Builder-specific behavior belongs in the
-  selected vrnetlab `vendor/type` directory, not in Python conditionals.
-- Use the fixed `ECLAB` prefix (`engulf_clab_ensure_vrnetlab.LABEL_PREFIX`).
-  Do not derive it from `api.application.short_product_name`/`product` —
-  labels must stay portable across editions.
-- Preserve the source qcow2 basename because vrnetlab Makefiles commonly
-  derive the native Docker tag from it.
-- Never extract an archive wholesale. Stream its one qcow2 member into a
-  temporary directory so archive paths cannot escape the extraction root.
-- Existing builder qcow2 files and Docker-context artifacts must be restored
-  or cleaned in `finally` paths.
-- Parallelize across builder directories only. Images using the same builder
-  directory must remain serial because builds temporarily modify that directory.
-- Acquire the complete image/builder lease set in the callback thread before
-  launching workers. Invocation API lease contexts and state transactions must
-  not overlap across threads; perform fingerprint state operations serially.
-- Build fingerprints belong in `api.state(StateScope.USER)` because Docker
-  tags are shared across workspaces. Use Engulf's managed `exists`,
-  `read_text`, and `write_text` operations rather than direct filesystem I/O.
-- Require lab-unique requested image tags in help and authoring guidance. This
-  is firm guidance rather than runtime validation: image leases prevent
-  simultaneous mutation, but shared tags still couple independently launched
-  labs to one host-global Docker image identity.
-- State handles are invocation-bound. Obtain and consume the store inside the
-  active callback and never retain it on the plugin instance. Keep validation in
-  side-effect-free `analyze_call()` and image work in `prepare_call()`.
-- The provider request map is invocation-scoped even though both adapters share
-  its provider object. Clear it in `after_call`, in `prepare_failed` when a later
-  preparer raises, and inside every exception path of this plugin's own
-  `prepare_call` because the failing plugin does not receive `prepare_failed`.
-- Do not discover or clone vrnetlab here. The hard ensure-vrnetlab dependency
-  owns `VRNETLAB_DIR`, managed provisioning, and context publication. Keep the
-  dependency edge and consume only the published context path.
-- Do not run real Docker builds in automated tests. Mock Docker and Make and
-  use temporary builder directories.
-- Keep custom argument registration, `PLUGIN_SCHEMA`, dynamic help, `USAGE.md`
-  selector precedence/formats, prefix derivation, fingerprint components,
-  native/requested tag behavior, and cleanup guarantees synchronized.
-- Run option/completion, config, source, image, state/vrnetlab, and plugin tests plus the
-  ensure-vrnetlab build-pipeline suite. Build/install both wheels and verify
-  discovery ordering/context wiring.
-- Keep `PLUGIN_SCHEMA` aligned with image-source aliases, opt-in variables, and
-  the last-running generator dependency; run `make check-skill`.
-- Keep the provider registration, the `image_plugin` goal adapter, and
-  `prepare_call`'s `refresh_requests` synchronized: `provide()` is a pure lookup
-  over the refreshed map (the resolver may call it from build worker threads
-  with no invocation api), and both dispatch paths must see the same provider
-  instance. Ordering must keep this plugin's `prepare_call` before
-  `engulf_clab.image_build`'s so the map is populated before resolution.
-- Keep `freeze.py` discovery read-only and separate from preparation. Its
-  `allow_unresolved_sources` config option permits unavailable input facts only
-  during freeze; normal deployment still rejects unresolved source variables.
-  Report all build controls so captured images cannot re-enable a rebuild.
+- Do not declare source CLI flags, provider environment variables, or custom
+  source-selection YAML in this package. Keep those controls in providers.
+- Keep its plugin ID `engulf_clab.vrnetlab_build` and Docker provider ID
+  `org.engulf.docker.vrnetlab-build` stable.
+- Run after the parser and all source providers, and before image resolution
+  and the lab writer. Declare ordering in packaging metadata.
+- Use API-resolved exact-node paths before the `default` path.
+- Require all requests that fall back to the API `default` path to share one
+  `ECLAB_VRNETLAB_TYPE`; exact-node source paths may use distinct types.
+- Preserve safe qcow2 staging, tag restoration, state fingerprinting, leases,
+  per-builder serialization, and invocation-map cleanup.
+- Keep reads of `ECLAB_VRNETLAB_TYPE` internal to selecting the vrnetlab
+  builder directory; user-facing syntax remains declared by providers.
+- Do not declare source flags, environment aliases, node controls, completion,
+  or freeze source discovery here. Those contracts belong to providers.

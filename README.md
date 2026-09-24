@@ -124,9 +124,9 @@ for a particular environment or edition.
 [image-core]: plugins/engulf-docker-image-core/USAGE.md
 [archive-config]: plugins/engulf-clab-image-archive/USAGE.md#configuration
 [archive-behavior]: plugins/engulf-clab-image-archive/USAGE.md#provisioning-behavior
-[vrnet-build]: plugins/engulf-clab-vrnetlab-build/USAGE.md#node-and-source-configuration
-[vrnet-sources]: plugins/engulf-clab-vrnetlab-build/USAGE.md#source-precedence
-[vrnet-lifecycle]: plugins/engulf-clab-vrnetlab-build/USAGE.md#validation-and-build-lifecycle
+[vrnet-build]: plugins/engulf-clab-vrnetlab-static-image-provider/USAGE.md#node-and-source-configuration
+[vrnet-sources]: plugins/engulf-clab-vrnetlab-static-image-provider/USAGE.md#source-precedence
+[vrnet-lifecycle]: plugins/engulf-clab-vrnetlab-static-image-provider/USAGE.md#validation-and-build-lifecycle
 [containers-use]: plugins/engulf-clab-containers/USAGE.md#topology-use
 [core-host]: plugins/engulf-clab-containers-core/USAGE.md#host-connector
 [core-wan]: plugins/engulf-clab-containers-core/USAGE.md#wan-access
@@ -471,7 +471,9 @@ required host tools, and cleanup behavior.
 | `engulf-clab-dockerfile-build` | `engulf_clab.dockerfile_build` | Contributes node-owned Dockerfile recipes and build-only image nodes. |
 | `engulf-clab-image-archive` | `engulf_clab.image_archive` | Creates node images from saved Docker image archives selected per node. |
 | `engulf-clab-ensure-vrnetlab` | `engulf_clab.ensure_vrnetlab` | Finds or provisions a vrnetlab checkout. |
-| `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Builds vrnetlab node images. |
+| `engulf-clab-vrnetlab-build-api` | Contract only | Shared invocation map of provider-resolved vrnetlab input paths by node. |
+| `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Single shared vrnetlab backend and Docker image recipe provider. |
+| `engulf-clab-vrnetlab-static-image-provider` | `engulf_clab.vrnetlab_static_image_provider` | Local path provider owning vrnetlab source flags, environment variables, and YAML controls. |
 | `engulf-clab-license-pool` | `engulf_clab.license_pool` | Registers product-specific pools and shares license files safely across labs. |
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
 | `engulf-clab-lab-registry-api` | Contract only | Typed access to the shared persistent lab inventory. |

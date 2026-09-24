@@ -21,10 +21,12 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
 | `engulf-clab-ensure-containerlab` | Containerlab executable discovery, managed checkout, update, and build. |
 | `engulf-clab-ensure-vrnetlab` | Conditional vrnetlab checkout discovery and provisioning. |
+| `engulf-clab-vrnetlab-build-api` | Shared per-node source-path context for vrnetlab providers and builder. |
+| `engulf-clab-vrnetlab-build` | Single shared backend that stages inputs and constructs vrnetlab images. |
 | `engulf-docker-image-api` and `engulf-docker-image-core` | Neutral provider graph, recursive resolver, and dependency-first Docker scheduler. |
 | `engulf-clab-image-build` | Topology image roots, node-env parameters, provider dispatch, and build orchestration. |
 | `engulf-clab-dockerfile-build` | Node-owned Dockerfile recipes and build-only image nodes. |
-| `engulf-clab-vrnetlab-build` | Pre-deploy vrnetlab image builds from qcow2/archive sources. |
+| `engulf-clab-vrnetlab-static-image-provider` | Local qcow2/archive source provider, CLI, and topology controls for vrnetlab builds. |
 | `engulf-clab-containers-api` | Typed contract for independently packaged container collections. |
 | `engulf-clab-containers` | Active collection catalog and temporary topology injection. |
 | `engulf-clab-containers-core` | Maintained host-connector and WAN-access recipes. |

@@ -5,7 +5,9 @@ through `engulf-clab-all-plugins`; the vrnetlab builder also installs it as a
 dependency.
 
 It prepares the checkout consumed by `engulf-clab-vrnetlab-build` and activates
-for deploy or single-source redeploy when a node explicitly opts in:
+for deploy or single-source redeploy when a node explicitly opts in. The
+`ECLAB_VRNETLAB_TYPE` node variable is declared by an installed source provider,
+such as `engulf-clab-vrnetlab-static-image-provider`:
 
 ```yaml
 topology:
@@ -19,9 +21,9 @@ topology:
 The fixed `ECLAB_VRNETLAB_TYPE` marker is portable across editions. A
 configured image source alone does not activate provisioning. Opted-in
 deployments require `docker`, `qemu-img`, and `qemu-system-x86_64` on `PATH`.
-This plugin only prepares a checkout: the downstream builder validates the
-requested builder, selects the qcow2 or archive source, and performs the
-Docker/Make work.
+This plugin only prepares a checkout. The active source provider selects or
+creates an input path, and the downstream builder validates the requested
+builder and performs the Docker/Make work.
 
 ## Checkout selection
 
@@ -56,8 +58,8 @@ this plugin suppresses the otherwise-secondary unused source-context warning.
 
 ## Troubleshooting and security
 
-- Confirm the node has a nonempty `ECLAB_VRNETLAB_TYPE` and the builder plugin
-  is active in the same launcher.
+- Confirm a source provider declares a nonempty `ECLAB_VRNETLAB_TYPE`, and that
+  the provider and builder plugins are active in the same launcher.
 - Validate `<DIR>/common/vrnetlab.py` for an explicit directory.
 - Install Docker and QEMU tools in the environment visible to the actual CLI or
   MCP service; shell visibility does not prove service visibility.

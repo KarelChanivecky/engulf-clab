@@ -16,12 +16,14 @@ PACKAGES := \
 	engulf-clab-ensure-checkout \
 	engulf-clab-ensure-containerlab \
 	engulf-clab-ensure-vrnetlab \
+	engulf-clab-vrnetlab-build-api \
 	engulf-clab-image-build \
 	engulf-clab-dockerfile-build \
 	engulf-clab-image-archive \
 	engulf-clab-containers \
 	engulf-clab-containers-core \
 	engulf-clab-vrnetlab-build \
+	engulf-clab-vrnetlab-static-image-provider \
 	engulf-clab-wan \
 	engulf-clab-license-pool-lib \
 	engulf-clab-license-pool \
@@ -57,12 +59,14 @@ DIR_engulf-clab-sticky-ip := plugins/engulf-clab-sticky-ip
 DIR_engulf-clab-ensure-checkout := plugins/engulf-clab-ensure-checkout
 DIR_engulf-clab-ensure-containerlab := plugins/engulf-clab-ensure-containerlab
 DIR_engulf-clab-ensure-vrnetlab := plugins/engulf-clab-ensure-vrnetlab
+DIR_engulf-clab-vrnetlab-build-api := plugins/engulf-clab-vrnetlab-build-api
 DIR_engulf-clab-image-build := plugins/engulf-clab-image-build
 DIR_engulf-clab-dockerfile-build := plugins/engulf-clab-dockerfile-build
 DIR_engulf-clab-image-archive := plugins/engulf-clab-image-archive
 DIR_engulf-clab-containers := plugins/engulf-clab-containers
 DIR_engulf-clab-containers-core := plugins/engulf-clab-containers-core
 DIR_engulf-clab-vrnetlab-build := plugins/engulf-clab-vrnetlab-build
+DIR_engulf-clab-vrnetlab-static-image-provider := plugins/engulf-clab-vrnetlab-static-image-provider
 DIR_engulf-clab-wan := plugins/engulf-clab-wan
 DIR_engulf-clab-license-pool-lib := plugins/engulf-clab-license-pool-lib
 DIR_engulf-clab-license-pool := plugins/engulf-clab-license-pool

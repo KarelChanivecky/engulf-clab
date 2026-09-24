@@ -12,8 +12,8 @@ from engulf_docker_image_api import (
     VrnetlabBuildRecipe,
 )
 
-from .config import BuildRequest
 from .errors import VrnetlabError
+from .requests import BuildRequest
 from .vrnetlab import builder_directory, vrnetlab_root
 
 VRNETLAB_PROVIDER_ID = "org.engulf.docker.vrnetlab-build"

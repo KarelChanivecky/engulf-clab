@@ -13,9 +13,9 @@ from pathlib import Path
 
 from engulf_api import InvocationAPI, StateStore
 
-from .config import DEFAULT_VRNETLAB_BUILD_JOBS, BuildRequest
 from .errors import VrnetlabError
 from .logging import info
+from .requests import BuildRequest
 from .sources import file_sha256, prepared_qcow2
 from .state import BuildFingerprint, load_state, save_state
 from .vrnetlab import builder_directory, vrnetlab_fingerprint, vrnetlab_root
@@ -311,8 +311,7 @@ def ensure_images(
     api: InvocationAPI,
     checkout_context: object | None,
     state_store: StateStore,
-    source_environment: str = "ECLAB_VRNETLAB_IMG_PATH",
-    max_workers: int = DEFAULT_VRNETLAB_BUILD_JOBS,
+    max_workers: int = 2,
 ) -> None:
     if not requests:
         return
@@ -325,7 +324,7 @@ def ensure_images(
         with api.lease(_image_lease(image)):
             if not docker_image_exists(image):
                 raise VrnetlabError(
-                    f"image {image} is absent and no {source_environment} source resolved"
+                    f"image {image} is absent and no vrnetlab provider source resolved"
                 )
             info(f"using existing image {image}; no source configured")
 

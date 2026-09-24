@@ -9,9 +9,9 @@ from tempfile import TemporaryDirectory
 from threading import Barrier, Lock
 from unittest.mock import MagicMock, Mock, call, patch
 
-from engulf_clab_vrnetlab_build.config import BuildRequest
 from engulf_clab_vrnetlab_build.errors import VrnetlabError
 from engulf_clab_vrnetlab_build.images import build_native_image, ensure_images
+from engulf_clab_vrnetlab_build.requests import BuildRequest
 from engulf_clab_vrnetlab_build.state import BuildFingerprint, save_state
 
 

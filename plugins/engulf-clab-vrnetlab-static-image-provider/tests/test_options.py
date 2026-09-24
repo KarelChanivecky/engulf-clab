@@ -7,10 +7,11 @@ from tempfile import TemporaryDirectory
 
 from engulf_executable_wrapper_api import CompletionContext, Shell
 
-from engulf_clab_vrnetlab_build.errors import VrnetlabError
-from engulf_clab_vrnetlab_build.options import (
+from engulf_clab_vrnetlab_static_image_provider.errors import VrnetlabError
+from engulf_clab_vrnetlab_static_image_provider.options import (
     IMAGE_OPTION,
     complete_image_option,
+    complete_image_option_argument,
     parse_image_options,
 )
 
@@ -100,6 +101,14 @@ topology:
             ["default=", "edge-1=", "edge-2="],
         )
 
+    def test_completes_exact_option_into_separate_selector_argument(self) -> None:
+        candidates = complete_image_option_argument(self._context("deploy", IMAGE_OPTION))
+
+        self.assertEqual(
+            [candidate.value for candidate in candidates],
+            [f"{IMAGE_OPTION} default="],
+        )
+
     def test_completes_nodes_from_the_only_topology_in_cwd(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -152,9 +161,7 @@ topology:
             )
             candidates = complete_image_option(context)
 
-        self.assertEqual(
-            [candidate.value for candidate in candidates], ["default=", "edge-1="]
-        )
+        self.assertEqual([candidate.value for candidate in candidates], ["default=", "edge-1="])
 
     def test_omits_selector_already_used_and_completes_from_topology_directory(self) -> None:
         with TemporaryDirectory() as directory:
