@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-dockerfile-build"
-version = "0.1.3"
+version = "0.1.2"
 description = "Contribute eclab Dockerfile node recipes to the shared image build graph"
 readme = "README.md"
 requires-python = ">=3.12"

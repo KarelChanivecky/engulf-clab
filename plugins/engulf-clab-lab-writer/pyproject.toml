@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 [project]
 name = "engulf-clab-lab-writer"
-version = "0.1.1"
+version = "0.1.2"
 description = "Render deferred engulf-clab topology mutations"
 readme = "README.md"
 requires-python = ">=3.12"
