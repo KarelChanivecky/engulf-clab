@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-pki-linux-core"
-version = "0.1.1"
+version = "0.1.2"
 description = "Portable runtime PKI adapters for eclab Linux images"
 readme = "README.md"
 requires-python = ">=3.12"

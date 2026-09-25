@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-vrnetlab-fortigate-license-injector"
+version = "0.1.0"
+description = "Mount registered licenses into FortiGate vrnetlab nodes"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0.0,<3",
+    "engulf-clab-schema>=0.1.0,<1",
+    "engulf-clab-lab-parser>=0.2.0,<1",
+    "engulf-clab-lab-writer>=0.1.0,<1",
+    "engulf-clab-license-pool>=0.1.5,<1",
+    "engulf-clab-pki>=0.1.0,<1",
+]
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.vrnetlab_fortigate_license_injector" = "engulf_clab_vrnetlab_fortigate_license_injector:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.vrnetlab_fortigate_license_injector" = "engulf_clab_vrnetlab_fortigate_license_injector:plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_vrnetlab_fortigate_license_injector"]
+"engulf_clab.lab_parser" = "preprocess=before; postprocess=none"
+"engulf_clab.license_pool" = "preprocess=before; postprocess=none"
+"engulf_clab.pki" = "preprocess=before; postprocess=none"
+"engulf_clab.lab_writer" = "preprocess=after; postprocess=none"
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_vrnetlab_fortigate_license_injector"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_vrnetlab_fortigate_license_injector/README.md"
+"AGENTS.md" = "engulf_clab_vrnetlab_fortigate_license_injector/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_vrnetlab_fortigate_license_injector/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_vrnetlab_fortigate_license_injector/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/engulf_clab_vrnetlab_fortigate_license_injector"]

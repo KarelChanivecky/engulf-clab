@@ -45,8 +45,8 @@ PLUGIN_SCHEMA = (
         command="freeze",
     )
     .add_cli_flag(
-        "--lean",
-        "Replace non-portable image inputs with recipient variables instead of bundling image artifacts.",
+        "--eclab-with-runtime",
+        "Bundle a wheelhouse and enforce recorded Containerlab and vrnetlab identities.",
         command="freeze",
     )
     .add_cli_flag(
@@ -58,7 +58,7 @@ PLUGIN_SCHEMA = (
     )
     .add_cli_flag(
         "--bundle-image",
-        "Export an image even when a registry or complete build recipe is available.",
+        "Export an image into an offline archive.",
         command="freeze",
         values=ValueType.IMAGE_REFERENCE,
         repeatable=True,
@@ -94,19 +94,17 @@ PLUGIN_SCHEMA = (
     .annotate(
         "--offline",
         commands=("freeze",),
-        conflicts_with=("--lean", "--external-image"),
+        conflicts_with=("--external-image",),
         implies=(
             "bundle runtime/tools and images whose rebuild may require network access",
         ),
     )
-    .annotate(
-        "--lean", commands=("freeze",), conflicts_with=("--offline", "--bundle-image")
-    )
+    .annotate("--eclab-with-runtime", commands=("freeze",))
     .annotate("--external-image", commands=("freeze",), conflicts_with=("--offline",))
     .annotate(
         "--bundle-image",
         commands=("freeze",),
-        conflicts_with=("--lean",),
+        requires=("--offline",),
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
     )
@@ -139,13 +137,20 @@ PLUGIN_SCHEMA = (
         repeatable=True,
     )
     .add_cli_flag(
+        "--env",
+        "Provide a topology environment value to the recipient initializer as NAME=VALUE.",
+        command="defrost",
+        values=ValueType.STRING,
+        repeatable=True,
+    )
+    .add_cli_flag(
         "--no-license-prompt",
         "Keep frozen license markers instead of asking for paths.",
         command="defrost",
     )
     .add_cli_flag(
         "--no-runtime",
-        "Skip runtime preparation and leave it to the archive launcher.",
+        "Skip runtime preparation; a runtime archive launcher prepares it on first use.",
         command="defrost",
     )
     .add_cli_flag(
@@ -210,6 +215,11 @@ PLUGIN_SCHEMA = (
         conflicts_with=("--no-license-prompt",),
     )
     .annotate(
+        "--env",
+        commands=("defrost",),
+        conflicts_with=("--skip-env-init",),
+    )
+    .annotate(
         "--no-license-prompt",
         commands=("defrost",),
         implies=("deploy resolves every frozen license instead",),
@@ -230,7 +240,7 @@ PLUGIN_SCHEMA = (
         "Create a sanitized portable archive without deploying or destroying the lab."
     )
     .use_case(
-        "Bundle image dependencies unavailable from a registry or a complete included recipe; use --lean for recipient inputs."
+        "Use the lean default for recipient image inputs, or --offline to bundle images."
     )
     .use_case(
         "Expand a received archive into a lab with local licenses, images, and runtime."
@@ -327,11 +337,11 @@ class FreezePlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--lean | --offline] [--include-pki-secrets]  "
+            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--eclab-with-runtime | --offline]  "
             "Create a sanitized portable lab archive\n"
-            "    Default: bundle unavailable image dependencies; retain complete build recipes.\n"
-            "    --lean: replace image inputs with recipient variables.\n"
-            "    --external-image IMAGE / --bundle-image IMAGE: override acquisition (repeatable).\n"
+            "    Default: record compatibility; leave runtime and images to the recipient.\n"
+            "    --eclab-with-runtime: wheelhouse and pinned tools; --offline: bundle runtime, tools, images.\n"
+            "    --external-image IMAGE (non-offline) / --bundle-image IMAGE (offline).\n"
             "  defrost ARCHIVE [--into DIRECTORY] [--pki-authority BINDING=REF]  "
             "Expand a frozen archive into a runnable lab"
         )

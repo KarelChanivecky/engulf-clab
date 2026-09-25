@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.metadata
 import io
 import json
 import shutil
@@ -14,14 +15,18 @@ import yaml
 from engulf_clab_freeze.command import _write_environment_initializer, freeze, main
 from engulf_clab_freeze.defrost import DefrostError, defrost
 from engulf_clab_freeze.images import MANIFEST, freeze_images, registry_identity
-from engulf_clab_freeze_api import FreezeError, ImageSource
+from engulf_clab_freeze_api import FreezeError, ImageInput, ImageSource
 from engulf_clab_freeze_api.manifest import read_image_manifest
 from engulf_clab_image_archive.config import build_requests_from_topology
 from engulf_clab_image_archive.provider import ImageArchiveProvider
 from engulf_clab_lab_parser.session import load_topology
 from engulf_docker_image_api import (
     DockerArchiveRecipe,
+    DockerfileRecipe,
     ImageBuildGraph,
+    ImageProviderPlugin,
+    ImageProviderResponse,
+    ImageProvision,
     ImageRequirement,
     RegisteredImageProvider,
 )
@@ -266,16 +271,20 @@ def test_missing_input_after_exclusions_captures_output(tmp_path, host):
     freeze(topology, archive, environment={})
     with tarfile.open(archive) as saved:
         document = yaml.safe_load(saved.extractfile("bundle/lab.clab.yml"))
-        assert "ECLAB_DOCKERFILE" not in document["topology"]["nodes"]["app"]["env"]
+        assert (
+            "${ECLAB_FREEZE_"
+            in document["topology"]["nodes"]["app"]["env"]["ECLAB_DOCKER_CTX"]
+        )
         assert "bundle/app/secret.txt" not in saved.getnames()
 
 
-def test_unknown_missing_image_fails_atomically_with_consumer(tmp_path, host):
+def test_unknown_missing_image_becomes_recipient_input(tmp_path, host):
     topology, document = lab(tmp_path, {"router": {"image": "unknown:1"}})
     archive = tmp_path / "bundle.tar.gz"
-    with pytest.raises(FreezeError, match="unknown:1"):
-        freeze(topology, archive, environment={})
-    assert not archive.exists()
+    freeze(topology, archive, environment={})
+    with tarfile.open(archive) as saved:
+        frozen = yaml.safe_load(saved.extractfile("bundle/lab.clab.yml"))
+        assert "${ECLAB_FREEZE_" in frozen["topology"]["nodes"]["router"]["image"]
     assert yaml.safe_load(topology.read_text()) == document
 
 
@@ -316,18 +325,134 @@ def test_lean_replaces_inputs_with_variables_without_exporting(tmp_path, host, k
     assert "ECLAB_FREEZE_ROUTER" in (staging / "initialize-env.sh").read_text()
 
 
-def test_lean_omits_lab_local_binary_input(tmp_path, host):
+@pytest.mark.parametrize(
+    ("declaration", "location", "expected_path"),
+    [
+        ("node", "relative", "artifacts/archive-source.tar.gz"),
+        ("defaults", "relative", "artifacts/archive-source.tar.gz"),
+        ("node", "absolute-in-scope", "artifacts/archive-source.tar.gz"),
+        ("node", "external", None),
+    ],
+)
+def test_lean_archive_yaml_input_output_matrix(
+    tmp_path, host, declaration, location, expected_path
+):
+    relative = Path("artifacts/archive-source.tar.gz")
+    if location == "external":
+        archive_path = tmp_path / "external" / relative
+    else:
+        archive_path = tmp_path / "lab" / relative
+    authored_value = (
+        str(archive_path.resolve())
+        if location in {"absolute-in-scope", "external"}
+        else relative.as_posix()
+    )
+    archive_env = {
+        "ECLAB_IMAGE_ARCHIVE": authored_value,
+        "ECLAB_IMAGE_ARCHIVE_REF": "fclab-demo/archive-source:0.1",
+        "ECLAB_IMAGE_ARCHIVE_RELOAD": "true",
+    }
+    defaults = {"env": archive_env} if declaration == "defaults" else None
+    node_env = {} if declaration == "defaults" else archive_env
     topology, document = lab(
         tmp_path,
-        {"router": {"image": "router:1", "env": {"ECLAB_IMAGE_ARCHIVE": "input.tar"}}},
+        {"dmz-archive": {"image": "fclab-demo/archive-server:0.1", "env": node_env}},
+        defaults=defaults,
     )
-    saved_image(topology.parent / "input.tar", ("router:1",))
-    _, _, staging = plan(tmp_path, topology, document, lean=True)
-    assert not (staging / "input.tar").exists()
-    assert (topology.parent / "input.tar").exists()
+    saved_image(archive_path, ("fclab-demo/archive-source:0.1",))
+    original = copy.deepcopy(document)
+
+    result, frozen, staging = plan(tmp_path, topology, document, lean=True)
+
+    output_env = frozen["topology"]["nodes"]["dmz-archive"]["env"]
+    selected_path = output_env["ECLAB_IMAGE_ARCHIVE"]
+    if expected_path is None:
+        assert selected_path.startswith("${ECLAB_FREEZE_")
+        assert selected_path.endswith("}")
+        assert str(archive_path.resolve()) not in yaml.safe_dump(frozen)
+        assert not (staging / relative).exists()
+    else:
+        assert selected_path == expected_path
+        assert (staging / expected_path).read_bytes() == archive_path.read_bytes()
+        assert "ECLAB_FREEZE_" not in yaml.safe_dump(frozen)
+    assert output_env["ECLAB_IMAGE_ARCHIVE_REF"] == "fclab-demo/archive-source:0.1"
+    assert output_env["ECLAB_IMAGE_ARCHIVE_RELOAD"] == "true"
+    assert result["images"][0]["action"] == "external"
+    assert host[2] == []
+    assert yaml.safe_load(topology.read_text()) == original
 
 
-def test_lean_recursive_missing_base_gets_recipient_archive_variable(tmp_path, host):
+@pytest.mark.parametrize("excluded", [False, True], ids=["included", "excluded"])
+def test_lean_archive_freeze_defrost_yaml_roundtrip(tmp_path, host, excluded):
+    archive_path = Path("artifacts/archive-source.tar.gz")
+    topology, _document = lab(
+        tmp_path,
+        {
+            "archive-server": {
+                "image": "fclab-demo/archive-server:0.1",
+                "env": {
+                    "ECLAB_IMAGE_ARCHIVE": archive_path.as_posix(),
+                    "ECLAB_IMAGE_ARCHIVE_REF": "fclab-demo/archive-source:0.1",
+                    "ECLAB_IMAGE_ARCHIVE_RELOAD": "true",
+                },
+            }
+        },
+    )
+    source_archive = topology.parent / archive_path
+    saved_image(source_archive, ("fclab-demo/archive-source:0.1",))
+    source_bytes = source_archive.read_bytes()
+    if excluded:
+        (topology.parent / ".eclab-freezeignore").write_text(
+            f"{archive_path.as_posix()}\n", encoding="utf-8"
+        )
+    original = yaml.safe_load(topology.read_text())
+    bundle = tmp_path / "bundle.tar.gz"
+
+    freeze(topology, bundle, environment={})
+
+    with tarfile.open(bundle) as frozen_archive:
+        frozen_names = set(frozen_archive.getnames())
+        frozen_topology = yaml.safe_load(
+            frozen_archive.extractfile("bundle/" + topology.name)
+        )
+        frozen_env = frozen_topology["topology"]["nodes"]["archive-server"]["env"]
+        member_name = "bundle/" + archive_path.as_posix()
+        if excluded:
+            selected_path = frozen_env["ECLAB_IMAGE_ARCHIVE"]
+            assert selected_path == (
+                "${ECLAB_FREEZE_FCLAB_DEMO_ARCHIVE_SERVER_0_1_IMAGE_ARCHIVE_A0F36B69}"
+            )
+            assert member_name not in frozen_names
+        else:
+            assert frozen_env["ECLAB_IMAGE_ARCHIVE"] == archive_path.as_posix()
+            assert member_name in frozen_names
+            assert frozen_archive.extractfile(member_name).read() == source_bytes
+
+    target = tmp_path / "restored"
+    defrost(
+        bundle,
+        target,
+        prepare_runtime=False,
+        prompt_licenses=False,
+        select_images=False,
+        initialize_env=False,
+        environment={},
+    )
+    restored = yaml.safe_load((target / topology.name).read_text())
+    restored_env = restored["topology"]["nodes"]["archive-server"]["env"]
+    if excluded:
+        assert restored_env["ECLAB_IMAGE_ARCHIVE"].startswith("${ECLAB_FREEZE_")
+        assert not (target / archive_path).exists()
+    else:
+        assert restored_env["ECLAB_IMAGE_ARCHIVE"] == archive_path.as_posix()
+        assert (target / archive_path).read_bytes() == source_bytes
+    assert restored_env["ECLAB_IMAGE_ARCHIVE_REF"] == "fclab-demo/archive-source:0.1"
+    assert restored_env["ECLAB_IMAGE_ARCHIVE_RELOAD"] == "true"
+    assert yaml.safe_load(topology.read_text()) == original
+    assert host[2] == []
+
+
+def test_lean_recursive_missing_base_stays_a_literal_recipe_dependency(tmp_path, host):
     topology, document = lab(
         tmp_path,
         {
@@ -342,21 +467,219 @@ def test_lean_recursive_missing_base_gets_recipient_archive_variable(tmp_path, h
     )
     (topology.parent / "app").mkdir()
     (topology.parent / "app/Dockerfile").write_text("FROM private/base:1\n")
-    result, document, staging = plan(tmp_path, topology, document, lean=True)
+    result, document, _staging = plan(tmp_path, topology, document, lean=True)
     dependency = next(
         entry for entry in result["images"] if entry["image"] == "private/base:1"
     )
-    variable = dependency["archive_variable"]
-    assert (
-        document["topology"]["nodes"]["app"]["env"][variable] == "${" + variable + "}"
+    assert dependency["action"] == "external"
+    assert "archive_variable" not in dependency
+    assert document["topology"]["nodes"]["app"]["image"] == "app:1"
+    assert document["topology"]["nodes"]["app"]["env"]["ECLAB_DOCKERFILE"] == (
+        "app/Dockerfile"
     )
+    assert "ECLAB_FREEZE_" not in yaml.safe_dump(document)
+    assert not any(entry["action"] == "archive" for entry in result["images"])
+
+
+def test_packaged_image_provider_recipe_is_part_of_the_build_graph(
+    tmp_path, host, monkeypatch
+):
+    package = tmp_path / "provider-package"
+    package.mkdir()
+    (package / "Dockerfile").write_text("FROM alpine:3.22\n")
+    topology, document = lab(tmp_path, {"proxy": {"image": "example.test/proxy:1"}})
+
+    class Provider:
+        def provide(self, requirement):
+            if requirement.canonical_reference != "example.test/proxy:1":
+                return None
+            return ImageProviderResponse.offer(
+                ImageProvision(
+                    "example.test/proxy:1",
+                    DockerfileRecipe(package / "Dockerfile", package),
+                )
+            )
+
+    plugin = ImageProviderPlugin("org.example.proxy", Provider())
+
+    class Distribution:
+        def locate_file(self, _path):
+            return package
+
+    class EntryPoint:
+        name = "org.example.proxy"
+        dist = Distribution()
+
+        def load(self):
+            return plugin
+
+    original_entry_points = importlib.metadata.entry_points
+
+    def entry_points(*, group):
+        if group == "engulf.plugins.v1.goal.v1.org_engulf_docker_image":
+            return (EntryPoint(),)
+        return original_entry_points(group=group)
+
+    monkeypatch.setattr(
+        "engulf_clab_freeze.images.importlib.metadata.entry_points", entry_points
+    )
+    result, frozen, _ = plan(tmp_path, topology, document, lean=True)
+    entries = {entry["image"]: entry for entry in result["images"]}
+    assert entries["example.test/proxy:1"]["action"] == "build"
+    assert entries["alpine:3.22"]["action"] == "external"
+    assert frozen["topology"]["nodes"]["proxy"]["image"] == "example.test/proxy:1"
+    assert "ECLAB_FREEZE_" not in yaml.safe_dump(frozen)
+
+
+def test_archive_manifest_inputs_are_attached_to_one_node(tmp_path, host, monkeypatch):
+    topology, document = lab(
+        tmp_path,
+        {
+            "app": {"image": "app:1"},
+            "client": {"image": "client:1"},
+            "server": {"image": "server:1"},
+        },
+    )
+    monkeypatch.setattr(
+        "engulf_clab_freeze.images.discover_image_sources",
+        lambda *_args: (
+            ImageSource(
+                "app:1",
+                "app",
+                "build",
+                dependencies=("private/base:1",),
+                rebuildable=True,
+            ),
+            ImageSource(
+                "private/base:1",
+                None,
+                "archive",
+                inputs=(ImageInput(None, "ECLAB_IMAGE_ARCHIVE", artifact=True),),
+            ),
+        ),
+    )
+    result, frozen, staging = plan(tmp_path, topology, document, lean=True)
+    carrier_names = [
+        name
+        for name, node in frozen["topology"]["nodes"].items()
+        if "ECLAB_IMAGE_ARCHIVE_MANIFEST" in node.get("env", {})
+    ]
+    assert carrier_names == ["app"]
+    variable = next(
+        entry["archive_variable"]
+        for entry in result["images"]
+        if entry["image"] == "private/base:1"
+    )
+    assert frozen["topology"]["nodes"]["app"]["env"][variable] == "${" + variable + "}"
+    assert all(
+        not any(key.startswith("ECLAB_FREEZE_") for key in node.get("env", {}))
+        for name, node in frozen["topology"]["nodes"].items()
+        if name != "app"
+    )
+
     archive = tmp_path / "recipient.tar"
     saved_image(archive, ("private/base:1",))
     restored = load_topology(staging / topology.name, {variable: str(archive)})
-    assert (
-        build_requests_from_topology(staging / topology.name, restored)[0].archive
-        == archive
+    requests = build_requests_from_topology(staging / topology.name, restored)
+    assert any(
+        request.image == "private/base:1" and request.archive == archive
+        for request in requests
     )
+
+
+def test_base_router_image_is_shared_by_inheriting_nodes_and_keeps_recipes(
+    tmp_path, host, monkeypatch
+):
+    topology, document = lab(
+        tmp_path,
+        {
+            "base-router-build": {
+                "image": "fclab-demo/router-base:0.1",
+                "env": {
+                    "ECLAB_DOCKERFILE": "images/router-base/Dockerfile",
+                    "ECLAB_DOCKER_CTX": "images/router-base",
+                    "ECLAB_DOCKER_ARGS": "--label org.fclab.demo=fclab-demo",
+                    "ECLAB_DOCKER_BASE_NODE": "true",
+                },
+            },
+            "fake-wan": {
+                "image": "fclab-demo/fake-wan:0.1",
+                "env": {
+                    "ECLAB_DOCKERFILE": "images/fake-wan/Dockerfile",
+                    "ECLAB_DOCKER_CTX": "images/fake-wan",
+                },
+            },
+            "workstation-a": {"image": "fclab-demo/router-base:0.1"},
+            "workstation-b": {"image": "fclab-demo/router-base:0.1"},
+        },
+    )
+    image_root = topology.parent / "images"
+    (image_root / "router-base").mkdir(parents=True)
+    (image_root / "fake-wan").mkdir(parents=True)
+    (image_root / "router-base/Dockerfile").write_text("FROM alpine:3.22\n")
+    (image_root / "fake-wan/Dockerfile").write_text("FROM fclab-demo/router-base:0.1\n")
+    monkeypatch.setattr(
+        "engulf_clab_freeze.images.discover_image_sources",
+        lambda *_args: (
+            ImageSource(
+                "fclab-demo/router-base:0.1",
+                "base-router-build",
+                "build",
+                inputs=(
+                    ImageInput(
+                        image_root / "router-base/Dockerfile", "ECLAB_DOCKERFILE"
+                    ),
+                    ImageInput(image_root / "router-base", "ECLAB_DOCKER_CTX"),
+                ),
+                controls=(
+                    "ECLAB_DOCKERFILE",
+                    "ECLAB_DOCKER_CTX",
+                    "ECLAB_DOCKER_ARGS",
+                    "ECLAB_DOCKER_BASE_NODE",
+                ),
+                build_only=True,
+                rebuildable=True,
+            ),
+            ImageSource(
+                "fclab-demo/fake-wan:0.1",
+                "fake-wan",
+                "build",
+                inputs=(
+                    ImageInput(image_root / "fake-wan/Dockerfile", "ECLAB_DOCKERFILE"),
+                    ImageInput(image_root / "fake-wan", "ECLAB_DOCKER_CTX"),
+                ),
+                dependencies=("fclab-demo/router-base:0.1",),
+                controls=("ECLAB_DOCKERFILE", "ECLAB_DOCKER_CTX"),
+                rebuildable=True,
+            ),
+        ),
+    )
+    result, frozen, _ = plan(tmp_path, topology, document, lean=True)
+    entries = {entry["image"]: entry for entry in result["images"]}
+    assert entries["fclab-demo/router-base:0.1"]["nodes"] == [
+        "base-router-build",
+        "workstation-a",
+        "workstation-b",
+    ]
+    assert entries["fclab-demo/router-base:0.1"]["action"] == "build"
+    assert entries["fclab-demo/fake-wan:0.1"]["dependencies"] == [
+        "fclab-demo/router-base:0.1"
+    ]
+    assert frozen["topology"]["nodes"]["workstation-a"]["image"] == (
+        "fclab-demo/router-base:0.1"
+    )
+    assert frozen["topology"]["nodes"]["workstation-b"]["image"] == (
+        "fclab-demo/router-base:0.1"
+    )
+    assert (
+        frozen["topology"]["nodes"]["base-router-build"]["env"]["ECLAB_DOCKERFILE"]
+        == "images/router-base/Dockerfile"
+    )
+    assert (
+        frozen["topology"]["nodes"]["fake-wan"]["env"]["ECLAB_DOCKERFILE"]
+        == "images/fake-wan/Dockerfile"
+    )
+    assert "ECLAB_FREEZE_" not in yaml.safe_dump(frozen)
 
 
 def test_override_can_declare_external_or_force_snapshot(tmp_path, host):
@@ -369,17 +692,24 @@ def test_override_can_declare_external_or_force_snapshot(tmp_path, host):
         topology,
         document,
         external_images=("private:1",),
-        bundle_images=("debian:12",),
     )
     assert {entry["image"]: entry["action"] for entry in result["images"]} == {
-        "debian:12": "archive",
+        "debian:12": "registry",
         "private:1": "external",
     }
+    with pytest.raises(FreezeError, match="requires --offline"):
+        freeze_images(
+            topology,
+            copy.deepcopy(document),
+            tmp_path / "staging",
+            {},
+            bundle_images=("debian:12",),
+        )
 
 
-def test_lean_and_offline_are_incompatible(tmp_path, host):
+def test_removed_lean_flag_is_rejected(tmp_path, host):
     topology, _ = lab(tmp_path, {})
-    assert main(["-t", str(topology), "--lean", "--offline"]) == 1
+    assert main(["-t", str(topology), "--lean"]) == 2
 
 
 def test_freeze_defrost_roundtrip_needs_no_docker_at_restore(
@@ -401,6 +731,9 @@ def test_freeze_defrost_roundtrip_needs_no_docker_at_restore(
         "engulf_clab_freeze.defrost.subprocess.run",
         Mock(side_effect=AssertionError("unexpected Docker call")),
     )
+    monkeypatch.setattr(
+        "engulf_clab_freeze.runtime._containerlab_version", lambda _binary: None
+    )
     target = tmp_path / "restored"
     defrost(
         archive,
@@ -412,9 +745,8 @@ def test_freeze_defrost_roundtrip_needs_no_docker_at_restore(
     )
     restored = load_topology(target / topology.name, {})
     assert "x-engulf-clab-freeze" not in restored
-    requests = build_requests_from_topology(target / topology.name, restored)
-    assert requests[0].image == "router:1"
-    assert "ECLAB_VRNETLAB_TYPE" not in restored["topology"]["nodes"]["router"]["env"]
+    assert restored["topology"]["nodes"]["router"]["image"] == "router:1"
+    assert "ECLAB_VRNETLAB_TYPE" in restored["topology"]["nodes"]["router"]["env"]
     assert yaml.safe_load(topology.read_text()) == original
 
 
@@ -610,12 +942,7 @@ def test_defrost_load_images_restores_tags_and_deduplicates_loads(
         load_images=True,
         environment={},
     )
-    assert sum(arguments[:3] == ["docker", "image", "load"] for arguments in calls) == 1
-    assert {
-        arguments[-1]
-        for arguments in calls
-        if arguments[:3] == ["docker", "image", "tag"]
-    } == {"one:1", "two:1"}
+    assert not any(arguments[:3] == ["docker", "image", "load"] for arguments in calls)
 
 
 def test_corrupt_manifest_archive_fails_before_defrost_publication(tmp_path, host):
@@ -627,12 +954,12 @@ def test_corrupt_manifest_archive_fails_before_defrost_publication(tmp_path, hos
     with tarfile.open(archive) as saved:
         saved.extractall(extracted, filter="data")
     root = extracted / "bundle"
-    next(root.glob("images/*.tar")).write_bytes(b"modified")
+    (root / "images.freeze.json").write_bytes(b"invalid manifest")
     corrupt = tmp_path / "corrupt.tar.gz"
     with tarfile.open(corrupt, "w:gz") as saved:
         saved.add(root, arcname="bundle")
     into = tmp_path / "restored"
-    with pytest.raises(DefrostError, match="checksum mismatch"):
+    with pytest.raises(DefrostError, match="image manifest"):
         defrost(
             corrupt,
             into,

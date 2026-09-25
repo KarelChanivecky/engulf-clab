@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import tarfile
 import tempfile
@@ -11,13 +12,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, patch
 
-import yaml
 import pytest
+import yaml
 from engulf_clab_freeze.command import (
     FreezeError,
     _bundle_offline_vrnetlab,
     _confirm_overwrite,
     _download_wheels,
+    _environment_initializer_script,
     _environment_references,
     _launcher,
     freeze,
@@ -27,11 +29,37 @@ from engulf_clab_freeze.command import (
 
 @pytest.fixture(autouse=True)
 def no_image_host_work(monkeypatch):
-    monkeypatch.setattr("engulf_clab_freeze.images.inspect_image", lambda _reference: None)
-    monkeypatch.setattr("engulf_clab_freeze.images.registry_identity", lambda _reference, _local: "sha256:" + "a" * 64)
+    monkeypatch.setattr(
+        "engulf_clab_freeze.images.inspect_image", lambda _reference: None
+    )
+    monkeypatch.setattr(
+        "engulf_clab_freeze.images.registry_identity",
+        lambda _reference, _local: "sha256:" + "a" * 64,
+    )
 
 
 class FreezeCommandTestCase(unittest.TestCase):
+    def test_freeze_rejects_incompatible_runtime_modes_before_touching_lab(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+            with self.assertRaisesRegex(FreezeError, "cannot be combined"):
+                freeze(
+                    topology, root / "archive.tar.gz", offline=True, with_runtime=True
+                )
+            self.assertFalse((root / "archive.tar.gz").exists())
+
+    def test_empty_environment_initializer_is_silent(self) -> None:
+        script = _environment_initializer_script("lab.env", [])
+
+        self.assertNotIn(
+            "no topology environment values need initialization.",
+            script,
+        )
+
     def test_environment_reference_discovery_matches_supported_forms(self) -> None:
         self.assertEqual(
             _environment_references(
@@ -68,7 +96,9 @@ class FreezeCommandTestCase(unittest.TestCase):
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
                 offline=False,
-                lean=False, external_images=(), bundle_images=(),
+                with_runtime=False,
+                external_images=(),
+                bundle_images=(),
                 user_state=None,
                 application_name="eclab",
                 environment=None,
@@ -94,7 +124,9 @@ class FreezeCommandTestCase(unittest.TestCase):
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
                 offline=False,
-                lean=False, external_images=(), bundle_images=(),
+                with_runtime=False,
+                external_images=(),
+                bundle_images=(),
                 user_state=None,
                 application_name="eclab",
                 environment=None,
@@ -131,7 +163,9 @@ class FreezeCommandTestCase(unittest.TestCase):
                 workspace=None,
                 confirm_overwrite=_confirm_overwrite,
                 offline=True,
-                lean=False, external_images=(), bundle_images=(),
+                with_runtime=False,
+                external_images=(),
+                bundle_images=(),
                 user_state=user_state,
                 application_name="eclab",
                 environment=None,
@@ -147,15 +181,28 @@ class FreezeCommandTestCase(unittest.TestCase):
             original = {
                 "name": "demo",
                 "topology": {
-                    "defaults": {"license": "/private/default.lic", "env": {"ECLAB_LIC_CLAMP": "default.lic"}},
-                    "kinds": {"unused": {"license": "/private/kind.lic", "env": {"ECLAB_LIC_CLAMP": "kind.lic"}}},
-                    "groups": {"unused": {"license": "/private/group.lic", "env": {"ECLAB_LIC_CLAMP": "group.lic"}}},
+                    "defaults": {
+                        "license": "/private/default.lic",
+                        "env": {"ECLAB_LIC_CLAMP": "default.lic"},
+                    },
+                    "kinds": {
+                        "unused": {
+                            "license": "/private/kind.lic",
+                            "env": {"ECLAB_LIC_CLAMP": "kind.lic"},
+                        }
+                    },
+                    "groups": {
+                        "unused": {
+                            "license": "/private/group.lic",
+                            "env": {"ECLAB_LIC_CLAMP": "group.lic"},
+                        }
+                    },
                     "nodes": {
                         "router": {
                             "license": "$PERSONAL_POOL",
                             "env": {"ECLAB_LIC_CLAMP": "personal.lic", "KEEP": "yes"},
                         }
-                    }
+                    },
                 },
             }
             topology.write_text(yaml.safe_dump(original), encoding="utf-8")
@@ -174,7 +221,11 @@ class FreezeCommandTestCase(unittest.TestCase):
             self.assertEqual(router["license"], "__ECLAB_LICENSE_PROMPT__")
             self.assertNotIn("ECLAB_LIC_CLAMP", router["env"])
             self.assertEqual(router["env"]["KEEP"], "yes")
-            for definition in (frozen["topology"]["defaults"], frozen["topology"]["kinds"]["unused"], frozen["topology"]["groups"]["unused"]):
+            for definition in (
+                frozen["topology"]["defaults"],
+                frozen["topology"]["kinds"]["unused"],
+                frozen["topology"]["groups"]["unused"],
+            ):
                 self.assertEqual(definition["license"], "__ECLAB_LICENSE_PROMPT__")
                 self.assertNotIn("ECLAB_LIC_CLAMP", definition["env"])
             self.assertEqual(frozen["x-engulf-clab-freeze"]["licenses"], "prompt")
@@ -216,7 +267,10 @@ class FreezeCommandTestCase(unittest.TestCase):
             )
             (root / "omit.txt").write_text("omit", encoding="utf-8")
             archive = Path(directory) / "share.tar.gz"
-            with patch("engulf_clab_freeze.command._download_wheels"):
+            with patch("engulf_clab_freeze.command.runtime_provider") as provider:
+                from engulf_clab_freeze.runtime import EclabRuntimeProvider
+
+                provider.return_value = EclabRuntimeProvider()
                 freeze(topology, archive, application_name="vendor clab")
             with tarfile.open(archive, "r:gz") as tar:
                 names = tar.getnames()
@@ -229,13 +283,16 @@ class FreezeCommandTestCase(unittest.TestCase):
             )
 
             (root / ".vendor_clab" / "licenses").mkdir(parents=True)
-            with self.assertRaisesRegex(FreezeError, "destroy the lab"):
-                freeze(
-                    topology,
-                    Path(directory) / "other.tar.gz",
-                    application_name="vendor clab",
-                )
+            with patch("engulf_clab_freeze.command.runtime_provider") as provider:
+                from engulf_clab_freeze.runtime import EclabRuntimeProvider
 
+                provider.return_value = EclabRuntimeProvider()
+                with self.assertRaisesRegex(FreezeError, "destroy the lab"):
+                    freeze(
+                        topology,
+                        Path(directory) / "other.tar.gz",
+                        application_name="vendor clab",
+                    )
 
     def test_existing_archive_is_left_unchanged_when_overwrite_is_declined(
         self,
@@ -352,6 +409,25 @@ class FreezeCommandTestCase(unittest.TestCase):
             user_state = SimpleNamespace()
 
             with (
+                patch(
+                    "engulf_clab_freeze.runtime.EclabRuntimeProvider.capture",
+                    return_value={
+                        "containerlab": {"version": "1", "commit": "a"},
+                        "vrnetlab": {"revision": "a"},
+                    },
+                ),
+                patch(
+                    "engulf_clab_freeze.runtime._tool_paths",
+                    return_value=(Path("/bin/clab"), Path("/vrnetlab")),
+                ),
+                patch(
+                    "engulf_clab_freeze.runtime._containerlab_version",
+                    return_value={"version": "1", "commit": "a"},
+                ),
+                patch(
+                    "engulf_clab_freeze.runtime._git_identity",
+                    return_value={"revision": "a"},
+                ),
                 patch("engulf_clab_freeze.command._download_wheels"),
                 patch("engulf_clab_freeze.command._bundle_offline_runtime") as runtime,
                 patch(
@@ -361,7 +437,9 @@ class FreezeCommandTestCase(unittest.TestCase):
                     "engulf_clab_freeze.command._bundle_offline_vrnetlab",
                     return_value=False,
                 ) as vrnetlab,
-                patch("engulf_clab_freeze.command.freeze_images", return_value={}) as images,
+                patch(
+                    "engulf_clab_freeze.command.freeze_images", return_value={}
+                ) as images,
             ):
                 freeze(
                     topology,
@@ -407,12 +485,9 @@ class OfflineBundleTestCase(unittest.TestCase):
             self.assertTrue((bundled / "common" / "vrnetlab.py").is_file())
             self.assertTrue((bundled / "vendor" / "router" / "Makefile").is_file())
 
-
-
-
-
-
-    def test_offline_launcher_forces_bundled_tools_and_leaves_images_to_provider(self) -> None:
+    def test_offline_launcher_forces_bundled_tools_and_leaves_images_to_provider(
+        self,
+    ) -> None:
         launcher = _launcher("lab.clab.yml", offline=True)
         self.assertIn('export CONTAINERLAB_BIN="$containerlab"', launcher)
         self.assertIn('export VRNETLAB_DIR="$vrnetlab"', launcher)
@@ -506,10 +581,36 @@ class WheelhouseTestCase(unittest.TestCase):
                 _download_wheels(staging, [("engulf-clab", "0.1.0")], warnings)
 
             self.assertFalse((staging / "wheelhouse").exists())
-            self.assertIn('if [[ -d "$wheelhouse" ]]; then', _launcher("lab.clab.yml"))
+            self.assertIn('--find-links "$wheelhouse"', _launcher("lab.clab.yml"))
 
 
 class FreezePrivateEnvironmentTest(unittest.TestCase):
+    def test_environment_initializer_uses_exported_values_without_prompting(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initializer = root / "initialize-env.sh"
+            initializer.write_text(
+                _environment_initializer_script("lab.env", ["API_TOKEN"]),
+                encoding="utf-8",
+            )
+            initializer.chmod(0o755)
+
+            completed = subprocess.run(
+                [str(initializer)],
+                env={**os.environ, "API_TOKEN": "secret=value"},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                (root / "lab.env").read_text(encoding="utf-8"),
+                'API_TOKEN="secret=value"\n',
+            )
+
     def test_freeze_adds_a_recipient_env_initializer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
@@ -530,7 +631,7 @@ class FreezePrivateEnvironmentTest(unittest.TestCase):
             archive = Path(directory) / "share.tar.gz"
 
             with patch("engulf_clab_freeze.command._download_wheels"):
-                freeze(topology, archive, lean=True)
+                freeze(topology, archive)
 
             with tarfile.open(archive, "r:gz") as tar:
                 names = tar.getnames()
@@ -550,6 +651,10 @@ class FreezePrivateEnvironmentTest(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertNotIn(
+                "no topology environment values need initialization.",
+                completed.stdout,
+            )
             self.assertEqual(
                 (recipient / "lab.env").read_text(encoding="utf-8"),
                 'ROUTER_IMAGE="router:1"\n',
@@ -560,7 +665,9 @@ class FreezePrivateEnvironmentTest(unittest.TestCase):
             self.assertNotIn("hunter2", script.decode())
             self.assertNotIn("share/lab.env", names)
 
-    def test_freeze_resolves_the_env_file_but_leaves_it_out_of_the_archive(self) -> None:
+    def test_freeze_resolves_the_env_file_but_leaves_it_out_of_the_archive(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "lab"
             root.mkdir()

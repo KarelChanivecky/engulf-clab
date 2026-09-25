@@ -13,6 +13,7 @@ from unittest.mock import ANY, patch
 import yaml
 from engulf_clab_freeze.defrost import (
     DefrostError,
+    _environment_answers,
     _license_answers,
     defrost,
     destination,
@@ -101,6 +102,7 @@ class DefrostCommandTestCase(unittest.TestCase):
                 base / "share",
                 licenses={},
                 prompt_licenses=True,
+                environment_values={},
                 prepare_runtime=True,
                 select_images=True,
                 load_images=False,
@@ -132,6 +134,8 @@ class DefrostCommandTestCase(unittest.TestCase):
                             "router=/pools/site",
                             "--license",
                             "$FALLBACK",
+                            "--env",
+                            "API_TOKEN=secret=value",
                             "--no-runtime",
                             "--no-images",
                             "--load-images",
@@ -147,6 +151,7 @@ class DefrostCommandTestCase(unittest.TestCase):
                 base / "labs" / "demo",
                 licenses={"router": "/pools/site", "*": "$FALLBACK"},
                 prompt_licenses=True,
+                environment_values={"API_TOKEN": "secret=value"},
                 prepare_runtime=False,
                 select_images=False,
                 load_images=True,
@@ -172,6 +177,16 @@ class DefrostCommandTestCase(unittest.TestCase):
             {"router": "/pools/a", "*": "$POOL"},
         )
 
+    def test_environment_answers_preserve_equals_in_values(self) -> None:
+        self.assertEqual(
+            _environment_answers(["API_TOKEN=secret=value", "EMPTY="]),
+            {"API_TOKEN": "secret=value", "EMPTY": ""},
+        )
+
+    def test_environment_answers_reject_invalid_names(self) -> None:
+        with self.assertRaisesRegex(DefrostError, "NAME=VALUE"):
+            _environment_answers(["not-valid=secret"])
+
 
 class DefrostTestCase(unittest.TestCase):
     def test_inherited_license_prompts_are_resolved_for_each_node(self) -> None:
@@ -186,8 +201,16 @@ class DefrostTestCase(unittest.TestCase):
             }
             files["lab.clab.yml"] = yaml.safe_dump(document)
             archive = build_archive(base / "share.tar.gz", "share", files)
-            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False, environment={"ECLAB_LICENSE_ROUTER": "$POOL"})
-            nodes = yaml.safe_load((base / "demo/lab.clab.yml").read_text())["topology"]["nodes"]
+            defrost(
+                archive,
+                base / "demo",
+                prepare_runtime=False,
+                prompt_licenses=False,
+                environment={"ECLAB_LICENSE_ROUTER": "$POOL"},
+            )
+            nodes = yaml.safe_load((base / "demo/lab.clab.yml").read_text())[
+                "topology"
+            ]["nodes"]
             self.assertEqual(nodes["router"]["license"], "$POOL")
             self.assertEqual(nodes["client"]["license"], "__ECLAB_LICENSE_PROMPT__")
 
@@ -197,14 +220,32 @@ class DefrostTestCase(unittest.TestCase):
             files = minimal_lab()
             document = yaml.safe_load(files["lab.clab.yml"])
             document["topology"]["defaults"] = {"kind": "linux"}
-            document["topology"]["kinds"] = {"linux": {"env": {"ECLAB_IMAGE_ARCHIVE": "images/chosen.tar"}}}
+            document["topology"]["kinds"] = {
+                "linux": {"env": {"ECLAB_IMAGE_ARCHIVE": "images/chosen.tar"}}
+            }
             files["lab.clab.yml"] = yaml.safe_dump(document)
             archive = build_archive(base / "share.tar.gz", "share", files)
-            with patch("engulf_clab_freeze.defrost._bundled_images", return_value={"example/router:1.0.0": base / "demo/images/bundled.tar"}):
-                defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False, environment={})
-            restored = yaml.safe_load((base / "demo/lab.clab.yml").read_text())["topology"]
-            self.assertNotIn("ECLAB_IMAGE_ARCHIVE", restored["nodes"]["router"].get("env", {}))
-            self.assertEqual(restored["kinds"]["linux"]["env"]["ECLAB_IMAGE_ARCHIVE"], "images/chosen.tar")
+            with patch(
+                "engulf_clab_freeze.defrost._bundled_images",
+                return_value={"example/router:1.0.0": base / "demo/images/bundled.tar"},
+            ):
+                defrost(
+                    archive,
+                    base / "demo",
+                    prepare_runtime=False,
+                    prompt_licenses=False,
+                    environment={},
+                )
+            restored = yaml.safe_load((base / "demo/lab.clab.yml").read_text())[
+                "topology"
+            ]
+            self.assertNotIn(
+                "ECLAB_IMAGE_ARCHIVE", restored["nodes"]["router"].get("env", {})
+            )
+            self.assertEqual(
+                restored["kinds"]["linux"]["env"]["ECLAB_IMAGE_ARCHIVE"],
+                "images/chosen.tar",
+            )
 
     def test_defrost_publishes_a_lab_without_freeze_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -249,25 +290,101 @@ class DefrostTestCase(unittest.TestCase):
             base = Path(directory)
             files = minimal_lab()
             files["initialize-env.sh"] = (
-                "#!/usr/bin/env bash\n"
-                "printf ran > initializer-ran\n"
+                "#!/usr/bin/env bash\nprintf ran > initializer-ran\n"
             )
             document = yaml.safe_load(files["lab.clab.yml"])
             document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
             files["lab.clab.yml"] = yaml.safe_dump(document, sort_keys=False)
             archive = build_archive(base / "share.tar.gz", "share", files)
 
-            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False)
+            defrost(
+                archive, base / "demo", prepare_runtime=False, prompt_licenses=False
+            )
 
             self.assertEqual((base / "demo/initializer-ran").read_text(), "ran")
+
+    def test_defrost_quiets_the_legacy_empty_initializer_message(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files["initialize-env.sh"] = (
+                "#!/usr/bin/env bash\n"
+                "printf 'no topology environment values need initialization.\\n'\n"
+            )
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
+            files["lab.clab.yml"] = yaml.safe_dump(document, sort_keys=False)
+            archive = build_archive(base / "share.tar.gz", "share", files)
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                defrost(
+                    archive, base / "demo", prepare_runtime=False, prompt_licenses=False
+                )
+
+            self.assertNotIn(
+                "no topology environment values need initialization.",
+                output.getvalue(),
+            )
+            self.assertNotIn(
+                "no topology environment values need initialization.",
+                (base / "demo" / "initialize-env.sh").read_text(encoding="utf-8"),
+            )
+
+    def test_defrost_feeds_env_flag_values_to_the_initializer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files["initialize-env.sh"] = (
+                "#!/usr/bin/env bash\n"
+                'printf \'API_TOKEN=\\"%s\\"\\n\' "$API_TOKEN" > lab.env\n'
+            )
+            document = yaml.safe_load(files["lab.clab.yml"])
+            document["topology"]["nodes"]["router"]["env"] = {"API_TOKEN": "$API_TOKEN"}
+            document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
+            files["lab.clab.yml"] = yaml.safe_dump(document, sort_keys=False)
+            archive = build_archive(base / "share.tar.gz", "share", files)
+
+            defrost(
+                archive,
+                base / "demo",
+                environment_values={"API_TOKEN": "secret=value"},
+                prepare_runtime=False,
+                prompt_licenses=False,
+            )
+
+            self.assertEqual(
+                (base / "demo" / "lab.env").read_text(encoding="utf-8"),
+                'API_TOKEN="secret=value"\n',
+            )
+
+    def test_defrost_accepts_auto_license_from_the_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            archive = build_archive(base / "share.tar.gz", "share", minimal_lab())
+
+            defrost(
+                archive,
+                base / "demo",
+                environment={"ECLAB_AUTO_LICENSE": "true"},
+                prepare_runtime=False,
+                prompt_licenses=False,
+            )
+
+            document = yaml.safe_load(
+                (base / "demo" / "lab.clab.yml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                document["topology"]["nodes"]["router"]["license"],
+                "ECLAB_AUTO_LICENSE",
+            )
 
     def test_defrost_can_skip_the_env_initializer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             files = minimal_lab()
             files["initialize-env.sh"] = (
-                "#!/usr/bin/env bash\n"
-                "printf ran > initializer-ran\n"
+                "#!/usr/bin/env bash\nprintf ran > initializer-ran\n"
             )
             document = yaml.safe_load(files["lab.clab.yml"])
             document[FREEZE_KEY]["env_initializer"] = "initialize-env.sh"
@@ -289,12 +406,13 @@ class DefrostTestCase(unittest.TestCase):
             base = Path(directory)
             files = minimal_lab()
             files["initialize-env.sh"] = (
-                "#!/usr/bin/env bash\n"
-                "printf ran > initializer-ran\n"
+                "#!/usr/bin/env bash\nprintf ran > initializer-ran\n"
             )
             archive = build_archive(base / "share.tar.gz", "share", files)
 
-            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False)
+            defrost(
+                archive, base / "demo", prepare_runtime=False, prompt_licenses=False
+            )
 
             self.assertFalse((base / "demo/initializer-ran").exists())
 
@@ -305,7 +423,9 @@ class DefrostTestCase(unittest.TestCase):
             files[".engulf-clab-lab-stale.clab.yml"] = "topology: {nodes: {}}\n"
             archive = build_archive(base / "share.tar.gz", "share", files)
 
-            defrost(archive, base / "demo", prepare_runtime=False, prompt_licenses=False)
+            defrost(
+                archive, base / "demo", prepare_runtime=False, prompt_licenses=False
+            )
 
             self.assertFalse((base / "demo/.engulf-clab-lab-stale.clab.yml").exists())
 

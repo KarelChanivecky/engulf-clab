@@ -77,6 +77,8 @@ class PkiFreezeContributor:
             export_catalog, export_locations = _preserve_global_bindings(
                 local, portable, bindings, context.user_state
             )
+            for name in export_locations:
+                _rewrite_topology_authority_references(document, name, f"local/{name}")
         _portable_external_stores(
             local,
             portable,
@@ -787,9 +789,7 @@ def _topology_environment_requests(
         environment = node.data.get("env", {})
         value = environment.get(variable) if isinstance(environment, Mapping) else None
         if isinstance(value, str):
-            result.extend(
-                (node.name, item.strip()) for item in value.split(",") if item.strip()
-            )
+            result.extend((node.name, item.strip()) for item in value.split(",") if item.strip())
     return tuple(result)
 
 
@@ -815,9 +815,7 @@ def _rewrite_topology_environment_references(
         value = environment.get(variable)
         if not isinstance(value, str):
             continue
-        environment[variable] = ",".join(
-            rewrite(item.strip()) for item in value.split(",")
-        )
+        environment[variable] = ",".join(rewrite(item.strip()) for item in value.split(","))
 
 
 def _binding_answers(values: list[str]) -> dict[str, str]:

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 from engulf_api import ApplicationMetadata
 from engulf_clab_license_pool.plugin import (
+    AUTO_LICENSE,
     LicenseContract,
     LicensePoolPlugin,
     _copy_to_lab,
@@ -38,6 +39,7 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
         self.assertIn("ECLAB_LICENSE_POOL_STRATEGY", rendered)
         self.assertIn("init-license-pool [PATH] [--kind KIND]", rendered)
         self.assertIn("license: ECLAB_AUTO_LICENSE", rendered)
+        self.assertIn("--eclab-auto-license", rendered)
         self.assertIn("ECLAB_DISABLE_AUTO_LICENSE", rendered)
         self.assertIn("selected license basename", rendered)
         self.assertNotIn("VENDOR_CLAB_LICENSE", rendered)
@@ -58,7 +60,7 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             license_file = Path(directory) / "router.lic"
             license_file.write_text("license", encoding="utf-8")
-            pools, direct = _prompt_requests(
+            pools, direct, automatic = _prompt_requests(
                 {
                     "topology": {
                         "nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}
@@ -69,6 +71,7 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
                 LicenseContract("ECLAB"),
             )
             self.assertEqual(pools, [])
+            self.assertEqual(automatic, ())
             claim, source = direct["router-1"]
             self.assertTrue(claim.endswith(":router-1"))
             self.assertEqual(source, str(license_file))
@@ -80,7 +83,7 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
             root = Path(directory)
             license_file = root / "router.lic"
             license_file.write_text("license", encoding="utf-8")
-            pools, direct = _prompt_requests(
+            pools, direct, automatic = _prompt_requests(
                 {
                     "topology": {
                         "nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}
@@ -91,7 +94,44 @@ class FrozenLicensePromptTestCase(unittest.TestCase):
                 LicenseContract("VENDOR_CLAB"),
             )
             self.assertEqual(pools, [])
+            self.assertEqual(automatic, ())
             self.assertEqual(direct["router-1"][1], str(license_file))
+
+    def test_prompt_accepts_auto_as_a_registered_pool_request(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            automatic_input = {"ECLAB_LICENSE_ROUTER_1": "auto"}
+            pools, direct, automatic = _prompt_requests(
+                {
+                    "topology": {
+                        "nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}
+                    }
+                },
+                automatic_input,
+                Path(directory),
+                LicenseContract("ECLAB"),
+            )
+
+            self.assertEqual(pools, [])
+            self.assertEqual(direct, {})
+            self.assertEqual(automatic, ("router-1",))
+
+    def test_auto_license_flag_converts_every_frozen_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pools, direct, automatic = _prompt_requests(
+                {
+                    "topology": {
+                        "nodes": {"router-1": {"license": "__ECLAB_LICENSE_PROMPT__"}}
+                    }
+                },
+                {AUTO_LICENSE: "true"},
+                Path(directory),
+                LicenseContract("ECLAB"),
+                auto_prompts=True,
+            )
+
+            self.assertEqual(pools, [])
+            self.assertEqual(direct, {})
+            self.assertEqual(automatic, ("router-1",))
 
     def test_generated_license_state_uses_the_state_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

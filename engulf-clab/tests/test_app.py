@@ -41,7 +41,11 @@ class PackageMetadataTest(unittest.TestCase):
 
         self.assertIn("engulf>=0.1,<1", metadata["project"]["dependencies"])
         self.assertIn(
-            "engulf-executable-wrapper>=0.1,<1",
+            "engulf-executable-wrapper>=0.1.2,<1",
+            metadata["project"]["dependencies"],
+        )
+        self.assertIn(
+            "engulf-executable-wrapper-api>=1.0.1,<2",
             metadata["project"]["dependencies"],
         )
 
@@ -148,7 +152,9 @@ class CliTest(unittest.TestCase):
         definition.create.assert_called_once_with()
         application.run.assert_called_once_with()
 
-    def test_plugin_list_uses_a_metadata_fallback_when_extension_is_absent(self) -> None:
+    def test_plugin_list_uses_a_metadata_fallback_when_extension_is_absent(
+        self,
+    ) -> None:
         definition = MagicMock()
         application = definition.create.return_value.__enter__.return_value
         application.diagnostic_extensions = ()
@@ -180,9 +186,7 @@ class PrivilegeRefusalTest(unittest.TestCase):
                 ),
                 self.assertRaises(GoalPrivilegeError),
             ):
-                CONTAINERLAB_APPLICATION.create(
-                    discover_installed=discover_installed
-                )
+                CONTAINERLAB_APPLICATION.create(discover_installed=discover_installed)
 
     def test_unprivileged_startup_still_works(self) -> None:
         with (

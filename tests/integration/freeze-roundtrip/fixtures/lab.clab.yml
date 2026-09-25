@@ -1,0 +1,45 @@
+name: frt-@RUN@-@SCOPE@
+topology:
+  defaults:
+    env:
+      ECLAB_PKI_MANIFEST: ./pki.yaml
+      ECLAB_PKI_TRUST_MODE: none
+      ECLAB_PKI_TRUST_INCLUDE: '@AUTHORITY@'
+      ECLAB_PKI_TRUST_EXCLUDE: local/untrusted
+  nodes:
+    fortigate:
+      kind: fortinet_fortigate
+      image: ${FORTIGATE_IMAGE}
+      startup-config: fortigate.conf
+      env:
+        ECLAB_VRNETLAB_TYPE: fortinet/fortigate
+        ECLAB_PKI_CERTIFICATES: local/server
+        FOS_EXIT_ON_BOOTSTRAP_ERROR: 'false'
+        FOS_UUID: "@FOS_UUID@"
+    wan:
+      kind: linux
+      image: eclab.containers/wan-access
+      env:
+        ECLAB_DHCP_SUBNET: 198.19.0.0/24
+    linux:
+      kind: linux
+      image: freeze-roundtrip/@RUN@-linux:1
+      env:
+        ECLAB_DOCKERFILE: linux/Dockerfile
+        ECLAB_DOCKER_CTX: linux
+        ECLAB_PKI_CERTIFICATES: local/client
+        ECLAB_PKI_REQUIRED: 'true'
+        ROUNDTRIP_VALUE: ${ROUNDTRIP_VALUE}
+      exec:
+        - ip address replace 198.18.77.2/24 dev eth1
+        - ip link set eth1 up
+    base-build:
+      kind: linux
+      image: freeze-roundtrip/@RUN@-base:1
+      env:
+        ECLAB_DOCKERFILE: base/Dockerfile
+        ECLAB_DOCKER_CTX: base
+        ECLAB_DOCKER_BASE_NODE: 'true'
+  links:
+    - endpoints: [fortigate:eth1, linux:eth1]
+    - endpoints: [fortigate:eth2, wan:eth1]

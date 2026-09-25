@@ -40,9 +40,7 @@ class FreezeTest(unittest.TestCase):
                 elif level == "nodes":
                     node.update(definition)
                 else:
-                    topology[level] = {
-                        "linux" if level == "kinds" else "clients": definition
-                    }
+                    topology[level] = {"linux" if level == "kinds" else "clients": definition}
                 self.assertEqual(
                     _topology_certificate_requests({"topology": topology}),
                     (("router", "global/site-tls"),),
@@ -53,23 +51,15 @@ class FreezeTest(unittest.TestCase):
             "topology": {
                 "defaults": {"kind": "linux"},
                 "kinds": {"linux": {"group": "clients"}},
-                "groups": {
-                    "clients": {
-                        "env": {"ECLAB_PKI_PRIVATE_AUTHORITIES": "site-root"}
-                    }
-                },
+                "groups": {"clients": {"env": {"ECLAB_PKI_PRIVATE_AUTHORITIES": "site-root"}}},
                 "nodes": {"router": {}},
             }
         }
 
-        _rewrite_topology_authority_references(
-            document, "site-root", "global/recipient-root"
-        )
+        _rewrite_topology_authority_references(document, "site-root", "global/recipient-root")
 
         self.assertEqual(
-            document["topology"]["groups"]["clients"]["env"][
-                "ECLAB_PKI_PRIVATE_AUTHORITIES"
-            ],
+            document["topology"]["groups"]["clients"]["env"]["ECLAB_PKI_PRIVATE_AUTHORITIES"],
             "global/recipient-root",
         )
 
@@ -186,17 +176,13 @@ class FreezeTest(unittest.TestCase):
             manifest_document = {
                 "version": 2,
                 "authorities": {"root": {"freeze": {"exportable": True}}},
-                "certificates": {
-                    "tls": {"issuer": "root", "freeze": {"exportable": True}}
-                },
+                "certificates": {"tls": {"issuer": "root", "freeze": {"exportable": True}}},
             }
             (source / "pki.yaml").write_text(yaml.safe_dump(manifest_document), encoding="utf-8")
             topology_document = {
                 "topology": {
                     "defaults": {"env": {"ECLAB_PKI_MANIFEST": "./pki.yaml"}},
-                    "nodes": {
-                        "router": {"env": {"ECLAB_PKI_CERTIFICATES": "tls"}}
-                    },
+                    "nodes": {"router": {"env": {"ECLAB_PKI_CERTIFICATES": "tls"}}},
                 }
             }
             source_topology = source / "lab.clab.yml"
@@ -295,7 +281,15 @@ class FreezeTest(unittest.TestCase):
             topology_document = {
                 "topology": {
                     "defaults": {"env": {"ECLAB_PKI_MANIFEST": "./pki.yaml"}},
-                    "nodes": {},
+                    "nodes": {
+                        "router": {
+                            "env": {
+                                "ECLAB_PKI_TRUST_MODE": "none",
+                                "ECLAB_PKI_TRUST_INCLUDE": "global/site-root",
+                                "ECLAB_PKI_PRIVATE_AUTHORITIES": "global/site-root",
+                            }
+                        }
+                    },
                 }
             }
             source_topology = source / "lab.clab.yml"
@@ -347,6 +341,7 @@ class FreezeTest(unittest.TestCase):
             restored_catalog = merge_catalogs(
                 {"version": 2}, load_catalog(frozen / "pki.yaml", required=True)
             )
+            bind_topology_requests(restored_catalog, yaml.safe_load(staged_topology.read_text()))
             restored = generate_catalog(
                 restored_catalog,
                 user_root=root / "recipient-user",
@@ -383,7 +378,7 @@ class FreezeTest(unittest.TestCase):
             self.assertEqual(len(binding["fingerprint_sha256"]), 64)
             self.assertIn("BEGIN CERTIFICATE", binding["public_chain_pem"])
 
-    def test_format_two_archive_round_trip_vendors_external_manifest(self) -> None:
+    def test_current_archive_round_trip_vendors_external_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "lab"
@@ -417,7 +412,7 @@ class FreezeTest(unittest.TestCase):
             with tarfile.open(archive, "r:gz") as handle:
                 frozen = yaml.safe_load(handle.extractfile("share/lab.clab.yml").read())
                 self.assertIn("share/pki.yaml", handle.getnames())
-            self.assertEqual(frozen["x-engulf-clab-freeze"]["format"], 2)
+            self.assertEqual(frozen["x-engulf-clab-freeze"]["format"], 3)
             self.assertIn("engulf_clab.pki", frozen["x-engulf-clab-freeze"]["contributors"])
             destination = root / "restored"
             defrost_args = argparse.Namespace(

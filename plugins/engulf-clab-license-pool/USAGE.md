@@ -98,6 +98,7 @@ eclab deploy -t lab.clab.yml \
 | `--eclab-license-pool-strategy` | Per-invocation `sticky`, `round-robin`, or `least-recently-used`. |
 | `ECLAB_LICENSE_POOL_STRATEGY` | Persistent strategy default; `least-recently-used` when unset. |
 | `--eclab-license VALUE` | Global file, pool, or `$VARIABLE` for a frozen-license prompt. |
+| `--eclab-auto-license` | Resolve every unresolved frozen-license prompt from registered matching-kind pools. |
 
 The CLI strategy wins over its environment default. One invocation selects one
 strategy, but each canonical absolute pool independently owns its cursor and
@@ -218,8 +219,9 @@ copies, rollback, and destroy cleanup.
 Freeze replaces every node `license` value with `__ECLAB_LICENSE_PROMPT__`,
 including direct file licenses that never used a pool. Deploy then resolves
 `ECLAB_LICENSE_<NODE_NAME>`, `--eclab-license VALUE`, and the `ECLAB_LICENSE`
-persistent default in that order, otherwise prompting for a file, directory
-pool, or `$VARIABLE`. A `$VARIABLE` answer is resolved once from the invocation
+persistent default in that order, otherwise prompting for `auto`, a file,
+directory pool, or `$VARIABLE`. `auto` requests allocation from registered
+matching-kind pools. A `$VARIABLE` answer is resolved once from the invocation
 environment before the resulting path is classified. Direct files are copied
 without a pool claim; directories use normal allocation and history.
 

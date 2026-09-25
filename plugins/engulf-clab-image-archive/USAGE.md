@@ -38,7 +38,8 @@ topology:
 
 The archive is a `docker save` stream and must be named `.tar`, `.tar.gz`,
 `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz`. A qcow2 or raw disk image is
-not an image archive; build those with `engulf-clab-vrnetlab-build`.
+not an image archive; build those with `engulf-clab-vrnetlab-build` and an
+active source provider such as `engulf-clab-vrnetlab-static-image-provider`.
 
 Paths are absolute or relative to the topology file's directory, not the
 invoking shell's current directory. Absolute paths resolve on the launcher or
@@ -81,7 +82,10 @@ apply if a node also declares a competing archive for the same image.
 This package also declares archive acquisition facts to freeze through
 `engulf_clab.freeze.images.v1`. Default freeze includes the selected saved-image
 archive once and preserves its source/retag rule; `--lean` replaces its path
-with a recipient variable. Neither discovery nor freeze loads the archive.
+with a recipient variable only when the archive is outside the lab directory or
+excluded from the frozen source. A literal in-scope archive path that survives
+freeze exclusions stays relative and the archive file is included with the lab.
+Neither discovery nor freeze loads the archive.
 
 The provider offers a load recipe at `PREFERRED` authority for the node's exact
 image tag, ahead of the dispatcher's low-authority pull fallback. A failed load

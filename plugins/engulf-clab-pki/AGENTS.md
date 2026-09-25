@@ -11,4 +11,5 @@
 - Publish only immutable `engulf-clab-pki-api` projections after authorized views and mounts are ready; never discover or branch on consumers.
 - Keep services independent and absent unless declared. Reject injected-node collisions.
 - Keep freeze integration behind `engulf-clab-freeze-api`; ordinary archives contain no secrets and format-2 defrost remains atomic.
+- Encrypted global-to-local export must rebase topology trust/private-authority requests along with manifest issuers. Verify it without the producer's global catalog.
 - Update README, USAGE, CONTRIBUTING, schema help, tests, and generated skill together when behavior changes.

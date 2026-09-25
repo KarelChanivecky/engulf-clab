@@ -1,7 +1,7 @@
 # engulf-clab-freeze-api
 
-Typed, runtime-neutral hooks through which optional plugins extend format-2
-freeze and defrost without being imported by `engulf-clab-freeze`.
+Typed hooks for format-2/3 contributors and edition runtime providers, without
+coupling the API to `engulf-clab-freeze` or a concrete edition.
 
 Also provides read-only image portability declarations and checksummed image
 manifest validation for selective bundling and lean recipient inputs.

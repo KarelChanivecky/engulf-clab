@@ -16,6 +16,8 @@ class FreezeError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class FreezeContext:
+    """Staged inputs and the contributor's own workspace/user state directories."""
+
     source_topology: Path
     staged_topology: Path
     source_root: Path
@@ -28,6 +30,8 @@ class FreezeContext:
 
 @dataclass(frozen=True, slots=True)
 class DefrostContext:
+    """Staged output and the contributor's own recipient user state directory."""
+
     topology: Path
     staging_root: Path
     destination: Path

@@ -244,6 +244,12 @@ references.
 
 ## Validation
 
+Real freeze round trips are opt-in and separate from unit targets. See
+[`tests/integration/freeze-roundtrip/README.md`](tests/integration/freeze-roundtrip/README.md)
+for the lean, runtime, and isolated offline matrices, host prerequisites, private
+artifacts, and interruption recovery. Their host-free runner checks can be run
+with `.venv/bin/python -m pytest -q tests/integration/freeze-roundtrip/test_runner.py`.
+
 Run the narrowest checks that exercise the changed boundary. Common commands
 from an installed development environment are:
 

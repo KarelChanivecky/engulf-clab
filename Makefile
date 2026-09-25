@@ -37,6 +37,8 @@ PACKAGES := \
 	engulf-clab-pki-linux-fedora \
 	engulf-clab-containers-pki \
 	engulf-clab-vrnetlab-fortigate-pki-injector \
+	engulf-clab-vrnetlab-fortigate-license-injector \
+	engulf-clab-fortinet-operation-guard \
 	engulf-clab-all-plugins \
 	engulf-clab \
 	engulf-clab-demo-lab \
@@ -80,6 +82,8 @@ DIR_engulf-clab-pki-linux-debian := plugins/engulf-clab-pki-linux-debian
 DIR_engulf-clab-pki-linux-fedora := plugins/engulf-clab-pki-linux-fedora
 DIR_engulf-clab-containers-pki := plugins/engulf-clab-containers-pki
 DIR_engulf-clab-vrnetlab-fortigate-pki-injector := plugins/engulf-clab-vrnetlab-fortigate-pki-injector
+DIR_engulf-clab-vrnetlab-fortigate-license-injector := plugins/engulf-clab-vrnetlab-fortigate-license-injector
+DIR_engulf-clab-fortinet-operation-guard := plugins/engulf-clab-fortinet-operation-guard
 DIR_engulf-clab-all-plugins := plugins/engulf-clab-all-plugins
 DIR_engulf-clab := engulf-clab
 DIR_engulf-clab-demo-lab := demo-lab

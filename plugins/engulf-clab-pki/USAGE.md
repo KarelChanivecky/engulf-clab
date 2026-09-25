@@ -84,6 +84,9 @@ requests without generating keys.
 Freeze vendors the v2 manifest. Ordinary archives contain no private material. Optional
 `--include-pki-secrets --pki-passphrase-file FILE` encrypts only declarations explicitly marked
 `freeze.exportable`; defrost verifies fingerprints and restores canonical declaration identities.
+Exported user authorities become local identities in the recipient. Their explicit
+trust and private-authority requests are rebased with them, so restoring the
+encrypted archive does not require the producer's user catalog.
 
 Treat mounted private keys as secrets. Do not place credentials or private-key contents in
 catalogs. CRL, OCSP, and managed certificate-database namespaces are reserved and have no

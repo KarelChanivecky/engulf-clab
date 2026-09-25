@@ -119,6 +119,20 @@ class LicenseStrategyTestCase(unittest.TestCase):
         self.assertEqual(flag.default_json, '"least-recently-used"')
         self.assertEqual(flag.environment, LICENSE_POOL_STRATEGY_ENVIRONMENT)
 
+        auto_runtime = next(
+            option
+            for option in options
+            if option.kind is OptionKind.RUNTIME_VAR and option.name == AUTO_LICENSE
+        )
+        auto_flag = next(
+            option
+            for option in options
+            if option.kind is OptionKind.CLI_FLAG
+            and option.name == "--eclab-auto-license"
+        )
+        self.assertEqual(auto_runtime.default_json, "false")
+        self.assertEqual(auto_flag.environment, AUTO_LICENSE)
+
         registry = ArgumentRegistry()
         register_schema_arguments(registry, PLUGIN_SCHEMA, application)
         registered = registry.find_exact("--eclab-license-pool-strategy")
@@ -346,8 +360,8 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
             api.leases.return_value = nullcontext()
             api.get_context.return_value = None
             contexts: dict[str, object] = {}
-            api.set_context.side_effect = lambda key, value, **kwargs: contexts.__setitem__(
-                key, value
+            api.set_context.side_effect = lambda key, value, **kwargs: (
+                contexts.__setitem__(key, value)
             )
 
             result = LicensePoolPlugin().before_goal(
@@ -356,10 +370,7 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
 
             self.assertIsNone(result)
             self.assertEqual(
-                [
-                    (entry.path, entry.kind)
-                    for entry in _registered_pools(state)
-                ],
+                [(entry.path, entry.kind) for entry in _registered_pools(state)],
                 [(str(root.resolve()), DEFAULT_LICENSE_KIND)],
             )
             analyze_api = Mock(spec=InvocationAPI)
@@ -383,8 +394,8 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
             before_api = Mock(spec=BeforeGoalAPI)
             before_api.application = self._APPLICATION
             before_api.get_context.return_value = None
-            before_api.set_context.side_effect = (
-                lambda key, value, **kwargs: contexts.__setitem__(key, value)
+            before_api.set_context.side_effect = lambda key, value, **kwargs: (
+                contexts.__setitem__(key, value)
             )
 
             result = LicensePoolPlugin().before_goal(
@@ -641,7 +652,10 @@ class AutomaticLicensePoolTestCase(unittest.TestCase):
                 len(registry["pools"][str(pool.resolve())]["allocations"]), 1
             )
             self.assertEqual(
-                [path.name for path in (workspace / ".eclab" / "licenses").rglob("*.lic")],
+                [
+                    path.name
+                    for path in (workspace / ".eclab" / "licenses").rglob("*.lic")
+                ],
                 ["router.lic"],
             )
 
@@ -1150,24 +1164,18 @@ class AllocationIdentityTestCase(unittest.TestCase):
         contract = license_contract(self._APPLICATION)
 
         with tempfile.TemporaryDirectory() as pool:
-            requests = _requests(
-                topology, {"ROUTER_POOL": pool}, Path("/ws"), contract
-            )
+            requests = _requests(topology, {"ROUTER_POOL": pool}, Path("/ws"), contract)
 
         self.assertEqual(
             [claim for _n, _p, _c, claim in requests], ["/ws:stable-identity"]
         )
 
     def test_identity_falls_back_to_the_node_name(self) -> None:
-        topology = {
-            "topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}
-        }
+        topology = {"topology": {"nodes": {"router": {"license": "$ROUTER_POOL"}}}}
         contract = license_contract(self._APPLICATION)
 
         with tempfile.TemporaryDirectory() as pool:
-            requests = _requests(
-                topology, {"ROUTER_POOL": pool}, Path("/ws"), contract
-            )
+            requests = _requests(topology, {"ROUTER_POOL": pool}, Path("/ws"), contract)
 
         self.assertEqual([claim for _n, _p, _c, claim in requests], ["/ws:router"])
 
@@ -1238,9 +1246,7 @@ class PoolReferenceTestCase(unittest.TestCase):
         ):
             with self.subTest(description=description):
                 topology = {"topology": {"nodes": {"router": node}}}
-                self.assertEqual(
-                    _requests(topology, {}, Path("/ws"), contract), []
-                )
+                self.assertEqual(_requests(topology, {}, Path("/ws"), contract), [])
 
     def test_a_path_that_does_not_exist_is_left_to_containerlab(self) -> None:
         self.assertEqual(self._requests_for("/nonexistent/pool/FGT", {}), [])
@@ -1312,14 +1318,17 @@ class InheritedTopologyRequestTestCase(unittest.TestCase):
                     "env": {UUID_ENVIRONMENT: "stable-router"},
                 },
             )
-            pools, direct = _prompt_requests(
+            pools, direct, automatic = _prompt_requests(
                 document,
                 {contract.node_license_environment("router"): str(source)},
                 Path(directory),
                 contract,
             )
             self.assertEqual(pools, [])
-            self.assertEqual(direct["router"], (f"{directory}:stable-router", str(source)))
+            self.assertEqual(automatic, ())
+            self.assertEqual(
+                direct["router"], (f"{directory}:stable-router", str(source))
+            )
 
 
 class LegacyUuidWarningTestCase(unittest.TestCase):
@@ -1435,7 +1444,9 @@ class LicenseSelectionContextTestCase(unittest.TestCase):
             with self.assertRaises(TypeError):
                 payload["pooled"] = None  # type: ignore[index]
 
-    def test_publishing_reads_the_context_back_and_keeps_paths_out_of_logs(self) -> None:
+    def test_publishing_reads_the_context_back_and_keeps_paths_out_of_logs(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             api, _session = self._prepare(root)
@@ -1523,7 +1534,14 @@ class LicensePoolEntryFilterTestCase(unittest.TestCase):
             (pool / "real.lic").write_text("real", encoding="utf-8")
             (pool / ".hidden.lic").write_text("hidden", encoding="utf-8")
             state = MemoryState()
-            request = ("router", str(pool.resolve()), ".hidden.lic", "/labs/clamp:router")
+            request = (
+                "router",
+                str(pool.resolve()),
+                ".hidden.lic",
+                "/labs/clamp:router",
+            )
 
-            with self.assertRaisesRegex(LicensePoolError, "clamped license is unavailable"):
+            with self.assertRaisesRegex(
+                LicensePoolError, "clamped license is unavailable"
+            ):
                 _claim(state, [request], LicenseStrategy.LEAST_RECENTLY_USED)

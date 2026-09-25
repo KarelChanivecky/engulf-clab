@@ -1,321 +1,126 @@
-# engulf-clab-freeze
+# Freeze and defrost labs
 
-New archives use format 2. Defrost accepts legacy format 1 and format 2; older
-readers reject format 2. Installed contributors may add namespaced arguments,
-sanitize staged files, record authenticated metadata, resolve recipient
-bindings, and restore state before the destination is published. A required
-missing contributor fails without leaving a partial destination.
-
-Creates a shareable archive without changing or deploying the source lab, and
-expands a received archive back into a runnable one:
-
-Install with `python -m pip install engulf-clab-freeze`. The beta release
-requires the Engulf 1.0 plugin APIs used for packaging-declared dependency
-ordering and includes `defrost`.
+Install `engulf-clab-freeze` with the producing edition. The eclab edition
+provides the first runtime provider. Freeze selects the explicit topology or
+the single recognized topology in the current directory. Containerlab YAML is
+the base language; see the upstream
+[`clab.schema.json`](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json).
+Plugin controls are conventions layered onto valid Containerlab fields.
 
 ```bash
-eclab freeze
-eclab freeze -t labs/demo/lab.clab.yml --output demo.tar.gz
-eclab defrost demo.tar.gz
-eclab defrost demo.tar.gz --into labs/demo --license router=/pools/routers
+eclab freeze -t lab.clab.yml --output share.tar.gz
+eclab freeze -t lab.clab.yml --eclab-with-runtime
+eclab freeze -t lab.clab.yml --offline --bundle-image example/router:1
+eclab defrost share.tar.gz --into restored
+./restored/run-eclab.sh
 ```
 
-In a lab directory, `freeze` selects its single recognized Containerlab
-topology (`*.clab.yml`, `*.clab.yaml`, `clab.yml`, `clab.yaml`, `topology.yml`,
-or `topology.yaml`) and defaults to `<lab-directory-name>.tar.gz`. Pass `-t`,
-`--topo`, or `--topology` when selection is ambiguous or the topology is
-elsewhere. Output must end in `.tar.gz` or `.tgz` and its parent must exist.
+Output defaults to `<lab-directory>/<lab-directory-name>.tar.gz` and must end
+in `.tar.gz` or `.tgz`. Freeze stages and publishes atomically. An existing
+regular output prompts for overwrite interactively; symlinks are refused. A
+workspace lease prevents concurrent freezes. Offline mode also leases managed
+tool repositories.
 
-Freeze does not deploy or destroy the lab. It reads image metadata and may
-export existing Docker images; it never builds, pulls, or loads an image. It runs under a
-workspace-scoped freeze lease, so two concurrent freezes of the same workspace
-block each other.
+## Modes
 
-## Default, lean, and offline bundles
+| Mode | Python | Containerlab and vrnetlab | Images |
+| --- | --- | --- | --- |
+| Default lean | Record every installed package name and version; use the producer edition's installed launcher | Record Containerlab JSON version and commit, and vrnetlab Git revision | Keep complete build recipes and literal Dockerfile dependencies; use recipient variables for unavailable root images and actual missing recipe inputs. No captured image archives. |
+| `--eclab-with-runtime` | Add a dependency lock and wheelhouse; create a pinned environment at defrost or first launch | Provision recorded revisions when needed and refuse mismatched tools | Same image plan as lean; no captured image archives. |
+| `--offline` | Bundle the active eclab virtual environment and require a complete wheelhouse | Bundle the executable and checkout | Bundle required images or use declared offline builds; no network fallback at runtime. |
 
-Default freeze includes the image dependencies a recipient cannot otherwise
-obtain or rebuild. Installed image owners describe their recipes through
-`engulf_clab.freeze.images.v1`; freeze resolves inherited node settings and walks
-the complete declared image dependency graph, including Dockerfile `FROM` and
-external `COPY --from` references. This classification uses the selected source,
-not an image-name prefix or filename extension.
+`--bundle-image IMAGE` is repeatable and requires `--offline`.
+`--external-image IMAGE` is repeatable and applies only to non-offline modes;
+the recipient supplies that image. The old `--lean` flag is removed. The
+shared `--eclab-with-runtime` spelling is kept across editions; the producing
+edition selects its provider. A missing provider is an error.
 
-| Selected source | Default freeze |
-| --- | --- |
-| Verified registry image, such as Debian | Record the registry identity; omit image bytes. |
-| Complete lab-local Dockerfile/context | Keep the recipe and recursively resolve its bases; omit the output image. |
-| Declared saved-image archive | Include it once and record its exact source/retag selection. |
-| vrnetlab with a lab-local QCOW included in the archive | Keep its input and builder selection for recipient rebuilding. |
-| Build with external, excluded, missing, or otherwise unaccounted-for inputs | Export the existing resulting image and disable that build in the portable copy. |
-| Unknown acquisition source | Export the existing local image, or fail if unavailable. |
+Freeze resolves inherited settings and recursive dependencies from the topology,
+packaged Dockerfile image providers, and `engulf_clab.freeze.images.v1` source
+declarations. A literal dependency in a Dockerfile stays literal for the
+recipient's installed providers or Docker registry to resolve. A nonportable
+root image, VM source, or actual missing recipe input in non-offline modes may
+become an `${ECLAB_FREEZE_...}` variable; `initialize-env.sh` asks the recipient
+for it. Offline mode captures Docker images by immutable ID, checksums each
+export, and retains builds only when declared offline rebuildable. Docker
+access is needed for capture or `--load-images`; offline use still needs host
+Docker and any required QEMU/KVM capabilities.
 
-Dockerfile file inputs must survive freeze exclusions. Context completeness is
-conservative: an omitted context file or extra Docker build arguments can require
-capturing the output even when a particular build would not use that input.
-Normal rebuilds may use package repositories or Dockerfile downloads and are not
-a promise of byte-identical outputs. Use `--bundle-image IMAGE` to capture an
-exact existing image instead. Repeat it for additional roots or dependencies.
+Freeze copies ordinary lab files subject to `.eclab-freezeignore` (or the
+edition's state prefix), excludes runtime state and tracked prior archives,
+redacts licenses, removes license clamps and likely license files, and omits
+private `.env` values. It refuses generated lab-local license copies. It
+never changes the source lab, deploys, pulls, or builds images.
 
-Freeze probes registry manifests without pulling layers. When a local tag
-exists, the remote image must match its configuration identity; another image
-under the same registry tag does not substitute for it. A failed or unavailable
-probe means unknown availability, not proof of an offline-only source. Registry
-access uses the caller's Docker configuration; recipient access to private
-registries remains an assumption. `--external-image IMAGE` explicitly leaves
-an image for the recipient to supply and records that exception. It conflicts
-with `--bundle-image` for the same image and is unavailable with `--offline`.
+A declared `ECLAB_IMAGE_ARCHIVE` is an authored provisioning input. Lean and
+runtime freezes keep its relative path and include the tarball when it is inside
+the lab directory and survives the freeze exclusions. An archive outside the
+lab or excluded by `.eclab-freezeignore` becomes a recipient variable instead.
+These source tarballs are distinct from Docker image snapshots captured by the
+freeze planner.
+
+## Archive and launcher
+
+Format 3 records `mode`, `producer_edition`, all installed package versions,
+tool identities, image decisions, and license prompts in
+`x-engulf-clab-freeze`. `packages.freeze.txt` contains package names and
+versions only, with no pip URLs, credentials, or local paths.
+`images.freeze.json` records image actions and artifact checksums. Lean
+archives include no `wheelhouse/`, `requirements.freeze.txt`, `.eclab-venv/`,
+`tools/`, or generated image snapshots. Authored in-scope archive inputs remain
+part of the ordinary lab source tree. Runtime archives add the lock and wheelhouse.
+Offline archives also include `.eclab-venv/`, `tools/containerlab/`,
+`tools/vrnetlab/`, and required image archives. Every archive has
+`run-eclab.sh`, `initialize-env.sh`, and `FREEZE-WARNINGS.txt`.
+
+The lean launcher executes the producer edition already installed on the
+recipient. It creates no environment, prompts for no compatibility override,
+and exports no frozen tool pins. Runtime launchers use a pinned environment;
+offline launchers use bundled artifacts and host Docker. With no arguments,
+the launcher deploys the frozen topology; arguments replace that default.
+
+Freeze reads contributor-owned state, including PKI's workspace identities and
+user catalog. Encrypted exports preserve existing exportable identities; ordinary
+user-authority restores can bind automatically to the matching user certificate.
+
+## Defrost
 
 ```bash
-eclab freeze -t lab.clab.yml
-eclab freeze -t lab.clab.yml --lean
-eclab freeze -t lab.clab.yml --bundle-image example/app:1
-eclab freeze -t lab.clab.yml --external-image registry.example/team/router:1
+eclab defrost share.tar.gz --into restored --license router=/pools/routers
+eclab defrost share.tar.gz --env ROUTER_IMAGE=router:1 --no-license-prompt
+eclab defrost share.tar.gz --force --skip-env-init
 ```
 
-`--lean` replaces non-portable image selections with `${ECLAB_FREEZE_...}`
-variables and includes no newly exported image artifacts. It replaces saved-image
-archive paths, VM input paths, incomplete build-input paths, and unknown root
-image references. Referenced lab-local image archives and VM inputs are omitted
-too; other lab files still follow normal exclusions. Complete Dockerfile recipes
-and public image tags stay intact. An unavailable recursive base gets a recipient
-archive variable so its expected tag remains usable by its Dockerfile. The
-generated `initialize-env.sh` asks for these values alongside existing topology
-variables. It carries no source path defaults. Unresolved root image expressions
-are allowed only in lean mode. `--lean` conflicts with `--offline` and
-`--bundle-image`; it does not parameterize IP addresses, ports, or unrelated lab
-settings.
+`--into` defaults to a directory named after the archive. `--force` replaces
+only a directory carrying a prior defrost record. `--no-runtime` skips runtime
+preparation. `--no-images` skips bundled image selection; `--load-images`
+loads selected archives immediately. `--skip-env-init` skips the generated
+initializer, which otherwise writes only recipient supplied, nonempty values
+to the topology's sibling `.env` file with mode `0600`.
 
-Default freeze requires every selected image to resolve. Missing required
-artifacts fail atomically with the dependency chain. Export requires Docker
-daemon authorization; an existing declared archive can be packaged without
-Docker. Images are saved by immutable image ID, deduplicated, and recorded with
-checksums and platform information when available.
+License answers resolve from `--license NODE=VALUE` (or a bare value for all
+nodes), `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, auto license, then an
+interactive prompt. Answers may be `auto`, an existing file or pool directory,
+or a `$VARIABLE` for deploy. License answers are neither frozen nor written
+to the defrost record.
 
-Archive-backed images need tag references: Docker cannot retag a loaded image
-as `name@sha256:...`. Registry digest references may remain remote, but a digest
-reference requiring capture fails with guidance to select a tag or explicitly
-leave it external. Freeze does not publish an archive that cannot restore its
-requested reference.
+Defrost requires one archive root and a topology with supported metadata. It
+rejects escaping members, invalid image checksums, and missing contributors.
+Formats 1 and 2 keep their original restore rules. Format 3 selects the
+recorded producer edition's provider. Lean defrost compares the package
+manifest (extra recipient packages are allowed), Containerlab `version -j`
+version and commit, and vrnetlab Git revision. It reports missing or
+mismatched values once, appends them to `FREEZE-WARNINGS.txt`, and records them.
+`--force` regenerates warnings from the archive. The launcher does not repeat
+lean checks. Normal eclab provisioning of missing tools remains available.
 
-| Behavior | Normal | `--offline` |
-| --- | --- | --- |
-| Python runtime | Reuses or installs locked packages | Bundles the active eclab virtual environment |
-| Containerlab/vrnetlab | Uses recorded provenance and normal resolution | Uses bundled executable and checkout only |
-| Registry images | May be pulled by the recipient | Bundled from the local daemon |
-| Build outputs | Omitted when the included recipe is complete | Bundled unless the provider establishes offline rebuildability |
-| vrnetlab image | Rebuild from included input, otherwise bundle output | Bundle output; no recipient QCOW is required |
-| Package index | May fill wheelhouse gaps | Never used at runtime |
+Runtime mode may access package indexes and tool repositories while preparing
+recorded revisions, and refuses mismatched tools. Offline mode validates its
+artifacts before use and has no runtime network fallback. `--no-runtime`
+leaves runtime mode setup to the launcher. Defrost never deploys the lab.
 
-Offline creation fails if eclab is not running in a virtual environment, a
-required tool is unavailable, or a required image has neither a usable archive
-nor a local Docker image.
-It remains platform-specific and needs compatible Docker, Linux networking
-privileges, and QEMU/KVM where required. License files and allocations remain
-excluded in every mode. VM inputs are never imported automatically from outside
-the lab; default freeze captures the resulting image instead.
-
-## Sanitization and exclusions
-
-The archive includes the sanitized lab, exact package lock, best-effort
-wheelhouse, non-secret source provenance, and `run-eclab.sh`. The copied
-topology receives `x-engulf-clab-freeze` metadata describing the format,
-application, packages, tools, license policy, and offline mode.
-
-Every node license value becomes `__ECLAB_LICENSE_PROMPT__`, which asks the
-recipient for a file, pool directory, or `$VARIABLE` at deploy. Every
-`*_LIC_CLAMP` entry is removed. Possible license files are excluded by suffix
-(`.lic`, `.license`, `.licence`) and reported. A lab's private `*.env` files
-are excluded and reported the same way: the topology keeps its unresolved
-expressions, and the recipient supplies their own file after defrost. The archive
-also contains a generated `initialize-env.sh` helper; it asks for values for the
-variables still referenced by the topology and writes only non-empty answers to
-the topology's expected sibling env file. Freeze fails if generated
-`.<state-prefix-lowercase>/licenses` copies exist in the lab, including the
-legacy `.engulf-clab/licenses` location; successfully destroy the licensed lab
-first or reconcile legacy state deliberately.
-
-License selectors and `*_LIC_CLAMP` values are sanitized at every declaration
-origin: defaults, kinds, groups, and nodes, including shadowed and unused entries.
-Optional site-setting contributors use the same inventory. Defrost resolves
-inherited license prompts per node and respects inherited archive selections.
-Offline image collection and vrnetlab input redaction likewise resolve inherited
-node image/environment controls before writing the portable copy.
-
-Built-in exclusions cover the active application's managed lab state, virtual
-environments, caches, likely license files, private `*.env` files, and the
-current `clab-<lab>` runtime directory. Hidden `.engulf-clab-lab-*.clab.yml`
-and `.engulf-clab-lab-*.clab.yaml` files produced by the lab writer are also
-excluded: they are deploy-time renderings, not portable authored topology. Add
-Git-ignore-style patterns in
-`.<state-prefix-lowercase>-freezeignore` (`.eclab-freezeignore` for base
-eclab). The reserved source name `initialize-env.sh` is replaced by the
-generated recipient helper. This state-directory prefix is derived from the
-active application's short product name, unlike the fixed `ECLAB` label prefix
-used for the license marker: branding-only editions may keep `eclab` and share
-`.eclab/`, while a
-superset executable with its own schema pipeline uses that pipeline ID and
-therefore gets separate state. Empty excluded directories are omitted. Internal
-symlinks are preserved; symlinks escaping the lab are rejected rather than
-dereferenced.
-
-Archives created inside the lab are tracked and excluded from later freezes so
-they cannot nest. Missing or non-regular tracked outputs are pruned on the next
-freeze. An existing regular output prompts before overwrite in an interactive
-session, and declining leaves it unchanged; noninteractive execution never
-assumes consent. Symlinks and other non-regular destinations are rejected.
-
-## Archive and recipient workflow
-
-Each archive has one sanitized root, named after the archive filename,
-containing:
-
-| Entry | Purpose |
-| --- | --- |
-| Frozen lab and topology | Source copy after exclusions, license redaction, and portable rewrites. |
-| `requirements.freeze.txt` | Exact wrapper, active plugin, and transitive package versions. |
-| `wheelhouse/` | Available exact local or downloaded wheels; may be absent. |
-| `.eclab-freeze.env` | Verifiable non-secret Containerlab/vrnetlab repository and revision provenance. |
-| `initialize-env.sh` | Recipient-side helper that writes topology variables into its private env file. |
-| `run-eclab.sh` | Launcher using the frozen topology. |
-| `images.freeze.json` | Acquisition decisions, checksums, image identities, and build dependencies. |
-| `images/` | Exported images and copied external image archives, when needed. |
-
-The frozen topology selects its manifest with
-`env.ECLAB_IMAGE_ARCHIVE_MANIFEST`. The archive provider makes its images
-available to both runtime nodes and recursive build dependencies. Captured
-outputs replace their build controls, including inherited settings. Normal
-included build inputs are rewritten relative to the topology. The source lab
-is unchanged.
-
-```bash
-tar -xzf demo.tar.gz
-cd demo
-./initialize-env.sh
-./run-eclab.sh
-./run-eclab.sh destroy -t lab.clab.yml
-./run-eclab.sh inspect -t lab.clab.yml
-```
-
-With no arguments the launcher deploys; arguments replace that default. A
-normal launcher reuses a compatible eclab. Interactively, the recipient may
-accept an incompatible installed eclab or a user-site installation; otherwise
-the launcher creates `.eclab-venv` from the wheelhouse/package index. An
-offline launcher uses only bundled runtime/tools, disables checkout updates,
-and provisions bundled images through the image archive provider. Both use the host Docker daemon and
-privileges.
-
-Review the archive and package lock before execution: topologies, scripts,
-startup configs, Dockerfiles, and packages are executable or privileged input.
-
-## Expanding an archive
-
-`defrost` is the reverse command: it expands one archive, prepares the runtime,
-selects bundled Docker image archives, asks for the licenses freeze redacted,
-and removes the `x-engulf-clab-freeze` metadata so the result is an ordinary
-lab. It restores the executable permission on `initialize-env.sh` and runs it
-automatically unless `--skip-env-init` is supplied. It never deploys and never
-contacts a registry.
-
-```bash
-eclab defrost demo.tar.gz
-eclab defrost demo.tar.gz --into labs/demo
-eclab defrost demo.tar.gz --license router=/pools/routers --license '$SITE_POOL'
-eclab defrost demo.tar.gz --no-license-prompt --no-runtime
-eclab defrost demo.tar.gz --skip-env-init
-```
-
-| Option | Meaning |
-| --- | --- |
-| `--into DIRECTORY` | Destination; defaults to the archive name without its suffix, in the invocation directory. |
-| `--force` | Replace a destination an earlier defrost created; any other directory is refused. |
-| `--license NODE=VALUE` | Answer one node's frozen prompt. Repeatable. A bare `VALUE` answers every prompted node. |
-| `--no-license-prompt` | Keep the markers and let deploy resolve them. |
-| `--no-runtime` | Skip runtime preparation and leave it to `run-eclab.sh`. |
-| `--no-images` | Skip bundled image archive selection. |
-| `--load-images` | Load matched bundled archives into Docker now instead of at deploy. Needs Docker and container-runtime authorization. |
-| `--skip-env-init` | Skip running `initialize-env.sh` during defrost. |
-
-The archive must be a `.tar.gz` or `.tgz` regular file with exactly one root
-directory, and the topology carrying `x-engulf-clab-freeze` selects itself.
-Freeze stamps exactly one topology per archive, so selection is never ambiguous
-and defrost has no topology option. Members that escape the root, unsupported
-freeze formats, and archives without freeze metadata are rejected. Defrost runs
-under a lease on its destination, so two concurrent expansions into one
-directory block each other. Defrost removes legacy lab-writer topology outputs
-before publishing, so an older archive cannot restore a stale second topology.
-
-Licenses are answered in order: `--license`, then `ECLAB_LICENSE_<NODE_NAME>`,
-then `ECLAB_LICENSE`, then an interactive prompt. Each answer is a license file,
-a pool directory, or a `$VARIABLE` that deploy resolves later; paths are stored
-absolute and must exist. A node nobody answers keeps its marker, and deploy
-prompts for it as usual. Answers are never logged or written to the defrost
-record: an expanded lab holds real license selections, so do not commit or
-re-share that directory. Freeze redacts them again on the next archive.
-
-Defrost runs `./initialize-env.sh` before image, vrnetlab, and license
-resolution. It prompts once for each referenced variable, in stable name order;
-an empty answer refuses that variable and writes nothing. Values are appended
-using the parser's supported dotenv syntax to the expected sibling file, such as
-`lab.env`, with mode `0600`. The helper never copies the source owner's excluded
-env file and does not log the entered values. Use `--skip-env-init` to skip
-running it and leave the env file untouched, or run it manually later to
-replace or add answers; existing file contents are preserved.
-
-New archives validate their image manifest and checksums before publication.
-Their explicit acquisition selections are retained; an incidental tarball does
-not replace a recorded recipe. Deploy loads and retags manifest images from
-their declared artifacts, including build-only dependencies. `--load-images`
-also loads the manifest's bundled dependencies immediately, deduplicating loads
-and restoring target tags. `--no-images` disables manifest selection in the
-restored topology.
-
-For legacy archives without an image plan, any `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, or `.txz` file in
-the lab is inspected as a `docker save` stream, and a node whose image matches a
-reference the archive carries gets `ECLAB_IMAGE_ARCHIVE` pointing at it, so
-`engulf-clab-image-archive` loads that image at deploy instead of pulling.
-Offline bundles use their own `tools/docker/images.txt` listing. A node that
-already declares an archive, a vrnetlab-built node, and an image no bundled
-archive carries are all left alone, since a declared archive suppresses the
-registry fallback. Selection needs no Docker; only `--load-images` does.
-
-Runtime preparation restores the launcher and bundled tool permissions. An
-offline archive must contain a complete `.eclab-venv`, Containerlab executable,
-and vrnetlab checkout, and its console-script shebangs are repointed at the new
-location. A normal archive keeps the current installation when it already
-matches `requirements.freeze.txt`, and otherwise builds `.eclab-venv` from the
-wheelhouse after publication, exactly as the launcher would; a failure there is
-reported, leaves no partial environment, and defers to `run-eclab.sh`.
-
-Defrost writes `.<state-prefix-lowercase>-defrost.json` in the expanded lab with
-the removed freeze provenance, the source archive name, and every note it
-reported. `--force` uses that file to recognize a directory it may replace.
-
-## Failure semantics and troubleshooting
-
-Freeze stages beside the destination and renames the final archive only after
-copying, sanitization, package collection, offline checks, and compression
-succeed. Failure leaves no partial requested output.
-
-- Pass `-t` when topology selection is ambiguous.
-- Choose a new output path when overwrite cannot be confirmed.
-- Warnings about missing wheels never fail a freeze; they mean a normal archive
-  can fall back to its package index, so it is not guaranteed offline. Offline
-  mode bundles the runtime itself and does not use the wheelhouse.
-- For offline failures, use the installed eclab virtual environment, resolve
-  Containerlab/vrnetlab, and ensure required images exist in Docker or declared archives.
-- If an old archive is unexpectedly excluded, remove it and freeze again; stale
-  tracking records are pruned automatically.
-- Replace an escaping symlink with a lab-local copy or exclude it explicitly.
-- Defrost stages beside the destination and renames only after expansion,
-  sanitization reversal, image selection, and license answers succeed. A failure
-  leaves no partial destination, and a replaced directory is restored.
-- Pass `--into` when the archive filename does not name the directory you want.
-- For a lean or legacy archive with a missing vrnetlab input, supply its recipient
-  variable and rebuild. Default archives with captured outputs need no QCOW.
-- If a registry probe cannot establish availability, make the selected image
-  available locally, restore registry access, use `--lean`, or declare the
-  intended recipient dependency with `--external-image`.
-- A manifest checksum failure means the artifact no longer matches its recorded
-  content; recreate or obtain an intact freeze rather than changing the checksum.
-- If runtime preparation fails, run `./run-eclab.sh` in the expanded lab: it
-  retries the same installation interactively.
+For failures, use `-t` for ambiguous topology selection, install the producer
+edition's provider when missing, provide matching tool sources for pinned
+provisioning, and verify a complete wheelhouse, active virtual environment,
+tools, and images before freezing offline. Inspect a received archive's
+topology, scripts, and package lock before executing its launcher.

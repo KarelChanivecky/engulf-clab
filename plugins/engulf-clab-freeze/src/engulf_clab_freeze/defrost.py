@@ -22,13 +22,14 @@ from engulf_clab_freeze_api import (
     IMAGE_MANIFEST_ENV,
     DefrostContext,
     discover_contributors,
+    runtime_provider,
 )
 from engulf_clab_freeze_api import FreezeError as ContributorError
 from engulf_clab_freeze_api.manifest import read_image_manifest
 from engulf_clab_lab_parser import effective_nodes, parse_topology_yaml
 from engulf_clab_lab_parser.environment import EnvFileError, topology_environment
 from engulf_clab_lab_parser.session import WRITER_TEMP_PREFIX
-from engulf_clab_vrnetlab_build.config import (
+from engulf_clab_vrnetlab_static_image_provider.config import (
     build_requests_from_topology,
     resolve_image_expression,
 )
@@ -39,6 +40,8 @@ from .command import (
     _FREEZE_KEY,
     _LABEL_PREFIX,
     _archive_root_name,
+    _contributor_state,
+    _launcher_name,
     _state_prefix,
 )
 
@@ -47,6 +50,7 @@ from .command import (
 # engulf-clab-image-archive keep these names portable across editions.
 _LICENSE_PROMPT = f"__{_LABEL_PREFIX}_LICENSE_PROMPT__"
 _LICENSE_ENV = f"{_LABEL_PREFIX}_LICENSE"
+_AUTO_LICENSE = f"{_LABEL_PREFIX}_AUTO_LICENSE"
 _IMAGE_ARCHIVE_ENV = f"{_LABEL_PREFIX}_IMAGE_ARCHIVE"
 # Mirrors the lab parser's private topology globs. Defrost selects inside an
 # extracted archive, so it cannot reuse that module's invocation-directory scan.
@@ -73,7 +77,7 @@ _ARCHIVE_SUFFIXES = (".tar.gz", ".tgz")
 _UNSCANNED = frozenset({".eclab-venv", ".venv", ".git", "__pycache__", "wheelhouse"})
 _REQUIREMENT = re.compile(r"([A-Za-z0-9_.-]+)==([^\s]+)")
 _FREEZE_APPLICATION = "engulf-clab"
-_SUPPORTED_FORMATS = frozenset((1, 2))
+_SUPPORTED_FORMATS = frozenset((1, 2, 3))
 _RECORD_VERSION = 1
 
 
@@ -113,6 +117,7 @@ def main(
             destination(archive, arguments.into, base),
             licenses=_license_answers(arguments.license or []),
             prompt_licenses=not arguments.no_license_prompt,
+            environment_values=_environment_answers(arguments.env or []),
             prepare_runtime=not arguments.no_runtime,
             select_images=not arguments.no_images,
             load_images=arguments.load_images,
@@ -171,9 +176,15 @@ def _parser(
         help="keep frozen license markers instead of asking for paths",
     )
     parser.add_argument(
+        "--env",
+        action="append",
+        metavar="NAME=VALUE",
+        help="provide a topology environment value for the recipient initializer",
+    )
+    parser.add_argument(
         "--no-runtime",
         action="store_true",
-        help="skip runtime preparation and leave it to run-eclab.sh",
+        help="skip runtime preparation and leave it to the archive launcher",
     )
     parser.add_argument(
         "--no-images",
@@ -213,6 +224,7 @@ def defrost(
     licenses: Mapping[str, str] | None = None,
     prompt_licenses: bool = True,
     ask: Callable[[str], str | None] | None = None,
+    environment_values: Mapping[str, str] | None = None,
     prepare_runtime: bool = True,
     select_images: bool = True,
     load_images: bool = False,
@@ -246,17 +258,54 @@ def defrost(
         topology_path = _archive_topology(root)
         document = _load_document(topology_path)
         metadata = _freeze_metadata(document, notes)
-        offline = bool(metadata.get("offline"))
+        format_three = metadata["format"] == 3
+        mode = (
+            metadata.get("mode")
+            if format_three
+            else "offline"
+            if metadata.get("offline")
+            else "runtime"
+        )
+        if format_three and mode not in {"lean", "runtime", "offline"}:
+            raise DefrostError("invalid format 3 freeze mode")
+        mode = str(mode)
+        offline = mode == "offline"
+        provider = None
+        tools: Mapping[str, Any] = {}
+        # Legacy formats 1 and 2 predate recorded editions and were only ever
+        # produced by eclab, so their launcher and runtime names are fixed.
+        edition = "eclab"
+        if format_three:
+            recorded_edition = metadata.get("producer_edition")
+            if not isinstance(recorded_edition, str) or not recorded_edition:
+                raise DefrostError("format 3 archive has no producer edition")
+            edition = recorded_edition
+            try:
+                provider = runtime_provider(edition)
+            except ContributorError as error:
+                raise DefrostError(str(error)) from error
+            recorded = metadata.get("tools")
+            if not isinstance(recorded, dict):
+                raise DefrostError("format 3 archive has invalid tool identities")
+            tools = recorded
         has_env_initializer = metadata.get("env_initializer") == _ENV_INITIALIZER
         _restore_executables(
-            root, notes, offline=offline, initialize_env=has_env_initializer
+            root,
+            notes,
+            offline=offline,
+            initialize_env=has_env_initializer,
+            edition=edition,
         )
-        if prepare_runtime:
+        if prepare_runtime and not format_three:
             _verify_runtime(root, offline=offline)
+        if format_three and mode in {"runtime", "offline"}:
+            _verify_format_three_runtime(root, mode, edition)
         if (
             initialize_env
             and has_env_initializer
-            and _run_environment_initializer(root, notes)
+            and _run_environment_initializer(
+                root, notes, values=environment_values or {}
+            )
         ):
             current_environment = _initialized_environment(
                 topology_path, current_environment
@@ -321,13 +370,50 @@ def defrost(
                     metadata=contribution,
                     arguments=contributor_arguments or argparse.Namespace(),
                     environment=current_environment,
-                    user_state=user_state,
+                    user_state=_contributor_state(user_state, contributor_id),
                 )
             )
         record = root / record_name
         _write_record(record, archive, topology_path.relative_to(root), metadata, notes)
         _publish(root, into, temporary_root, replacing=replacing)
-    if prepare_runtime:
+    if format_three:
+        assert provider is not None
+        if mode == "lean":
+            from .runtime import _package_mismatches
+
+            compatibility = _package_mismatches(into) + provider.check_recipient(
+                tools, current_environment, user_state
+            )
+            notes.extend(compatibility)
+            if compatibility:
+                warnings = into / "FREEZE-WARNINGS.txt"
+                previous = (
+                    warnings.read_text(encoding="utf-8") if warnings.is_file() else ""
+                )
+                warnings.write_text(
+                    previous + "".join(f"- {note}\n" for note in compatibility),
+                    encoding="utf-8",
+                )
+        elif prepare_runtime:
+            if offline:
+                _prepare_runtime(into, notes, offline=True, edition=edition)
+            else:
+                venv = into / ".eclab-venv"
+                if not (venv / "bin" / edition).is_file():
+                    _create_virtual_environment(
+                        venv,
+                        into / "requirements.freeze.txt",
+                        into / "wheelhouse",
+                        notes,
+                    )
+                if not (venv / "bin" / edition).is_file():
+                    raise DefrostError(
+                        f"could not install the pinned {edition} runtime"
+                    )
+            provider.prepare_recipient(
+                into, mode, tools, current_environment, user_state, notes
+            )
+    elif prepare_runtime:
         _prepare_runtime(into, notes, offline=offline)
     if load_images:
         if image_plan is not None and select_images:
@@ -362,6 +448,17 @@ def _license_answers(values: list[str]) -> dict[str, str]:
             answers[node] = remainder
         else:
             answers["*"] = value
+    return answers
+
+
+def _environment_answers(values: list[str]) -> dict[str, str]:
+    """Parse repeatable recipient topology environment assignments."""
+    answers: dict[str, str] = {}
+    for value in values:
+        name, separator, answer = value.partition("=")
+        if not separator or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
+            raise DefrostError("--env values must use NAME=VALUE syntax")
+        answers[name] = answer
     return answers
 
 
@@ -486,39 +583,52 @@ def _nodes(document: dict[str, Any]) -> dict[str, Any]:
 
 
 def _restore_executables(
-    root: Path, notes: list[str], *, offline: bool, initialize_env: bool
+    root: Path,
+    notes: list[str],
+    *,
+    offline: bool,
+    initialize_env: bool,
+    edition: str,
 ) -> None:
     """Restore the launcher and bundled tool permissions the recipient runs."""
-    executables = [Path("run-eclab.sh")]
+    launcher = _launcher_name(edition)
+    executables = [Path(launcher)]
     if initialize_env:
         executables.append(Path("initialize-env.sh"))
     for relative in executables:
         path = root / relative
         if path.is_file():
             path.chmod(0o755)
-        elif relative.name == "run-eclab.sh":
-            notes.append("archive has no run-eclab.sh launcher")
+        elif relative.name == launcher:
+            notes.append(f"archive has no {launcher} launcher")
     if not offline:
         return
     for relative in (
         Path("tools/containerlab/bin/containerlab"),
         Path(".eclab-venv/bin/python"),
-        Path(".eclab-venv/bin/eclab"),
+        Path(".eclab-venv") / "bin" / edition,
     ):
         path = root / relative
         if path.is_file():
             path.chmod(path.stat().st_mode | 0o111)
 
 
-def _run_environment_initializer(root: Path, notes: list[str]) -> bool:
+def _run_environment_initializer(
+    root: Path, notes: list[str], *, values: Mapping[str, str]
+) -> bool:
     """Run the archive-provided recipient env helper before other resolution."""
     initializer = root / "initialize-env.sh"
     if not initializer.exists():
         return False
     if initializer.is_symlink() or not initializer.is_file():
         raise DefrostError("initialize-env.sh is not a regular file")
+    _remove_legacy_initializer_message(initializer)
     try:
-        result = subprocess.run([str(initializer)], cwd=root, check=False)
+        child_environment = os.environ.copy()
+        child_environment.update(values)
+        result = subprocess.run(
+            [str(initializer)], cwd=root, check=False, env=child_environment
+        )
     except OSError as error:
         raise DefrostError(f"could not run initialize-env.sh: {error}") from error
     if result.returncode:
@@ -527,6 +637,21 @@ def _run_environment_initializer(root: Path, notes: list[str]) -> bool:
         )
     notes.append("ran initialize-env.sh")
     return True
+
+
+def _remove_legacy_initializer_message(initializer: Path) -> None:
+    """Quiet old archived helpers while they are being restored."""
+    try:
+        script = initializer.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return
+    legacy_line = "printf 'no topology environment values need initialization.\\n'"
+    if legacy_line not in script:
+        return
+    filtered = "".join(
+        line for line in script.splitlines(keepends=True) if line.strip() != legacy_line
+    )
+    initializer.write_text(filtered, encoding="utf-8")
 
 
 def _initialized_environment(
@@ -541,7 +666,7 @@ def _initialized_environment(
         ) from error
 
 
-def _verify_runtime(root: Path, *, offline: bool) -> None:
+def _verify_runtime(root: Path, *, offline: bool, edition: str = "eclab") -> None:
     """Fail before publishing when the archive cannot produce a usable runtime."""
     if not offline:
         if not (root / "requirements.freeze.txt").is_file():
@@ -552,7 +677,7 @@ def _verify_runtime(root: Path, *, offline: bool) -> None:
     venv = root / ".eclab-venv"
     if (
         not (venv / "bin" / "python").is_file()
-        or not (venv / "bin" / "eclab").is_file()
+        or not (venv / "bin" / edition).is_file()
     ):
         raise DefrostError("offline archive has no complete .eclab-venv runtime")
     if not (root / "tools" / "containerlab" / "bin" / "containerlab").is_file():
@@ -562,7 +687,45 @@ def _verify_runtime(root: Path, *, offline: bool) -> None:
         raise DefrostError("bundled vrnetlab checkout is incomplete")
 
 
-def _prepare_runtime(into: Path, notes: list[str], *, offline: bool) -> None:
+def _verify_format_three_runtime(
+    root: Path, mode: str, edition: str = "eclab"
+) -> None:
+    if not (root / "requirements.freeze.txt").is_file():
+        raise DefrostError("runtime archive has no dependency lock")
+    wheelhouse = root / "wheelhouse"
+    if not wheelhouse.is_dir() or not any(wheelhouse.glob("*.whl")):
+        raise DefrostError("runtime archive has no wheelhouse")
+    if mode == "offline":
+        with tempfile.TemporaryDirectory(prefix=".eclab-wheel-check-") as destination:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "download",
+                    "--no-index",
+                    "--only-binary=:all:",
+                    "--find-links",
+                    str(wheelhouse),
+                    "--dest",
+                    destination,
+                    "-r",
+                    str(root / "requirements.freeze.txt"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode:
+                raise DefrostError("offline wheelhouse is incomplete")
+        _verify_runtime(root, offline=True, edition=edition)
+        if not (root / "tools" / "vrnetlab" / "common" / "vrnetlab.py").is_file():
+            raise DefrostError("offline archive has no complete vrnetlab checkout")
+
+
+def _prepare_runtime(
+    into: Path, notes: list[str], *, offline: bool, edition: str = "eclab"
+) -> None:
     """Make the published lab runnable from its final location.
 
     Runs after publication so every absolute path a virtual environment records
@@ -578,7 +741,7 @@ def _prepare_runtime(into: Path, notes: list[str], *, offline: bool) -> None:
     if _installed_packages_match(requirements):
         notes.append("this installation already matches the frozen package lock")
         return
-    if (venv / "bin" / "eclab").is_file():
+    if (venv / "bin" / edition).is_file():
         notes.append("reusing the lab runtime already present in .eclab-venv")
         return
     _create_virtual_environment(venv, requirements, into / "wheelhouse", notes)
@@ -637,7 +800,7 @@ def _create_virtual_environment(
     )
     if creation.returncode:
         shutil.rmtree(venv, ignore_errors=True)
-        notes.append("could not create .eclab-venv; run-eclab.sh will prepare it")
+        notes.append("could not create .eclab-venv; the launcher will prepare it")
         return
     command = [str(venv / "bin" / "python"), "-m", "pip", "install"]
     if wheelhouse.is_dir():
@@ -647,7 +810,7 @@ def _create_virtual_environment(
     if installation.returncode:
         shutil.rmtree(venv, ignore_errors=True)
         notes.append(
-            "could not install the frozen packages; run-eclab.sh will retry at first use"
+            "could not install the frozen packages; the launcher will retry at first use"
         )
         return
     notes.append("installed the frozen packages into .eclab-venv")
@@ -900,6 +1063,8 @@ def _resolve_licenses(
         answer = answers.get(name) or answers.get("*")
         if answer is None:
             answer = environment.get(variable) or environment.get(_LICENSE_ENV)
+        if answer is None and _auto_license_requested(environment):
+            answer = _AUTO_LICENSE
         if answer is None and prompt:
             answer = (ask or _ask_license)(name)
         if answer is None:
@@ -928,6 +1093,8 @@ def _license_value(node_name: str, answer: str) -> str:
     value = answer.strip()
     if not value:
         raise DefrostError(f"node {node_name} license answer is empty")
+    if value.casefold() == "auto" or value == _AUTO_LICENSE:
+        return _AUTO_LICENSE
     if value.startswith("$"):
         return value
     path = Path(value).expanduser()
@@ -944,18 +1111,28 @@ def _ask_license(node_name: str) -> str | None:
         try:
             answer = input(
                 f"License for node {node_name} "
-                "(file, pool directory, $VARIABLE, or empty to skip): "
+                "(auto, file, pool directory, $VARIABLE, or empty to skip): "
             )
         except EOFError:
             return None
         value = answer.strip()
         if not value:
             return None
-        if value.startswith("$") or Path(value).expanduser().exists():
+        if (
+            value.casefold() == "auto"
+            or value.startswith("$")
+            or Path(value).expanduser().exists()
+        ):
             return value
-        print(
-            "That path does not exist. Enter an existing path, a $VARIABLE, or nothing."
-        )
+        print("Enter auto, an existing path, a $VARIABLE, or nothing.")
+
+
+def _auto_license_requested(environment: Mapping[str, object]) -> bool:
+    value = environment.get(_AUTO_LICENSE)
+    return value is True or (
+        isinstance(value, str)
+        and value.strip().casefold() in {"1", "true", "yes", "on"}
+    )
 
 
 def _report_vrnetlab_inputs(

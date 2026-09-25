@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import re
 import shutil
@@ -23,9 +24,18 @@ from engulf_clab_freeze_api import (
 from engulf_clab_freeze_api.manifest import read_image_manifest, sha256
 from engulf_clab_lab_parser import effective_nodes, topology_declarations
 from engulf_clab_lab_parser.environment import expand_environment, topology_environment
-from engulf_docker_image_api import canonical_image_reference
+from engulf_docker_image_api import (
+    DockerfileRecipe,
+    ImageBuildGraph,
+    ImageProviderPlugin,
+    ImageRequirement,
+    RegisteredImageProvider,
+    canonical_image_reference,
+)
+from engulf_docker_image_core import ImageResolutionError, resolve_image_graph
 
 MANIFEST = "images.freeze.json"
+DOCKER_IMAGE_PROVIDER_GROUP = "engulf.plugins.v1.goal.v1.org_engulf_docker_image"
 
 
 def _run(
@@ -155,6 +165,79 @@ def _variable(reference: str, purpose: str) -> str:
     return f"ECLAB_FREEZE_{name}_{purpose}_{suffix}"
 
 
+def _provider_image_sources(references: tuple[str, ...]) -> tuple[ImageSource, ...]:
+    """Resolve packaged Dockerfile providers without running deploy preparation."""
+    if not references:
+        return ()
+
+    providers: list[RegisteredImageProvider] = []
+    package_roots: dict[str, Path] = {}
+    for point in sorted(
+        importlib.metadata.entry_points(group=DOCKER_IMAGE_PROVIDER_GROUP),
+        key=lambda item: item.name,
+    ):
+        try:
+            plugin = point.load()
+            if not isinstance(plugin, ImageProviderPlugin) or point.dist is None:
+                continue
+            registered = RegisteredImageProvider(
+                plugin.plugin_id, plugin.provider, plugin.priority
+            )
+            package_roots[registered.provider_id] = Path(
+                str(point.dist.locate_file(""))
+            ).resolve()
+            providers.append(registered)
+        except Exception as error:
+            raise FreezeError(
+                f"image provider discovery failed for {point.name}: {error}"
+            ) from error
+
+    if not providers:
+        return ()
+    try:
+        graph = resolve_image_graph(
+            ImageBuildGraph(
+                tuple(ImageRequirement(reference) for reference in references)
+            ),
+            tuple(providers),
+        )
+    except ImageResolutionError as error:
+        raise FreezeError(f"image provider discovery failed: {error}") from error
+
+    sources = []
+    for image in graph.images:
+        provision = image.provision
+        if (
+            provision is None
+            or image.provider_id is None
+            or not isinstance(provision.recipe, DockerfileRecipe)
+        ):
+            continue
+        package_root = package_roots.get(image.provider_id)
+        recipe = provision.recipe
+        if package_root is None or not (
+            recipe.dockerfile.resolve().is_relative_to(package_root)
+            and recipe.context.resolve().is_relative_to(package_root)
+        ):
+            # A provider with host-local build inputs must publish its own freeze
+            # declaration, which can name those inputs and their portability.
+            continue
+        sources.append(
+            ImageSource(
+                image=image.image,
+                node=None,
+                kind="build",
+                dependencies=image.dependencies,
+                rebuildable=True,
+                # A generic image provider does not declare that its recipe is
+                # safe to rebuild without network access.
+                offline_rebuildable=False,
+                identity=(image.provider_id, repr(recipe)),
+            )
+        )
+    return tuple(sources)
+
+
 def freeze_images(
     topology_path: Path,
     document: dict[str, Any],
@@ -167,8 +250,8 @@ def freeze_images(
     bundle_images: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Mutate only a staged topology and its files; never build, pull, or load."""
-    if lean and offline:
-        raise FreezeError("--lean and --offline cannot be combined")
+    if bundle_images and not offline:
+        raise FreezeError("--bundle-image requires --offline")
     source_root = topology_path.parent
     current_env = topology_environment(topology_path, environment)
 
@@ -205,13 +288,9 @@ def freeze_images(
                 continue
             raise FreezeError(f"node {node.name} image must resolve before freeze")
         roots.append(canonical_image_reference(reference))
-    sources = discover_image_sources(topology_path, resolved, current_env)
-    dependencies = {
-        canonical_image_reference(item)
-        for source in sources
-        for item in source.dependencies
-    }
-    for source in sources:
+    sources = list(discover_image_sources(topology_path, resolved, current_env))
+
+    def register_source(source: ImageSource) -> None:
         reference = canonical_image_reference(source.image)
         normalized = replace(source, image=reference)
         previous = by_image.setdefault(reference, [])
@@ -220,6 +299,37 @@ def freeze_images(
         ):
             raise FreezeError(f"conflicting acquisition recipes for {reference}")
         previous.append(normalized)
+
+    for source in sources:
+        register_source(source)
+
+    # Image providers already expose pure, static Dockerfile recipes. Use those
+    # recipes for images in the authored topology's build graph, while keeping
+    # provider-owned host inputs under their freeze-specific declaration.
+    provider_references = tuple(
+        reference
+        for reference in dict.fromkeys(
+            (
+                *roots,
+                *(
+                    canonical_image_reference(item)
+                    for source in sources
+                    for item in source.dependencies
+                ),
+            )
+        )
+        if reference not in by_image
+    )
+    provider_sources = _provider_image_sources(provider_references)
+    for source in provider_sources:
+        register_source(source)
+    sources.extend(provider_sources)
+
+    dependencies = {
+        canonical_image_reference(item)
+        for source in sources
+        for item in source.dependencies
+    }
 
     # Flatten owned controls first, then remove every inherited/shadowed origin.
     # This prevents an exported node from accidentally re-enabling its old build.
@@ -233,8 +343,11 @@ def freeze_images(
             owner = owner[part]
         env = owner.get("env", {})
         if isinstance(env, dict):
-            for key in owned:
-                env.pop(key, None)
+            for key in tuple(env):
+                if key in owned or (
+                    isinstance(key, str) and key.startswith("ECLAB_FREEZE_")
+                ):
+                    env.pop(key, None)
     for name, node in authored.items():
         definition = raw_nodes.setdefault(name, {})
         if definition is None:
@@ -256,8 +369,6 @@ def freeze_images(
         raise FreezeError("an image cannot be both external and forced into the bundle")
     if offline and external:
         raise FreezeError("--external-image cannot be combined with --offline")
-    if lean and forced:
-        raise FreezeError("--bundle-image cannot be combined with --lean")
     entries: dict[str, dict[str, Any]] = {}
     visiting: list[str] = []
     copied: dict[str, str] = {}
@@ -329,8 +440,15 @@ def freeze_images(
                 action="external", reason="recipient supplies acquisition inputs"
             )
             for item in source.inputs:
-                if not item.artifact and relative_input(item) is not None:
-                    value = relative_input(item)
+                staged_input = relative_input(item)
+                if staged_input is not None and (
+                    not item.artifact or source.kind == "archive"
+                ):
+                    # A declared image archive is an authored lab input. Keep
+                    # its relative path when it survived source staging; lean
+                    # mode omits only archives outside the lab or excluded by
+                    # the owner's freeze rules.
+                    value = staged_input
                 else:
                     variable = _variable(reference, item.control.removeprefix("ECLAB_"))
                     value = "${" + variable + "}"
@@ -386,7 +504,7 @@ def freeze_images(
                         env[item.control] = relative_input(item)
             for dependency in source.dependencies:
                 plan(dependency)
-        elif source.kind == "archive" and reference not in forced:
+        elif source.kind == "archive" and reference not in forced and not lean:
             require_archive_tag(reference)
             path = source.inputs[0].path if source.inputs else None
             if path is None or not path.is_file():
@@ -448,6 +566,15 @@ def freeze_images(
                             raw_nodes[name]["image"] = "${" + variable + "}"
                     entry.update(
                         action="external", reason="recipient selects the image"
+                    )
+                elif reference in dependencies:
+                    # A literal FROM/COPY --from dependency is already part of
+                    # an authored or provider-owned recipe. Leave Docker and the
+                    # recipient's image providers to resolve it; asking for a
+                    # synthetic image archive here breaks inherited build graphs.
+                    entry.update(
+                        action="external",
+                        reason="recipient resolves the literal recipe dependency",
                     )
                 else:
                     require_archive_tag(reference)
@@ -523,8 +650,10 @@ def freeze_images(
         read_image_manifest(destination)
     destination.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     if any(entry["action"] == "archive" for entry in entries.values()):
-        for definition in raw_nodes.values():
-            definition.setdefault("env", {}).update(
-                {IMAGE_MANIFEST_ENV: MANIFEST, **variables}
-            )
+        carrier = next(iter(raw_nodes.values()), None)
+        if carrier is None:
+            raise FreezeError("image archive inputs require at least one topology node")
+        carrier.setdefault("env", {}).update(
+            {IMAGE_MANIFEST_ENV: MANIFEST, **variables}
+        )
     return {"manifest": MANIFEST, "lean": lean, "images": manifest["images"]}

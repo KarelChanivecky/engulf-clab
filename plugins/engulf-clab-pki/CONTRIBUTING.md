@@ -1,5 +1,10 @@
 # Contributing
 
+When exporting user authorities into local scope, rebase topology trust and
+private-authority references as well as manifest issuers. Test binding restored
+node requests with an empty recipient user catalog; a populated catalog can hide
+an accidental dependency on the producer's identities.
+
 `catalog.py` owns strict YAML parsing, whole-object scope merge, reference
 resolution, and cycle checks. `material.py` owns cryptographic generation and
 immutable generation directories. `views.py` owns least-privilege staging;

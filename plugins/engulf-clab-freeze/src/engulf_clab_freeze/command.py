@@ -22,7 +22,11 @@ from urllib.parse import unquote, urlsplit
 
 import yaml  # type: ignore[import-untyped]
 from engulf_api import PluginLogger, StateStore
-from engulf_clab_freeze_api import FreezeContext, discover_contributors
+from engulf_clab_freeze_api import (
+    FreezeContext,
+    discover_contributors,
+    runtime_provider,
+)
 from engulf_clab_freeze_api import FreezeError as ContributorError
 from engulf_clab_lab_parser import (
     parse_topology_yaml,
@@ -50,6 +54,8 @@ _BUILTIN_IGNORES = frozenset(
         ".engulf-clab",
         ".venv",
         ".eclab-venv",
+        ".eclab-freeze.env",
+        ".eclab-runtime",
         "__pycache__",
         "build",
         "dist",
@@ -97,12 +103,12 @@ def main(
     parser.add_argument(
         "--offline",
         action="store_true",
-        help="bundle the eclab runtime, Containerlab, vrnetlab, and lab images for offline use",
+        help="bundle the producer edition runtime, Containerlab, vrnetlab, and lab images for offline use",
     )
     parser.add_argument(
-        "--lean",
+        "--eclab-with-runtime",
         action="store_true",
-        help="replace non-portable image inputs with recipient variables instead of bundling them",
+        help="include a wheelhouse and pin Containerlab and vrnetlab for the recipient",
     )
     parser.add_argument(
         "--external-image",
@@ -116,7 +122,7 @@ def main(
         action="append",
         default=[],
         metavar="IMAGE",
-        help="capture this image even when a registry or build recipe is available (repeatable)",
+        help="capture this image in an offline archive (repeatable; requires --offline)",
     )
     try:
         contributors = discover_contributors()
@@ -146,7 +152,7 @@ def main(
             workspace=workspace,
             confirm_overwrite=_confirm_overwrite,
             offline=arguments.offline,
-            lean=arguments.lean,
+            with_runtime=arguments.eclab_with_runtime,
             external_images=tuple(arguments.external_image),
             bundle_images=tuple(arguments.bundle_image),
             user_state=user_state,
@@ -178,7 +184,7 @@ def freeze(
     workspace: StateStore | None = None,
     confirm_overwrite: Callable[[Path], bool] | None = None,
     offline: bool = False,
-    lean: bool = False,
+    with_runtime: bool = False,
     external_images: tuple[str, ...] = (),
     bundle_images: tuple[str, ...] = (),
     user_state: StateStore | None = None,
@@ -192,8 +198,12 @@ def freeze(
     archive = archive.expanduser().resolve()
     source_root = topology_path.parent.resolve()
     current_environment = os.environ if environment is None else environment
-    if lean and offline:
-        raise FreezeError("--lean and --offline cannot be combined")
+    if offline and with_runtime:
+        raise FreezeError("--offline cannot be combined with --eclab-with-runtime")
+    mode = "offline" if offline else "runtime" if with_runtime else "lean"
+    if bundle_images and not offline:
+        raise FreezeError("--bundle-image requires --offline")
+    provider = runtime_provider(application_name)
     ignored_archives = tracked_archives(workspace, source_root)
     if not archive.name.endswith((".tar.gz", ".tgz")):
         raise FreezeError("--output must end in .tar.gz or .tgz")
@@ -242,7 +252,9 @@ def freeze(
         copied_topology = staging / topology_path.name
         if not copied_topology.is_file():
             raise FreezeError("topology was excluded by the freeze ignore rules")
-        packages = _locked_packages()
+        packages = _installed_packages()
+        user_directory = getattr(user_state, "directory", None)
+        tools = dict(provider.capture(current_environment, user_directory))
         frozen = _freeze_topology(
             copied_topology,
             source_root,
@@ -252,6 +264,14 @@ def freeze(
             offline=offline,
             environment=current_environment,
         )
+        frozen.update(
+            format=3, mode=mode, producer_edition=application_name, tools=tools
+        )
+        updated = yaml.safe_load(copied_topology.read_text(encoding="utf-8"))
+        updated[_FREEZE_KEY] = frozen
+        copied_topology.write_text(
+            yaml.safe_dump(updated, sort_keys=False), encoding="utf-8"
+        )
         contribution_metadata: dict[str, Any] = {}
         for contributor in contributors:
             contributed = contributor.freeze(
@@ -260,10 +280,13 @@ def freeze(
                     staged_topology=copied_topology,
                     source_root=source_root,
                     staging_root=staging,
-                    workspace_state=workspace.directory
-                    if workspace is not None
-                    else None,
-                    user_state=user_state.directory if user_state is not None else None,
+                    workspace_state=_contributor_state(
+                        workspace.directory if workspace is not None else None,
+                        contributor.contributor_id,
+                    ),
+                    user_state=_contributor_state(
+                        user_directory, contributor.contributor_id
+                    ),
                     arguments=contributor_arguments or argparse.Namespace(),
                     environment=current_environment,
                 )
@@ -287,7 +310,7 @@ def freeze(
                 staging,
                 current_environment,
                 offline=offline,
-                lean=lean,
+                lean=not offline,
                 external_images=external_images,
                 bundle_images=bundle_images,
             )
@@ -297,26 +320,13 @@ def freeze(
         copied_topology.write_text(
             yaml.safe_dump(image_topology, sort_keys=False), encoding="utf-8"
         )
-        (staging / ".eclab-freeze.env").write_text(
-            _frozen_environment(frozen["tools"]), encoding="utf-8"
-        )
-        (staging / "requirements.freeze.txt").write_text(
+        (staging / "packages.freeze.txt").write_text(
             "\n".join(f"{name}=={version}" for name, version in packages) + "\n",
             encoding="utf-8",
         )
-        _download_wheels(staging, packages, warnings)
-        if offline:
-            offline_topology = yaml.safe_load(
-                copied_topology.read_text(encoding="utf-8")
-            )
-            if not isinstance(offline_topology, dict):
-                raise FreezeError("frozen topology must contain a YAML mapping")
-            _bundle_offline_runtime(staging)
-            _bundle_offline_containerlab(staging, user_state, current_environment)
-            _bundle_offline_vrnetlab(staging, user_state, current_environment)
-            copied_topology.write_text(
-                yaml.safe_dump(offline_topology, sort_keys=False), encoding="utf-8"
-            )
+        provider.prepare_archive(
+            staging, mode, tools, current_environment, user_directory, warnings
+        )
         _write_environment_initializer(copied_topology, staging)
         _prune_empty_directories(staging)
         (staging / "FREEZE-WARNINGS.txt").write_text(
@@ -324,10 +334,11 @@ def freeze(
             + ("\n" if warnings else ""),
             encoding="utf-8",
         )
-        (staging / "run-eclab.sh").write_text(
-            _launcher(topology_path.name, offline=offline), encoding="utf-8"
+        launcher_name = _launcher_name(application_name)
+        (staging / launcher_name).write_text(
+            provider.launcher(topology_path.name, mode, tools), encoding="utf-8"
         )
-        os.chmod(staging / "run-eclab.sh", 0o755)
+        os.chmod(staging / launcher_name, 0o755)
         temporary_archive = Path(work) / archive.name
         with tarfile.open(temporary_archive, "w:gz") as tar:
             tar.add(staging, arcname=root_name, recursive=True)
@@ -405,6 +416,23 @@ def _state_prefix(application_name: str) -> str:
     return prefix
 
 
+def _contributor_state(directory: Path | None, contributor_id: str) -> Path | None:
+    """Select a contributor's sibling namespace in the Engulf state catalog.
+
+    Callback-bound stores belong to freeze. Contributors need their own state
+    (for example PKI's global catalog and issued identities). Do not create or
+    mutate another plugin's directory while discovering its existing material.
+    """
+    if re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", contributor_id) is None:
+        raise FreezeError("invalid freeze contributor state namespace")
+    if directory is None:
+        return None
+    selected = directory.parent / contributor_id
+    if selected.is_symlink():
+        raise FreezeError("freeze contributor state directory must not be a symlink")
+    return selected
+
+
 def _state_directory(application_name: str) -> str:
     return f".{_state_prefix(application_name).lower()}"
 
@@ -427,6 +455,10 @@ def _ignored(
     return (
         relative in excluded
         or relative.name in _BUILTIN_IGNORES
+        or (
+            relative.parent == Path(".")
+            and re.fullmatch(r"\.[a-z0-9_]+-defrost\.json", relative.name) is not None
+        )
         or _is_generated_topology(relative)
         or any(
             fnmatch.fnmatch(text, pattern) or fnmatch.fnmatch(relative.name, pattern)
@@ -595,7 +627,6 @@ def _environment_initializer_script(env_name: str, references: list[str]) -> str
     if not references:
         lines.extend(
             [
-                "printf 'no topology environment values need initialization.\\n'",
                 "exit 0",
             ]
         )
@@ -620,8 +651,12 @@ def _environment_initializer_script(env_name: str, references: list[str]) -> str
         for name in references:
             lines.extend(
                 [
-                    f"printf 'Value to initialize {name} (empty to refuse): '",
-                    "IFS= read -r value || value=",
+                    f"if [[ -v {name} ]]; then",
+                    f'    value="${{{name}}}"',
+                    "else",
+                    f"    printf 'Value to initialize {name} (empty to refuse): '",
+                    "    IFS= read -r value || value=",
+                    "fi",
                     'if [[ -z "$value" ]]; then',
                     f"    printf 'refused {name}.\\n'",
                     "else",
@@ -700,12 +735,12 @@ def _freeze_topology(
     return freeze_metadata
 
 
-def _bundle_offline_runtime(staging: Path) -> None:
-    """Copy the active, installed eclab virtual environment into the archive."""
+def _bundle_offline_runtime(staging: Path, edition: str) -> None:
+    """Copy the active, installed edition virtual environment into the archive."""
     source = Path(sys.prefix).resolve()
-    if sys.prefix == sys.base_prefix or not (source / "bin" / "eclab").is_file():
+    if sys.prefix == sys.base_prefix or not (source / "bin" / edition).is_file():
         raise FreezeError(
-            "--offline requires freeze to run from a virtual environment containing eclab"
+            f"--offline requires freeze to run from a virtual environment containing {edition}"
         )
     destination = staging / ".eclab-venv"
     shutil.copytree(
@@ -716,10 +751,10 @@ def _bundle_offline_runtime(staging: Path) -> None:
     )
     if (
         not (destination / "bin" / "python").is_file()
-        or not (destination / "bin" / "eclab").is_file()
+        or not (destination / "bin" / edition).is_file()
     ):
         raise FreezeError(
-            "could not create a complete offline eclab virtual environment"
+            f"could not create a complete offline {edition} virtual environment"
         )
 
 
@@ -833,8 +868,21 @@ def _frozen_environment(tools: object) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _launcher_name(application_name: str) -> str:
+    """Return the archive launcher filename for the producing edition.
+
+    The launcher is the first thing a recipient runs and names the command it
+    executes, so it follows the edition rather than a fixed upstream spelling:
+    eclab produces ``run-eclab.sh``, fclab produces ``run-fclab.sh``. Matching
+    the console script keeps the filename a trustworthy label, and mirrors how
+    the state directory and ignore-file already derive from the same metadata.
+    """
+    prefix = _state_prefix(application_name).lower()
+    return f"run-{prefix}.sh"
+
+
 def _shell_quote(value: str) -> str:
-    return "'" + value.replace("'", "'\\\"'\\\"'") + "'"
+    return shlex.quote(value)
 
 
 def _git_provenance(value: str | None) -> dict[str, str] | None:
@@ -888,9 +936,23 @@ def _locked_packages() -> list[tuple[str, str]]:
     return sorted(resolved.items())
 
 
+def _installed_packages() -> list[tuple[str, str]]:
+    """Record all installed names and versions without direct URL material."""
+    return sorted(
+        {
+            (
+                distribution.metadata["Name"].lower().replace("_", "-"),
+                distribution.version,
+            )
+            for distribution in importlib.metadata.distributions()
+            if distribution.metadata.get("Name") and distribution.version
+        }
+    )
+
+
 def _download_wheels(
     staging: Path, packages: list[tuple[str, str]], warnings: list[str]
-) -> None:
+) -> bool:
     wheelhouse = staging / "wheelhouse"
     wheelhouse.mkdir()
     _seed_installed_wheels(packages, wheelhouse, warnings)
@@ -900,6 +962,7 @@ def _download_wheels(
             "-m",
             "pip",
             "download",
+            "--only-binary=:all:",
             "--dest",
             str(wheelhouse),
             "--find-links",
@@ -917,6 +980,7 @@ def _download_wheels(
         )
     if not any(wheelhouse.iterdir()):
         wheelhouse.rmdir()
+    return result.returncode == 0 and wheelhouse.is_dir()
 
 
 def _seed_installed_wheels(
@@ -971,7 +1035,21 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _launcher(topology_name: str, *, offline: bool = False) -> str:
+def _launcher(
+    topology_name: str,
+    *,
+    offline: bool = False,
+    mode: str = "runtime",
+    edition: str = "eclab",
+) -> str:
+    if mode == "lean":
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd)"
+cd "$root"
+if [[ $# -eq 0 ]]; then set -- deploy -t {shlex.quote(topology_name)}; fi
+exec {shlex.quote(edition)} "$@"
+"""
     if offline:
         return f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -979,8 +1057,8 @@ root="$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd)"
 runtime="$root/.eclab-venv"
 containerlab="$root/tools/containerlab/bin/containerlab"
 vrnetlab="$root/tools/vrnetlab"
-if [[ ! -x "$runtime/bin/python" || ! -f "$runtime/bin/eclab" ]]; then
-    echo "offline eclab runtime is incomplete" >&2
+if [[ ! -x "$runtime/bin/python" || ! -f "$runtime/bin/{edition}" ]]; then
+    echo "offline {edition} runtime is incomplete" >&2
     exit 1
 fi
 if [[ ! -x "$containerlab" ]]; then
@@ -994,42 +1072,33 @@ if [[ -d "$vrnetlab" ]]; then
     export VRNETLAB_DIR="$vrnetlab"
     export VRNETLAB_UPDATE=0
 fi
-if [[ $# -eq 0 ]]; then set -- deploy -t {topology_name!s}; fi
-exec "$runtime/bin/python" "$runtime/bin/eclab" "$@"
+if [[ $# -eq 0 ]]; then set -- deploy -t {shlex.quote(topology_name)}; fi
+exec "$runtime/bin/python" "$runtime/bin/{edition}" "$@"
 """
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd)"
 requirements="$root/requirements.freeze.txt"
 wheelhouse="$root/wheelhouse"
+venv="$root/.eclab-venv"
+if [[ ! -x "$venv/bin/{edition}" ]]; then
+    python3 -m venv "$venv"
+    "$venv/bin/python" -m pip install --find-links "$wheelhouse" -r "$requirements"
+fi
+if [[ ! -f "$root/.eclab-freeze.env" ]]; then
+    "$venv/bin/python" -m engulf_clab_freeze.runtime prepare "$root"
+fi
 source "$root/.eclab-freeze.env"
-pip_links=()
-if [[ -d "$wheelhouse" ]]; then
-    pip_links=(--find-links "$wheelhouse")
-fi
-existing="$(command -v eclab || true)"
-runner=""
-if [[ -n "$existing" ]] && "$existing" --eclab-freeze-compatible "$requirements" >/dev/null 2>&1; then
-    runner="$existing"
-elif [[ -n "$existing" && -t 0 ]]; then
-    read -r -p "Installed eclab differs from this freeze. Run it anyway? [y/N] " answer
-    [[ "$answer" =~ ^[Yy]$ ]] && runner="$existing"
-fi
-if [[ -z "$runner" && -z "$existing" && -t 0 ]]; then
-    read -r -p "No eclab found. Install frozen packages into your user site? [y/N] " answer
-    if [[ "$answer" =~ ^[Yy]$ ]]; then
-        python3 -m pip install --user "${{pip_links[@]}}" -r "$requirements"
-        runner="$(command -v eclab)"
-    fi
-fi
-if [[ -z "$runner" ]]; then
-    venv="$root/.eclab-venv"
-    if [[ ! -x "$venv/bin/eclab" ]]; then
-        python3 -m venv "$venv"
-        "$venv/bin/python" -m pip install "${{pip_links[@]}}" -r "$requirements"
-    fi
-    runner="$venv/bin/eclab"
-fi
-if [[ $# -eq 0 ]]; then set -- deploy -t {topology_name!s}; fi
+"$venv/bin/python" -m engulf_clab_freeze.runtime verify "$root"
+for argument in "$@"; do
+    case "$argument" in
+        --eclab-containerlab-bin|--eclab-containerlab-bin=*|--eclab-containerlab-dir|--eclab-containerlab-dir=*|--eclab-containerlab-repo|--eclab-containerlab-repo=*|--eclab-containerlab-version|--eclab-containerlab-version=*|--eclab-containerlab-update|--eclab-vrnetlab-dir|--eclab-vrnetlab-dir=*|--eclab-vrnetlab-repo|--eclab-vrnetlab-repo=*|--eclab-vrnetlab-version|--eclab-vrnetlab-version=*|--eclab-vrnetlab-update)
+            echo "runtime archive rejects tool overrides" >&2
+            exit 1
+            ;;
+    esac
+done
+runner="$venv/bin/{edition}"
+if [[ $# -eq 0 ]]; then set -- deploy -t {shlex.quote(topology_name)}; fi
 exec "$runner" "$@"
 """

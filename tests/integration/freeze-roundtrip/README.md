@@ -1,0 +1,147 @@
+# Freeze round-trip integration tests
+
+This opt-in suite builds images and sequentially deploys/destroys real FortiGate
+source and recipient labs. It does not assign licenses or inspect license status.
+It is not part of `make check-skill` or ordinary package unit targets. Allow
+several minutes per deployment and substantial disk space for repeated offline
+restores.
+
+## Prerequisites and invocation
+
+- An unprivileged Linux account with Docker access, read/write `/dev/kvm`, and
+  Containerlab's supported sudo-less setup. Do not run eclab or these entrypoints
+  as root. Containerlab must report a version and commit with `version -j`.
+- Python 3.12+, the repository `.venv` with build/pytest/YAML/cryptography/jsonschema
+  dependencies, and package-index access for the producer's dependency wheels.
+  `FREEZE_TEST_PYTHON` can select another bootstrap interpreter.
+- A FortiGate KVM `.zip` containing exactly one `.qcow2` file. This host's
+  default is `/home/kchaniveckyga/Downloads/images/FGT_VM64_KVM-v8-build0230-FORTINET.deb.kvm.zip`;
+  override the input path with `FORTIGATE_ARCHIVE`. The suite builds a unique,
+  test-owned image through the selected vrnetlab checkout and removes its image
+  tags after the run.
+- The FortiGate fixture has no license input or license clamp. The suite leaves
+  licensing outside its assertions and does not read or modify license pools.
+  FortiGate `eth2` connects to the packaged DHCP/NAT WAN-access node; `eth1`
+  remains the fixed Linux data plane. The fixture sets
+  `FOS_EXIT_ON_BOOTSTRAP_ERROR=false` so bootstrap errors leave the VM available
+  for manual diagnosis; readiness and network behavior remain test checks.
+- The exact producer vrnetlab checkout, selected by `VRNETLAB_DIR`. On this
+  checkout's development host, sibling `kvrnetlab` then `vrnetlab` are discovered.
+  Containerlab discovery needs the selected binary's schema AND node-kind
+  documents. If a sibling Containerlab checkout contains that exact commit, the
+  suite creates a private detached checkout for discovery. It never substitutes
+  a schema from another revision. Otherwise normal runtime discovery must work.
+- Producer network access for base-image downloads and Debian package installs.
+  The base image inherits `eclab.containers.pki/debian:latest` and the Linux image
+  inherits the literal test-owned base tag. Both recipes are topology nodes.
+- Offline additionally requires passwordless `sudo`, `unshare`, `nsenter`,
+  `setpriv`, `mount`, `ip`, and `dockerd`. It creates a fresh daemon in a network
+  and mount namespace for every recipient. Only loopback exists initially;
+  Containerlab creates its local networks there. Producer environments, sources,
+  tool checkouts, caches and the host Containerlab binary are hidden. Recipient
+  commands run as the original UID; supported `eclab sudoless` setup is applied
+  only to the archive's test-owned binary.
+
+```bash
+tests/integration/freeze-roundtrip/lean.sh --list
+tests/integration/freeze-roundtrip/lean.sh --case lean-001 --keep-on-failure
+tests/integration/freeze-roundtrip/runtime.sh --work-dir /tmp/freeze-runtime-run
+tests/integration/freeze-roundtrip/offline.sh --work-dir /tmp/freeze-offline-run
+```
+
+No case selection runs the full mode. Repeat `--case ID` to select several.
+`--list` is host-free JSON with stable case IDs, dimensions and exact pair coverage.
+Work directories must be empty and must not be symlinks. Default directories are
+created below `/tmp`. Exit codes: **0 passed**, **1 failed**, **2 blocked**.
+Missing prerequisites and cases not reached are blocked, never passed or skipped.
+`--keep-on-failure` retains an active deployment, its exact workspace and
+test-owned support state for diagnosis; output names the workspace and FortiGate
+node. Without it, failures trigger targeted cleanup.
+`FREEZE_TEST_READINESS_SECONDS` controls the bounded health wait (default 900).
+All subprocesses have deadlines and stdin closed; defrost suppresses PKI prompts
+and supplies environment answers explicitly.
+
+## Coverage and equivalence
+
+The deterministic greedy matrix covers every feasible pair across runtime
+preparation, environment initialization, five PKI behaviors, fresh/force
+restoration and image handling. Offline image handling crosses
+default/repeated explicit capture with deferred/immediate/explicit archive loading.
+Invalid combinations are focused failures. Archive reuse keys include all freeze
+choices; recipient-only choices reuse the same archive. Each PKI source variant
+is probed and destroyed before freezing, leaving no generated license copies.
+
+Focused cases cover default topology/output/destination, a launcher invoked without
+arguments from an unrelated directory, removed `--lean`, conflicting flags,
+missing image input, bad passphrase, absent/wrong authority binding, missing
+offline artifacts and pinned-tool mismatch. Lean warnings must persist at defrost,
+be regenerated by `--force`, and remain absent from later launcher output.
+
+The base syntax remains upstream
+[`schemas/clab.schema.json`](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json).
+The runner validates against its freshly generated exact runtime schema. The
+fixed test data plane is `198.18.77.0/24`: FortiGate `eth1` maps to `port2`, and
+Linux uses `eth1`. FortiGate `eth2` maps to `port3` and gets DHCP/default route
+through `wan:eth1`. Management `eth0` is never a data-plane endpoint.
+
+Comparisons check effective runtime nodes/links, startup file hashes, relevant
+environment, original recipe bytes, both build markers, image configuration,
+FortiGate image identity, healthy WAN connector, interface settings, ping and
+verified HTTPS.
+Offline images must keep their exact IDs. PKI checks include
+subject, issuer, SANs, extended/key usage, validated chains, selected trust,
+certificate actually served by HTTPS, rejection of excluded trust, per-node key
+exposure, 0600 keys, and read-only mounts.
+
+Normalization is deliberately narrow: recipe acquisition controls are checked
+through preserved bytes and image effects; generated PKI view paths are checked
+through their authorized mount and contents. Exact `global/NAME` → `local/NAME`
+identity rebasing is allowed only for encrypted user exports. Only certificate
+fingerprints are excluded for regenerated identities. Exported identities require
+exact fingerprints. Export cases temporarily remove the test-owned global
+declaration so recipient execution cannot depend on the producer catalog.
+
+## Artifacts and recovery
+
+`report.json` records cases, sanitized commands/diagnostics, timings, assertions,
+planned pair coverage and coverage of passed cases. `summary.txt` is readable.
+`ownership.json` journals active lab workspaces before deployment. `sources/`,
+`archives/`, `external-image-inputs/`, `restores/`, producer/recipient virtual
+environments, wheels, runtime discovery and offline supervisor/daemon files are
+retained for diagnosis. External image inputs are Docker-save files for build
+dependencies; they stay outside the freeze archive.
+
+The entire directory is mode 0700, with private files created under umask 077.
+Raw Docker inspection, FortiGate output and PKI projections are never saved to
+reports. Passphrase files, private keys and archives remain private. Do not
+publish the work tree.
+
+SIGINT/SIGTERM and ordinary failures attempt targeted destroy and exact-entry
+catalog cleanup unless `--keep-on-failure` retained an active lab. SIGKILL or host
+loss cannot guarantee cleanup. Preserve the work tree and consult
+`ownership.json` before recovery. Run the recorded unprivileged
+launcher with `destroy -t WORKSPACE/lab.clab.yml --cleanup` for each listed lab.
+Verify no Docker containers with its exact `containerlab` label remain. Never
+use `--all` or Docker prune.
+
+Remove test catalog entries through `eclab pki global edit`: the supplied
+`catalog_edit.py remove WORK/catalog-additions.json` editor checks exact definitions
+and preserves unrelated/concurrent entries. Set `VISUAL` to the producer Python
+plus that script/arguments when invoking the supported edit command. After lab
+release and catalog removal, only the matching `frt-RUN-root` generated authority
+directory is test-owned. A changed declaration requires manual review; do not
+overwrite the whole catalog. Offline recovery must enter the recorded namespace
+while its supervisor is alive; touching `isolation-ID/stop` shuts down its daemon.
+Root-owned daemon storage and SUID binaries may need targeted privileged removal
+after shutdown. Build images deliberately remain cached under the unique run tag.
+
+## Host-free validation
+
+```bash
+.venv/bin/python -m pytest -q tests/integration/freeze-roundtrip/test_runner.py
+.venv/bin/python -m compileall -q tests/integration/freeze-roundtrip
+```
+
+These tests exercise pair coverage, comparison boundaries, failure classification,
+catalog/claim/container ownership, sanitization and archive mutation. They do not
+replace running the real three modes on a prepared host.

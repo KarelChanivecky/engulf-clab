@@ -57,8 +57,10 @@ through the shared topology editor.
   after successful destroy and preserve destroy-all semantics.
 - Keep parser, writer, and schema ordering in packaging dependency entry points,
   never on the runtime plugin object.
-- Freeze prompts must accept one file, directory pool, or `$VARIABLE`, with
-  node-specific noninteractive values before the global value. Never log the
+- Freeze prompts must accept `auto`, one file, directory pool, or `$VARIABLE`,
+  with node-specific noninteractive values before the global value;
+  `--eclab-auto-license` requests registered-pool allocation for every
+  unresolved prompt. Never log the
   resolved path or content as a diagnostic secret.
 - Log one info-level selected-license diagnostic per node only after its
   lab-local copy succeeds. Include the node, source basename, and selected pool

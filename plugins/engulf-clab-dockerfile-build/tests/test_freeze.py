@@ -30,3 +30,51 @@ def test_freeze_discovery_entry_point_and_inherited_recipe(tmp_path):
     assert declarations[0].dependencies == ("debian:12",)
     assert declarations[0].rebuildable
     assert not declarations[0].offline_rebuildable
+
+
+def test_static_labels_do_not_make_an_included_recipe_nonportable(tmp_path):
+    (tmp_path / "Dockerfile").write_text("FROM alpine:3.22\n")
+    declarations = image_sources(
+        tmp_path / "lab.clab.yml",
+        {
+            "topology": {
+                "nodes": {
+                    "base-router": {
+                        "image": "example/router-base:1",
+                        "env": {
+                            "ECLAB_DOCKERFILE": "Dockerfile",
+                            "ECLAB_DOCKER_CTX": ".",
+                            "ECLAB_DOCKER_ARGS": "--label team=netops",
+                        },
+                    }
+                }
+            }
+        },
+        {},
+    )
+    assert declarations[0].rebuildable
+
+
+def test_extra_build_arguments_that_may_reference_host_inputs_are_not_portable(
+    tmp_path,
+):
+    (tmp_path / "Dockerfile").write_text("FROM alpine:3.22\n")
+    declarations = image_sources(
+        tmp_path / "lab.clab.yml",
+        {
+            "topology": {
+                "nodes": {
+                    "base-router": {
+                        "image": "example/router-base:1",
+                        "env": {
+                            "ECLAB_DOCKERFILE": "Dockerfile",
+                            "ECLAB_DOCKER_CTX": ".",
+                            "ECLAB_DOCKER_ARGS": "--secret id=private,src=secret.txt",
+                        },
+                    }
+                }
+            }
+        },
+        {},
+    )
+    assert not declarations[0].rebuildable

@@ -83,12 +83,13 @@ for a particular environment or edition.
 | [Generate Playwright client-certificate configuration][linux-pki] | [Configure a client identity for curl][linux-pki] |
 | [Generate an nginx TLS identity fragment][linux-pki] | [Inject authorized CA certificates into FortiGate nodes][fgt-pki] |
 | [Inject authorized local certificates and keys into FortiGate nodes][fgt-pki] | [Package a lab for sharing with `freeze`][freeze-archive] |
-| [Restore a packaged lab with `defrost`][freeze-expand] | [Create a sanitized archive without credentials or license files][freeze-sanitize] |
-| [Reproduce the Python package versions recorded by a frozen lab][freeze-bundles] | [Include topology-referenced external VM inputs][freeze-bundles] |
-| [Create an offline package with eclab and Containerlab][freeze-bundles] | [Include the selected vrnetlab checkout in an offline package][freeze-bundles] |
-| [Include ordinary Docker images in an offline package][freeze-bundles] | [Run a frozen lab from its self-contained launcher][freeze-archive] |
-| [Redact licenses during freeze and resolve them during defrost][freeze-sanitize] | [Exclude additional files with a lab-specific freeze-ignore file][freeze-sanitize] |
-| [Choose a custom freeze archive destination][freeze-archive] | [Export explicitly allowed PKI secrets with passphrase encryption][pki-lifecycle] |
+| [Mount a registered FortiGate license for vrnetlab startup][fgt-license] | [Restore a packaged lab with `defrost`][freeze-expand] |
+| [Create a sanitized archive without credentials or license files][freeze-sanitize] | [Reproduce the Python package versions recorded by a frozen lab][freeze-bundles] |
+| [Include topology-referenced external VM inputs][freeze-bundles] | [Create an offline package with eclab and Containerlab][freeze-bundles] |
+| [Include the selected vrnetlab checkout in an offline package][freeze-bundles] | [Include ordinary Docker images in an offline package][freeze-bundles] |
+| [Run a frozen lab from its self-contained launcher][freeze-archive] | [Redact licenses during freeze and resolve them during defrost][freeze-sanitize] |
+| [Exclude additional files with a lab-specific freeze-ignore file][freeze-sanitize] | [Choose a custom freeze archive destination][freeze-archive] |
+| [Export explicitly allowed PKI secrets with passphrase encryption][pki-lifecycle] | [Extend freeze and defrost with an independent plugin][freeze-api] |
 | [Inspect CPU and RAM consumption for one or all known labs][consumption] | [Inspect lab-directory and Docker-image storage consumption][consumption] |
 | [Compare unique and shared image storage by lab][consumption] | [Poll live lab resource consumption][consumption] |
 | [Distinguish deployed, stopped, and reclaimed labs][consumption] | [Reclaim Docker storage for one lab][reclaim] |
@@ -146,10 +147,11 @@ for a particular environment or edition.
 [pki-lifecycle]: plugins/engulf-clab-pki/USAGE.md#lifecycle-state-and-security
 [linux-pki]: plugins/engulf-clab-pki-linux-core/USAGE.md
 [fgt-pki]: plugins/engulf-clab-vrnetlab-fortigate-pki-injector/USAGE.md#generated-launcher-environment
-[freeze-bundles]: plugins/engulf-clab-freeze/USAGE.md#normal-and-offline-bundles
-[freeze-sanitize]: plugins/engulf-clab-freeze/USAGE.md#sanitization-and-exclusions
-[freeze-archive]: plugins/engulf-clab-freeze/USAGE.md#archive-and-recipient-workflow
-[freeze-expand]: plugins/engulf-clab-freeze/USAGE.md#expanding-an-archive
+[fgt-license]: plugins/engulf-clab-vrnetlab-fortigate-license-injector/USAGE.md#deployment-and-lifecycle
+[freeze-bundles]: plugins/engulf-clab-freeze/USAGE.md#modes
+[freeze-sanitize]: plugins/engulf-clab-freeze/USAGE.md#archive-and-launcher
+[freeze-archive]: plugins/engulf-clab-freeze/USAGE.md#archive-and-launcher
+[freeze-expand]: plugins/engulf-clab-freeze/USAGE.md#defrost
 [consumption]: plugins/engulf-clab-consumption/USAGE.md
 [reclaim]: plugins/engulf-clab-reclaim/USAGE.md
 [schema]: plugins/engulf-clab-schema/USAGE.md
@@ -474,6 +476,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-vrnetlab-build-api` | Contract only | Shared invocation map of provider-resolved vrnetlab input paths by node. |
 | `engulf-clab-vrnetlab-build` | `engulf_clab.vrnetlab_build` | Single shared vrnetlab backend and Docker image recipe provider. |
 | `engulf-clab-vrnetlab-static-image-provider` | `engulf_clab.vrnetlab_static_image_provider` | Local path provider owning vrnetlab source flags, environment variables, and YAML controls. |
+| `engulf-clab-fortinet-operation-guard` | `engulf_clab.fortinet_operation_guard` | Rejects unsupported reconfigure, restart, and already-running deploy operations for Fortinet nodes. |
 | `engulf-clab-license-pool` | `engulf_clab.license_pool` | Registers product-specific pools and shares license files safely across labs. |
 | `engulf-clab-freeze` | `engulf_clab.freeze` | Produces sanitized, portable frozen lab archives. |
 | `engulf-clab-lab-registry-api` | Contract only | Typed access to the shared persistent lab inventory. |
@@ -487,6 +490,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-pki-linux-debian` | `engulf_clab.pki_linux_debian` | Provides the Debian 13 family installer asset image. |
 | `engulf-clab-pki-linux-fedora` | `engulf_clab.pki_linux_fedora` | Provides the Fedora 44 family installer asset image. |
 | `engulf-clab-vrnetlab-fortigate-pki-injector` | `engulf_clab.vrnetlab_fortigate_pki_injector` | Injects authorized PKI paths into FortiGate vrnetlab nodes. |
+| `engulf-clab-vrnetlab-fortigate-license-injector` | `engulf_clab.vrnetlab_fortigate_license_injector` | Mounts a registered license read-only for FortiGate vrnetlab startup. |
 | `engulf-clab-wan` | `engulf_clab.wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
 | `engulf-clab-lab-parser` | `engulf_clab.lab_parser` | Shared original-topology and deferred-mutation API. |
 | `engulf-clab-lab-writer` | `engulf_clab.lab_writer` | Renders deferred mutations into a temporary topology. |
@@ -547,19 +551,18 @@ resources. Do not edit plugin state files while a deployment is running.
 ## Freezing and defrosting a lab for sharing
 
 `eclab freeze` leaves the source lab
-unchanged and creates one sanitized archive. It contains the copied frozen
-topology, exact Python package lock, best-effort wheelhouse, copied external VM
-inputs, `initialize-env.sh`, and `run-eclab.sh`. The initializer asks the
+unchanged and creates one sanitized archive. The default is lean: it records
+all installed Python package versions and tool identities, while packaging no
+runtime or image archives. It includes `initialize-env.sh` and `run-eclab.sh`.
+The initializer asks the
 recipient for non-empty values for unresolved topology variables and writes
 them to the topology's private sibling `.env` file with restrictive permissions.
-The launcher reuses a compatible installed `eclab`,
-offers to use an incompatible one, or creates a lab-local virtual environment.
-With `--offline`, freeze instead includes the active installed eclab virtual
+The lean launcher uses the producer edition already installed on the recipient.
+`--eclab-with-runtime` adds a wheelhouse, dependency lock, and pinned tool
+provisioning. `--offline` also includes the active installed eclab virtual
 environment, the resolved Containerlab executable, the actual vrnetlab checkout,
-and non-vrnetlab topology images currently in Docker. It does not bundle
-generated appliance images or vendor VM inputs;
-the recipient supplies their selected VM image. The offline launcher uses only
-the bundled runtime and tools and loads ordinary absent images from the archive.
+and required topology images. The offline launcher uses only bundled runtime,
+tools, and images plus host Docker.
 Freeze fails if a required component is unavailable. Offline archives remain
 platform-specific and require compatible Docker and host networking/QEMU facilities.
 
@@ -577,9 +580,10 @@ have been removed or are no longer regular files are pruned automatically.
 
 Frozen licenses become `__ECLAB_LICENSE_PROMPT__`; pool paths, allocations,
 clamps, and license files are never included. `ECLAB` is a fixed label
-prefix, the same across every edition. The recipient supplies a file, pool
-directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
-`ECLAB_LICENSE_<NODE>`. Destroy an active lab before freezing it. Use
+prefix, the same across every edition. The recipient supplies `auto`, a file,
+pool directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
+`ECLAB_LICENSE_<NODE>`; `--eclab-auto-license` selects registered pools for
+all unresolved prompts. Destroy an active lab before freezing it. Use
 `.<state-prefix-lowercase>-freezeignore` for extra Git-ignore-style
 exclusions; external symlinks are rejected. The active application's
 `.<state-prefix-lowercase>` lab state (namespaced by short product name and kept
@@ -591,10 +595,12 @@ after exclusions are omitted.
 archive into `<archive-name>` or `--into DIRECTORY`, removes the
 `x-engulf-clab-freeze` metadata, restores launcher, initializer, and bundled
 tool permissions, runs the initializer unless `--skip-env-init` is supplied,
-prepares the runtime, points nodes at bundled Docker image
+prepares runtime or checks lean compatibility once, points nodes at bundled Docker image
 archives that carry their exact image, and resolves every redacted license from
-`--license NODE=VALUE`, `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, or an
-interactive prompt. It stages beside the destination and publishes atomically,
+`--license NODE=VALUE`, `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`,
+`--eclab-auto-license`, or an interactive prompt. Use repeatable
+`--env NAME=VALUE` flags to inflate the topology's private environment without
+interactive answers. It stages beside the destination and publishes atomically,
 so a failed expansion leaves no partial lab, and it replaces an existing
 directory only with `--force` and only when an earlier defrost recorded it. The
 result is an ordinary lab directory holding real local license selections: do

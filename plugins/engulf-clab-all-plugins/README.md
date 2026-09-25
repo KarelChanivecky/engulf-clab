@@ -33,19 +33,21 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-containers-pki` | PKI-enabled Debian 13 and Fedora 44 bases for direct use or inheritance. |
 | `engulf-clab-license-pool` | Product-aware pool registration, automatic leased selection, and lab-local copies. |
 | `engulf-clab-wan` | Privileged DHCP/NAT bridge management. |
-| `engulf-clab-freeze` | Selective image bundling by default, lean recipient inputs, and offline lab archives. |
+| `engulf-clab-freeze` | Lean compatibility archives, pinned runtime archives, and offline lab archives. |
 | `engulf-clab-lab-registry-api` and `engulf-clab-lab-registry` | Typed shared inventory plus persistent deploy/redeploy tracking. |
 | `engulf-clab-reclaim` | Guarded Docker reclamation with measured storage-saved reporting. |
 | `engulf-clab-consumption` | Deployed, stopped, and reclaimed state with resource reports. |
-| `engulf-clab-freeze-api`, `engulf-clab-pki-api`, and `engulf-clab-pki` | Format-2 extension contract plus typed opt-in PKI generation and private node views. |
+| `engulf-clab-freeze-api`, `engulf-clab-pki-api`, and `engulf-clab-pki` | Format-3 runtime and contributor contracts plus typed opt-in PKI generation and private node views. |
 | `engulf-clab-pki-linux-core`, `engulf-clab-pki-linux-debian`, and `engulf-clab-pki-linux-fedora` | Runtime plus Debian/Fedora installer asset images for automatic Linux trust and identity integration. |
 | `engulf-clab-vrnetlab-fortigate-pki-injector` | Automatic path-only installation of authorized PKI identities into FortiGate vrnetlab nodes. |
+| `engulf-clab-vrnetlab-fortigate-license-injector` | Mounts a registered FortiGate license read-only for vrnetlab startup. |
+| `engulf-clab-fortinet-operation-guard` | Rejects unsupported reconfigure, restart, and already-running deploy operations for Fortinet nodes. |
 
 Included feature packages are Dockerfile builds, the packaged-container manager,
 core and PKI collections, Containerlab and vrnetlab provisioning, vrnetlab image
 builds, license pools, managed DHCP/NAT WAN bridges, resource-consumption reports, frozen shareable archives,
-PKI catalogs, certificate mounts, FortiGate PKI injection, sticky management
-addresses, and the topology mutation/collector infrastructure. Review the individual package READMEs before
+PKI catalogs, certificate mounts, FortiGate PKI and registered-license injection,
+sticky management addresses, and the topology mutation/collector infrastructure. Review the individual package READMEs before
 enabling host-affecting features such as WAN bridges or
 automatic source updates.
 

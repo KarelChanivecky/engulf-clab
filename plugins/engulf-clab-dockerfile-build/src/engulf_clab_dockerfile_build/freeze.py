@@ -12,6 +12,22 @@ from engulf_docker_image_core.dockerfile import dockerfile_requirements
 from .config import BASE_NODE_ENV, _extra_args, _optional_boolean
 
 
+def _rebuildable_extra_args(arguments: tuple[str, ...]) -> bool:
+    """Only claim completeness for extra flags that add no external inputs."""
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--label":
+            if index + 1 == len(arguments):
+                return False
+            index += 2
+        elif argument.startswith("--label="):
+            index += 1
+        else:
+            return False
+    return True
+
+
 def image_sources(
     topology: Path, document: dict[str, Any], environment: Mapping[str, str]
 ) -> tuple[ImageSource, ...]:
@@ -35,7 +51,7 @@ def image_sources(
             )
         )
         extra = _extra_args(env.get("ECLAB_DOCKER_ARGS", ""), node_name=node.name)
-        dependencies = ()
+        dependencies: tuple[str, ...] = ()
         if dockerfile is not None and dockerfile.is_file() and context is not None:
             dependencies = tuple(
                 item.reference
@@ -52,7 +68,7 @@ def image_sources(
                 dependencies=dependencies,
                 controls=tuple(sorted(key for key in env if key.startswith("ECLAB_DOCKER"))),
                 build_only=_optional_boolean(env, BASE_NODE_ENV, owner=f"node {node.name}"),
-                rebuildable=not extra,
+                rebuildable=_rebuildable_extra_args(extra),
                 # RUN/ADD and arbitrary build flags may need the network. Offline
                 # freeze captures the output; it never executes a build to find out.
                 identity=(repr(args), repr(extra)),

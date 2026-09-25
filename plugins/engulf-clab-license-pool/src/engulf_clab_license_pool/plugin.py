@@ -185,6 +185,17 @@ PLUGIN_SCHEMA = (
         environment="ECLAB_LICENSE",
     )
     .add_runtime_var(
+        AUTO_LICENSE,
+        "Request registered-pool allocation for every unresolved frozen license prompt.",
+        values=ValueType.BOOLEAN,
+        default=False,
+    )
+    .add_cli_flag(
+        "--eclab-auto-license",
+        "Resolve unresolved frozen license prompts from registered pools automatically.",
+        environment=AUTO_LICENSE,
+    )
+    .add_runtime_var(
         "ECLAB_LICENSE_*",
         "Provide a node-specific frozen-lab license source.",
         values=(ValueType.FILE_PATH, ValueType.DIRECTORY_PATH, ValueType.STRING),
@@ -266,6 +277,21 @@ PLUGIN_SCHEMA = (
         commands=("deploy", "redeploy"),
         requires=("license is __ECLAB_LICENSE_PROMPT__",),
         path_base=PathBase.INVOCATION_DIRECTORY,
+    )
+    .annotate(
+        AUTO_LICENSE,
+        commands=("deploy", "redeploy"),
+        implies=(
+            "unresolved frozen license prompts request registered-pool allocation",
+        ),
+    )
+    .annotate(
+        "--eclab-auto-license",
+        commands=("deploy", "redeploy"),
+        conflicts_with=("--eclab-license",),
+        implies=(
+            "unresolved frozen license prompts request registered-pool allocation",
+        ),
     )
     .annotate(
         "ECLAB_LICENSE_*",
@@ -473,6 +499,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             "  --eclab-license VALUE        Default non-interactive frozen-lab license\n"
             f"  {contract.license_environment} is the persistent environment default; "
             "--eclab-license wins.\n"
+            "  --eclab-auto-license  Allocate every unresolved frozen prompt from registered pools\n"
             f"  {contract.license_environment}_<NODE> remains the per-node prompt override.\n"
             "  Registered pools are matched to the effective node kind in registration order.\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
@@ -483,10 +510,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
     def analyze_call(
         self, event: BeforeCallEvent, api: InvocationAPI
     ) -> CallContribution | None:
-        if (
-            not event.wrapper_args
-            or event.wrapper_args[0] != INIT_LICENSE_POOL_COMMAND
-        ):
+        if not event.wrapper_args or event.wrapper_args[0] != INIT_LICENSE_POOL_COMMAND:
             return None
         exit_code = api.require_context(_INIT_LICENSE_POOL_EXIT_CONTEXT)
         if type(exit_code) is not int:
@@ -516,15 +540,20 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             contract,
             registered=registered,
         )
+        prompt_requests, direct, automatic_prompts = _prompt_requests(
+            topology,
+            event.environment,
+            workspace,
+            contract,
+            auto_prompts=_auto_license_requested(event.environment),
+        )
         automatic = _automatic_requests(
             topology,
             event.environment,
             workspace,
             contract,
             registered,
-        )
-        prompt_requests, direct = _prompt_requests(
-            topology, event.environment, workspace, contract
+            automatic_prompts=automatic_prompts,
         )
         requests.extend(prompt_requests)
         if not requests and not automatic and not direct:
@@ -532,15 +561,8 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         with api.leases(
             tuple(
                 sorted(
-                    {
-                        _lease(pool)
-                        for _node, pool, _clamp, _claim in requests
-                    }
-                    | {
-                        _lease(pool)
-                        for request in automatic
-                        for pool in request.pools
-                    }
+                    {_lease(pool) for _node, pool, _clamp, _claim in requests}
+                    | {_lease(pool) for request in automatic for pool in request.pools}
                 )
             )
         ):
@@ -608,14 +630,20 @@ class LicensePoolPlugin(SchemaBackedPlugin):
     def prepare_failed(self, event: PreparationFailedEvent, api: InvocationAPI) -> None:
         if not is_topology_mutation_command(event.wrapper_args):
             return
-        if isinstance(api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT), LicenseAllocationHandoff):
+        if isinstance(
+            api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT),
+            LicenseAllocationHandoff,
+        ):
             return
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if isinstance(allocation, _InvocationAllocation):
             self._rollback_deploy(api, allocation)
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
-        if isinstance(api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT), LicenseAllocationHandoff):
+        if isinstance(
+            api.get_context(LICENSE_ALLOCATION_HANDOFF_CONTEXT),
+            LicenseAllocationHandoff,
+        ):
             return
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if is_topology_mutation_command(event.wrapper_args):
@@ -719,9 +747,10 @@ def _requests(
         license_value = node.data.get("license")
         if not isinstance(license_value, str):
             continue
-        if license_value == AUTO_LICENSE or _undefined_variable(
-            license_value, environ
-        ) is not None:
+        if (
+            license_value == AUTO_LICENSE
+            or _undefined_variable(license_value, environ) is not None
+        ):
             continue
         pool = _pool(license_value, environ, contract)
         if pool is None:
@@ -757,10 +786,12 @@ def _requests(
 
 def _automatic_requests(
     data: dict[str, Any],
-    environ: Mapping[str, str],
+    environ: Mapping[str, object],
     workspace: Path,
     contract: LicenseContract,
     registered: tuple[_RegisteredPool, ...],
+    *,
+    automatic_prompts: tuple[str, ...] = (),
 ) -> list[_AutomaticRequest]:
     nodes = data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict):
@@ -780,8 +811,13 @@ def _automatic_requests(
         if not isinstance(node_env, Mapping):
             raise LicensePoolError(f"node {node.name} env must be a YAML mapping")
         explicit = license_value == AUTO_LICENSE
+        prompted = node.name in automatic_prompts
         implicit = _undefined_variable(license_value, environ) is not None
-        if not explicit and (not implicit or _auto_license_disabled(node_env)):
+        if (
+            not explicit
+            and not prompted
+            and (not implicit or _auto_license_disabled(node_env))
+        ):
             continue
         kind = node.data.get("kind")
         if not isinstance(kind, str) or not kind:
@@ -814,7 +850,7 @@ def _automatic_requests(
     return result
 
 
-def _undefined_variable(value: str, environ: Mapping[str, str]) -> str | None:
+def _undefined_variable(value: str, environ: Mapping[str, object]) -> str | None:
     match = _VARIABLE_REFERENCE.fullmatch(value)
     if match is None:
         return None
@@ -831,12 +867,26 @@ def _auto_license_disabled(environment: Mapping[str, object]) -> bool:
     )
 
 
+def _auto_license_requested(environment: Mapping[str, object]) -> bool:
+    value = environment.get(AUTO_LICENSE)
+    return value is True or (
+        isinstance(value, str)
+        and value.strip().casefold() in {"1", "true", "yes", "on"}
+    )
+
+
 def _prompt_requests(
     data: dict[str, Any],
-    environ: Mapping[str, str],
+    environ: Mapping[str, object],
     workspace: Path,
     contract: LicenseContract,
-) -> tuple[list[tuple[str, str, str | None, str]], dict[str, tuple[str, str]]]:
+    *,
+    auto_prompts: bool = False,
+) -> tuple[
+    list[tuple[str, str, str | None, str]],
+    dict[str, tuple[str, str]],
+    tuple[str, ...],
+]:
     nodes = data.get("topology", {}).get("nodes", {})
     if not isinstance(nodes, dict):
         raise LicensePoolError("topology.nodes is required")
@@ -846,6 +896,7 @@ def _prompt_requests(
         raise LicensePoolError(str(error)) from error
     pools: list[tuple[str, str, str | None, str]] = []
     direct: dict[str, tuple[str, str]] = {}
+    automatic: list[str] = []
     for node in resolved_nodes:
         if node.data.get("license") != contract.prompt_marker:
             continue
@@ -860,12 +911,15 @@ def _prompt_requests(
             raise LicensePoolError(
                 f"node {node_name} {UUID_ENVIRONMENT} must be a nonempty string"
             )
+        if auto_prompts:
+            automatic.append(node_name)
+            continue
         claim = f"{workspace}:{identity}"
         key = contract.node_license_environment(node_name)
         value = environ.get(key) or environ.get(contract.license_environment)
         if not value and sys.stdin.isatty():
             value = input(
-                f"License for {node_name} (file, pool directory, or $VARIABLE): "
+                f"License for {node_name} (auto, file, pool directory, or $VARIABLE): "
             ).strip()
         if not value:
             raise LicensePoolError(
@@ -873,11 +927,21 @@ def _prompt_requests(
             )
         if value.startswith("$"):
             variable = value[1:].strip("{}")
-            value = environ.get(variable, "")
+            variable_value = environ.get(variable, "")
+            value = variable_value if isinstance(variable_value, str) else ""
             if not value:
                 raise LicensePoolError(
                     f"license variable {variable} is not set for node {node_name}"
                 )
+        if isinstance(value, str) and (
+            value.casefold() == "auto" or value == AUTO_LICENSE
+        ):
+            automatic.append(node_name)
+            continue
+        if not isinstance(value, str):
+            raise LicensePoolError(
+                f"invalid frozen license choice for node {node_name}"
+            )
         candidate = Path(value).expanduser().resolve()
         if candidate.is_file():
             direct[node_name] = (claim, str(candidate))
@@ -887,12 +951,10 @@ def _prompt_requests(
             raise LicensePoolError(
                 f"frozen license choice for {node_name} is not a file or directory: {candidate}"
             )
-    return pools, direct
+    return pools, direct, tuple(automatic)
 
 
-def _parse_init_license_pool(
-    arguments: tuple[str, ...], cwd: Path
-) -> tuple[Path, str]:
+def _parse_init_license_pool(arguments: tuple[str, ...], cwd: Path) -> tuple[Path, str]:
     path_value = "."
     kind = DEFAULT_LICENSE_KIND
     positional = False
@@ -956,8 +1018,7 @@ def _load(state: Any) -> dict[str, Any]:
             or not isinstance(registration.get("path"), str)
             or not registration["path"]
             or not isinstance(registration.get("kind"), str)
-            or re.fullmatch(r"[a-z0-9][a-z0-9_-]*", registration["kind"])
-            is None
+            or re.fullmatch(r"[a-z0-9][a-z0-9_-]*", registration["kind"]) is None
             or registration["path"] in seen
         ):
             raise LicensePoolError("invalid license-pool state")

@@ -1,5 +1,10 @@
 # Plugin Instructions
 
+- Pass each contributor its own sibling Engulf user/workspace namespace.
+  Callback-bound `api.state()` belongs to freeze; passing it directly prevents
+  PKI export and automatic authority binding from finding existing identities.
+  Keep runtime-provider state handling separate from contributor contexts.
+
 This plugin produces a shareable archive without ever changing the source lab,
 and expands one back into a runnable lab. Never place license files, license pool
 paths, allocations, or clamps in a frozen artifact; only the expanded lab holds a
@@ -24,24 +29,25 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   format, remove that key from the restored topology, reject members escaping
   the single archive root, and stage the expansion beside the destination so a
   failure leaves no partial lab and restores a replaced one.
-- Format 2 discovers optional hooks only through `engulf-clab-freeze-api` entry
+- Formats 2 and 3 discover optional hooks only through `engulf-clab-freeze-api` entry
   points. Contributors may claim namespaced flags, transform the staged copy,
   add metadata, and restore inside unpublished staging; freeze must never import
-  an optional feature package. Defrost accepts formats 1 and 2.
+  an optional feature package. Defrost accepts formats 1, 2, and 3.
 - Replace a destination only when it carries this plugin's defrost record. The
   record keeps the removed freeze provenance beside the lab, never inside it.
 - Resolve licenses from `--license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
-  `ECLAB_LICENSE`, then an interactive prompt, and leave an unanswered marker
+  `ECLAB_LICENSE`, then `--eclab-auto-license`, then an interactive prompt;
+  accept `auto` as a registered-pool request and leave an unanswered marker
   for deploy. Never log, record, or embed a license value in an error message;
   name only the node, exactly as license-pool does.
 - Select a bundled image archive only when it carries the node's exact image
   reference and the node declares none, because `ECLAB_IMAGE_ARCHIVE` suppresses
   the registry fallback. Selection must not need Docker; only `--load-images`
   may use it.
-- Prepare runtimes after publication so recorded absolute paths are the final
-  ones, and validate offline runtime completeness before it. Offline
-  incompleteness fails; a normal-mode installation failure warns, removes its
-  partial environment, and defers to `run-eclab.sh`.
+- Prepare runtime mode after publication so recorded absolute paths are final;
+  validate offline completeness before publication. Runtime mode must fail
+  rather than run mismatched tools. Lean mode checks compatibility once at
+  defrost and persists the warnings.
 - Preserve source immutability, deterministic topology selection, explicit
   output suffix validation, overwrite confirmation, external-symlink rejection,
   Git-ignore-style exclusions, empty-directory pruning, and tracked archive
@@ -55,8 +61,9 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   Resolve defrost image/archive selections and license prompts with EffectiveNode.
 - Generate `initialize-env.sh` from the final frozen topology's environment
   references. It is recipient-run, writes only non-empty answers to the
-  topology's expected sibling `.env` file with mode `0600`, and never carries
-  source values into the archive; defrost restores its executable bit and runs
+  topology's expected sibling `.env` file with mode `0600`, accepts exported
+  values for noninteractive use, and never carries source values into the archive;
+  defrost restores its executable bit and runs
   it before recipient resolution unless `--skip-env-init` is selected. The
   format-2 metadata marker gates execution so unmarked legacy files are never
   treated as generated helpers.
@@ -74,25 +81,32 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   ignore-file name are the one thing that stays derived from callback-bound
   short product metadata (`command._state_prefix`); keep this split
   intentional rather than reusing one prefix for both.
-- Keep package locking transitive and prefer verified locally installed wheels
-  before package-index download. Missing normal-mode wheels may warn; incomplete
-  offline runtime/tool/image inputs must fail.
-- Keep normal and offline launchers distinct. Offline execution may use only
-  bundled runtime/tools and the host Docker daemon; never fall back to PATH or a
-  package index.
-- Use the common image acquisition planner in every mode. Default freeze
-  bundles unavailable dependencies; lean replaces their inputs with recipient
-  variables; offline accepts only bundled artifacts or declared offline builds.
+- Format 3 records all installed package names and versions without URLs or paths.
+  Keep the transitive eclab dependency lock separate for runtime and offline
+  modes. Select a runtime provider by producer edition through the API entry
+  point and fail explicitly when absent.
+- Keep lean, runtime, and offline launchers distinct. Lean uses the installed
+  edition without a compatibility prompt. Runtime mode enforces pinned tools;
+  offline execution uses only bundled runtime/tools and host Docker.
+- Use the common image acquisition planner in every mode. Lean and runtime modes
+  keep literal Dockerfile dependencies and packaged provider recipes; use
+  recipient variables only for unavailable root images or actual missing recipe
+  inputs. They emit no captured image archives; a declared, in-scope image
+  archive that survives exclusions remains an authored source input. Offline
+  accepts only bundled artifacts or declared offline builds.
   Do not reintroduce blanket vrnetlab or image-name exclusions.
-- Discover recipe facts through the freeze image-source entry-point group,
-  never by running deploy preparation. Providers own recipe controls and input
-  discovery. Capture Docker images by immutable ID and keep image identity,
-  checksums, platform, dependencies, and decisions in the manifest.
+- Discover recipe facts from packaged static Dockerfile image providers and the
+  freeze image-source entry-point group, never by running deploy preparation.
+  Providers with host-local recipe inputs must declare them through the freeze
+  API. Capture Docker images by immutable ID and keep image identity, checksums,
+  platform, dependencies, and decisions in the manifest. Put shared manifest
+  inputs on one topology node; do not copy them into every node environment.
 - New defrost uses the explicit image manifest and validates it before
   publication. Keep incidental archive scanning only for legacy archives.
   The archive provider must supply dependency-only images as well as roots.
 - Preserve every source file. Rewrite only staging; disable captured builds
-  at every inherited origin and preserve recipient variables in lean mode.
+  at every inherited origin and preserve actual recipient input variables in
+  lean mode.
 - Write the archive to a staged path and publish only after all work succeeds.
   Track it in workspace state without nesting previous outputs.
 - Both commands perform all work in `before_goal` and have no `prepare_call`

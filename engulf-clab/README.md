@@ -227,17 +227,15 @@ eclab defrost demo.tar.gz --into labs/demo
 
 `eclab defrost` is the receiving side: it expands one archive atomically,
 removes the freeze metadata, restores launcher and bundled tool permissions,
-prepares the runtime, points nodes at bundled Docker image archives carrying
+checks lean compatibility or prepares a bundled runtime, points nodes at bundled Docker image archives carrying
 their exact image, and answers the redacted licenses from `--license`,
 `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, or a prompt. The expanded lab holds
 real license selections, so do not commit or re-share it.
-Use `eclab freeze --offline` to additionally bundle the active eclab virtual
-environment, Containerlab, required vrnetlab sources, and local topology Docker
-images other than generated vrnetlab appliances. It bundles the actual vrnetlab
-checkout and leaves the vendor VM image for the recipient to select and supply.
-Offline creation fails if any required component or ordinary image is missing;
-the resulting platform-specific archive still expects compatible Docker and host
-networking/QEMU facilities.
+Default freeze records compatibility without bundling a runtime or images.
+`--eclab-with-runtime` adds a wheelhouse and pinned tools. `--offline` also
+bundles the active eclab virtual environment, Containerlab, vrnetlab checkout,
+and required images. The offline archive still expects compatible Docker and
+host networking/QEMU facilities.
 Freeze detects the single recognized topology in the current directory; use
 `-t` / `--topology` to select one explicitly. Its default output is
 `<lab-directory-name>.tar.gz` in the lab directory; use `--output` for another
