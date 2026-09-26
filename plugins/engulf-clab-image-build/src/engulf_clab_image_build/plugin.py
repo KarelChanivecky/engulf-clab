@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from collections.abc import Mapping
@@ -11,6 +12,7 @@ from engulf_api import (
     Invocation,
     InvocationAPI,
     RegistrationAPI,
+    StateScope,
 )
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
@@ -30,21 +32,30 @@ from engulf_clab_schema_api import (
     record_plugin_schema,
 )
 from engulf_docker_image_api import (
+    DOCKER_IMAGE_PROVENANCE_CONTEXT,
     IMAGE_GRAPH_CONTEXT,
     IMAGE_PROVIDER_CONTEXT,
+    DockerImageProvenance,
+    DockerImageProvenanceSnapshot,
     ImageBuildGraph,
     ImageParameter,
+    ImageProvisionAction,
     ImageRequirement,
+    ProvisionAuthority,
+    docker_image_provenance,
     image_graphs,
     image_providers,
+    publish_docker_image_provenance,
 )
 from engulf_docker_image_core import (
     DEFAULT_IMAGE_BUILD_JOBS,
     DockerImageError,
+    ImageBuildOutcome,
     merge_image_graphs,
     provision_image_graph,
 )
 from engulf_executable_wrapper_api import (
+    AfterCallEvent,
     ArgumentRegistry,
     BeforeCallEvent,
     CallContribution,
@@ -65,6 +76,8 @@ _LEGACY_JOBS_ENV = "ECLAB_DOCKER_BUILD_JOBS"
 _JOBS_FLAG = "--eclab-image-build-jobs"
 _LEGACY_JOBS_FLAG = "--eclab-docker-build-jobs"
 _PARAMETER_PREFIX = "ECLAB_IMAGE_PARAM_"
+_PROVENANCE_STATE_FILE = "docker-image-provenance.json"
+_PROVENANCE_STATE_VERSION = 1
 
 PLUGIN_SCHEMA = (
     PluginSchema(PLUGIN_ID, package="engulf_clab_image_build")
@@ -167,9 +180,17 @@ class ImageBuildPlugin(SchemaBackedPlugin):
     schema = PLUGIN_SCHEMA
     priority = 50
     context_reads = (
-        frozenset({TOPOLOGY_CONTEXT, IMAGE_PROVIDER_CONTEXT, IMAGE_GRAPH_CONTEXT}) | SCHEMA_CONTEXTS
+        frozenset(
+            {
+                TOPOLOGY_CONTEXT,
+                IMAGE_PROVIDER_CONTEXT,
+                IMAGE_GRAPH_CONTEXT,
+                DOCKER_IMAGE_PROVENANCE_CONTEXT,
+            }
+        )
+        | SCHEMA_CONTEXTS
     )
-    context_writes = SCHEMA_CONTEXTS
+    context_writes = frozenset({DOCKER_IMAGE_PROVENANCE_CONTEXT}) | SCHEMA_CONTEXTS
 
     def register_arguments(
         self,
@@ -195,6 +216,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
         del invocation
         record_plugin_schema(api, PLUGIN_SCHEMA)
         image_providers(api)
+        publish_docker_image_provenance(api, _load_image_provenance(api))
         return None
 
     def help(self, api: HelpAPI) -> str:
@@ -237,13 +259,14 @@ class ImageBuildPlugin(SchemaBackedPlugin):
             roots = _topology_image_roots(document)
             fragments = (*image_graphs(api), ImageBuildGraph(roots))
             graph = merge_image_graphs(fragments)
-            provision_image_graph(
+            outcome = provision_image_graph(
                 graph,
                 api=api,
                 providers=image_providers(api),
                 max_workers=image_build_jobs(event.environment),
             )
             _force_local_root_policy(session, document, api)
+            publish_docker_image_provenance(api, _image_provenance_snapshot(outcome))
         except (
             DockerImageError,
             OSError,
@@ -254,6 +277,13 @@ class ImageBuildPlugin(SchemaBackedPlugin):
             api.logger.error("%s", error)
             raise
 
+    def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        if (
+            event.mode is CallMode.HELP
+            or not is_topology_mutation_command(event.wrapper_args)
+        ):
+            return
+        _save_image_provenance(api, docker_image_provenance(api))
 
 def image_build_jobs(environment: Mapping[str, str]) -> int:
     value = environment.get(_JOBS_ENV) or environment.get(_LEGACY_JOBS_ENV)
@@ -266,6 +296,139 @@ def image_build_jobs(environment: Mapping[str, str]) -> int:
     if jobs < 1:
         raise ValueError(f"{_JOBS_ENV} must be a positive integer")
     return jobs
+
+
+def _image_provenance_snapshot(
+    outcome: ImageBuildOutcome,
+) -> DockerImageProvenanceSnapshot:
+    """Publish provider attribution together with the completed execution result."""
+    reused = frozenset(outcome.reused)
+    pulled = frozenset(outcome.pulled)
+    loaded = frozenset(outcome.loaded)
+    built = frozenset(outcome.built)
+    images = []
+    for resolved in outcome.resolved.images:
+        if resolved.external:
+            action = ImageProvisionAction.EXTERNAL
+        elif resolved.image in reused:
+            action = ImageProvisionAction.REUSED
+        elif resolved.image in pulled:
+            action = ImageProvisionAction.PULLED
+        elif resolved.image in loaded:
+            action = ImageProvisionAction.LOADED
+        elif resolved.image in built:
+            action = ImageProvisionAction.BUILT
+        else:
+            raise DockerImageError(
+                f"image provisioning completed without a recorded result for {resolved.image}"
+            )
+        images.append(
+            DockerImageProvenance(
+                image=resolved.image,
+                provider_id=(
+                    None if resolved.provider_id == "graph" else resolved.provider_id
+                ),
+                dependencies=resolved.dependencies,
+                authority=resolved.authority if resolved.provision is not None else None,
+                fallback_on_failure=(
+                    resolved.fallback_on_failure if resolved.provision is not None else False
+                ),
+                action=action,
+                recipe_kind=(
+                    None
+                    if resolved.provision is None
+                    else resolved.provision.recipe.recipe_kind
+                ),
+            )
+        )
+    return DockerImageProvenanceSnapshot(tuple(images))
+
+
+def _load_image_provenance(api: BeforeGoalAPI) -> DockerImageProvenanceSnapshot:
+    state = api.state(StateScope.WORKSPACE)
+    with state.transaction() as locked:
+        if not locked.exists(_PROVENANCE_STATE_FILE):
+            return DockerImageProvenanceSnapshot()
+        try:
+            document: Any = json.loads(locked.read_text(_PROVENANCE_STATE_FILE))
+            if not isinstance(document, dict):
+                raise TypeError("state root must be an object")
+            if (
+                type(document.get("version")) is not int
+                or document.get("version") != _PROVENANCE_STATE_VERSION
+            ):
+                raise ValueError("state version is unsupported")
+            values = document.get("images")
+            if not isinstance(values, list):
+                raise TypeError("state images must be a list")
+            records = tuple(_image_provenance_from_state(value) for value in values)
+            return DockerImageProvenanceSnapshot(records)
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError) as error:
+            api.logger.warning(
+                "ignoring invalid Docker image provenance workspace state: %s", error
+            )
+            return DockerImageProvenanceSnapshot()
+
+
+def _image_provenance_from_state(value: Any) -> DockerImageProvenance:
+    if not isinstance(value, dict):
+        raise TypeError("image provenance entry must be an object")
+    image = value.get("image")
+    provider_id = value.get("provider_id")
+    recipe_kind = value.get("recipe_kind")
+    dependencies = value.get("dependencies")
+    authority_value = value.get("authority")
+    fallback_on_failure = value.get("fallback_on_failure")
+    action_value = value.get("action")
+    if not isinstance(dependencies, list) or any(
+        not isinstance(item, str) for item in dependencies
+    ):
+        raise ValueError("image provenance dependencies must be a list of strings")
+    if authority_value is not None and type(authority_value) is not int:
+        raise ValueError("image provenance authority must be an integer or null")
+    return DockerImageProvenance(
+        image=image,
+        provider_id=provider_id,
+        dependencies=tuple(dependencies),
+        authority=(
+            None if authority_value is None else ProvisionAuthority(authority_value)
+        ),
+        fallback_on_failure=fallback_on_failure,
+        action=ImageProvisionAction(action_value),
+        recipe_kind=recipe_kind,
+    )
+
+
+def _save_image_provenance(
+    api: InvocationAPI, snapshot: DockerImageProvenanceSnapshot
+) -> None:
+    records = []
+    for item in sorted(
+        snapshot.images,
+        key=lambda record: (
+            record.image,
+            record.provider_id or "",
+            record.recipe_kind or "",
+        ),
+    ):
+        records.append(
+            {
+                "image": item.image,
+                "provider_id": item.provider_id,
+                "recipe_kind": item.recipe_kind,
+                "dependencies": list(item.dependencies),
+                "authority": None if item.authority is None else int(item.authority),
+                "fallback_on_failure": item.fallback_on_failure,
+                "action": item.action.value,
+            }
+        )
+    document = {"version": _PROVENANCE_STATE_VERSION, "images": records}
+    state = api.state(StateScope.WORKSPACE)
+    with state.transaction() as locked:
+        locked.write_text(
+            _PROVENANCE_STATE_FILE,
+            json.dumps(document, sort_keys=True, indent=2) + "\n",
+        )
 
 
 def _deploy_completion(context: CompletionContext) -> bool:

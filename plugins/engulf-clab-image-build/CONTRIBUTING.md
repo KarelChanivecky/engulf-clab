@@ -30,3 +30,14 @@ Provisioning leases are scoped to the shared scheduler call. The resulting
 images and Docker cache are retained outputs, not transient resources, and the
 topology mutation exists only in invocation context. A later preparation
 failure therefore requires no `prepare_failed()` cleanup in this adapter.
+
+Hydrate the `DOCKER_IMAGE_PROVENANCE_CONTEXT` workspace snapshot in `before_goal`
+on every call. After provisioning and topology policy mutation both succeed,
+publish the complete Docker image provider result and persist it in `after_call()`
+so a later preparation failure leaves the prior snapshot intact. Persist stable
+image-provider IDs, recipe kinds, dependencies, authority, fallback policy, and
+observed actions only. Do not add vrnetlab source-provider IDs or qcow2
+fingerprints to this registry; the vrnetlab builder owns a separate
+`VRNETLAB_SOURCE_PROVENANCE_CONTEXT`. Keep the Docker provenance write marked
+`allow_unused=True`; consumers are optional. Consumers declare the Docker
+context in `context_reads` and order after this plugin.

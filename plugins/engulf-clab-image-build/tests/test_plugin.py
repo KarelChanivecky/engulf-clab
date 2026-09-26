@@ -9,7 +9,11 @@ from unittest.mock import Mock, patch
 from engulf_api import ApplicationMetadata
 from engulf_clab_dockerfile_build.plugin import DockerfilePlugin
 from engulf_clab_lab_parser import TopologySession, load_topology
-from engulf_docker_image_api import IMAGE_GRAPH_CONTEXT
+from engulf_docker_image_api import (
+    DOCKER_IMAGE_PROVENANCE_CONTEXT,
+    IMAGE_GRAPH_CONTEXT,
+    DockerImageProvenanceSnapshot,
+)
 from engulf_docker_image_core import DockerImageError
 from engulf_executable_wrapper_api import (
     ArgumentRegistry,
@@ -32,6 +36,26 @@ _APPLICATION = ApplicationMetadata(
 
 
 class ImageBuildPluginTest(unittest.TestCase):
+    @patch("engulf_clab_image_build.plugin._load_image_provenance")
+    @patch("engulf_clab_image_build.plugin.record_plugin_schema")
+    def test_before_goal_hydrates_optional_provenance_contexts(
+        self, _record_schema: Mock, load_provenance: Mock
+    ) -> None:
+        snapshot = DockerImageProvenanceSnapshot()
+        load_provenance.return_value = snapshot
+        api = Mock()
+        api.get_context.side_effect = lambda _context_id, default=None: default
+
+        result = ImageBuildPlugin().before_goal(Mock(), api)
+
+        self.assertIsNone(result)
+        api.set_context.assert_any_call(
+            DOCKER_IMAGE_PROVENANCE_CONTEXT,
+            snapshot,
+            allow_unused=True,
+        )
+        self.assertIn(DOCKER_IMAGE_PROVENANCE_CONTEXT, ImageBuildPlugin.context_writes)
+
     def test_dependencies_are_declared_in_package_metadata(self) -> None:
         project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
         project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
@@ -111,7 +135,7 @@ class ImageBuildPluginTest(unittest.TestCase):
         }})
         api = Mock()
         api.require_context.return_value = session
-        api.get_context.return_value = ()
+        api.get_context.side_effect = lambda _context_id, default=None: default
         ImageBuildPlugin().prepare_call(PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL), api)
         graph = provision.call_args.args[0]
         self.assertEqual(graph.roots[0].reference, "example/app")
@@ -132,7 +156,7 @@ class ImageBuildPluginTest(unittest.TestCase):
             session = TopologySession(topology, load_topology(topology))
             api = Mock()
             api.require_context.return_value = session
-            api.get_context.return_value = ()
+            api.get_context.side_effect = lambda _context_id, default=None: default
             ImageBuildPlugin().prepare_call(
                 PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL),
                 api,
@@ -158,7 +182,7 @@ class ImageBuildPluginTest(unittest.TestCase):
             session = TopologySession(topology, load_topology(topology))
             api = Mock()
             api.require_context.return_value = session
-            api.get_context.return_value = ()
+            api.get_context.side_effect = lambda _context_id, default=None: default
 
             with self.assertRaisesRegex(DockerImageError, "did not resolve to a literal"):
                 ImageBuildPlugin().prepare_call(
@@ -182,7 +206,7 @@ class ImageBuildPluginTest(unittest.TestCase):
             session = TopologySession(topology, load_topology(topology, {}))
             api = Mock()
             api.require_context.return_value = session
-            api.get_context.return_value = ()
+            api.get_context.side_effect = lambda _context_id, default=None: default
 
             ImageBuildPlugin().prepare_call(
                 PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL),
@@ -221,7 +245,9 @@ class ImageBuildPluginTest(unittest.TestCase):
                 session if key == "engulf_clab.topology.session" else contexts[key]
             )
             api.get_context.side_effect = lambda key, default=None: contexts.get(key, default)
-            api.set_context.side_effect = lambda key, value: contexts.__setitem__(key, value)
+            api.set_context.side_effect = lambda key, value, **_kwargs: contexts.__setitem__(
+                key, value
+            )
             event = PreparedCallEvent(
                 "containerlab",
                 ("deploy",),

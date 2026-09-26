@@ -2,22 +2,28 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 from engulf_docker_image_api import (
+    DOCKER_IMAGE_PROVENANCE_CONTEXT,
     DockerArchiveRecipe,
     DockerfileRecipe,
+    DockerImageProvenance,
+    DockerImageProvenanceSnapshot,
     DockerPullRecipe,
     ImageBuildGraph,
     ImageParameter,
     ImageProviderPlugin,
     ImageProviderResponse,
     ImageProvision,
+    ImageProvisionAction,
     ImageRecipe,
     ImageRequirement,
     ProvisionAuthority,
     RegisteredImageProvider,
     VrnetlabBuildRecipe,
     canonical_image_reference,
+    publish_docker_image_provenance,
 )
 
 
@@ -28,6 +34,34 @@ class _Provider:
 
 
 class ContractTest(unittest.TestCase):
+    def test_docker_provider_provenance_context_is_optional_for_consumers(self) -> None:
+        snapshot = DockerImageProvenanceSnapshot()
+        api = Mock()
+
+        publish_docker_image_provenance(api, snapshot)
+
+        api.set_context.assert_called_once_with(
+            DOCKER_IMAGE_PROVENANCE_CONTEXT,
+            snapshot,
+            allow_unused=True,
+        )
+
+    def test_docker_provider_snapshot_contains_only_docker_provenance(self) -> None:
+        record = DockerImageProvenance(
+            image="example/router:1",
+            provider_id="org.example.docker.vrnetlab-builder",
+            dependencies=(),
+            authority=ProvisionAuthority.PREFERRED,
+            fallback_on_failure=True,
+            action=ImageProvisionAction.BUILT,
+            recipe_kind="vrnetlab",
+        )
+        snapshot = DockerImageProvenanceSnapshot((record,))
+
+        self.assertIs(snapshot.image("example/router:1"), record)
+        self.assertFalse(hasattr(record, "source_provider_id"))
+        self.assertFalse(hasattr(record, "source_sha256"))
+
     def test_graph_and_provider_are_application_neutral(self) -> None:
         recipe = DockerfileRecipe(Path("/work/Dockerfile"), Path("/work"))
         requirement = ImageRequirement(

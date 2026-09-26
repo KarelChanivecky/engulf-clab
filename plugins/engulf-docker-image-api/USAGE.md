@@ -38,6 +38,31 @@ registry. Set `fallback_on_failure=True` when a failed mirror or cache pull may
 fall through to another offer. Use `False` for owned build recipes whose failure
 must be surfaced rather than hidden by a public-registry pull.
 
+The executable-wrapper image-build adapter hydrates a
+`DockerImageProvenanceSnapshot` under `DOCKER_IMAGE_PROVENANCE_CONTEXT` on every
+invocation. After a deploy or redeploy, it replaces the restored snapshot with
+the current Docker image resolution results and persists that snapshot in
+workspace state. Each record identifies the resolver-attributed Docker image
+provider, recipe kind, dependency references, authority, fallback policy, and
+observed action (`built`, `pulled`, `loaded`, `reused`, or `external`). A
+snapshot has one selected provider record per resolved image; use
+`snapshot.image(reference)` to retrieve it.
+
+This registry describes which Docker image provider resolved each image. It
+does not include source-provider attribution or a vrnetlab qcow2 fingerprint.
+Those belong to the separate vrnetlab source-provenance registry. A consumer
+reads Docker records with `docker_image_provenance(api)`, declares
+`DOCKER_IMAGE_PROVENANCE_CONTEXT` in `context_reads`, and orders after
+`engulf_clab.image_build` when it needs the current deploy snapshot.
+
+The context is optional for consumers. The publisher marks it as allowed to
+remain unread, so deployments do not warn when no provenance consumer is
+installed. `allow_unused` suppresses only that warning and does not grant
+context access. A direct writer must pass `allow_unused=True` to
+`api.set_context()`. If no saved record exists, the accessor returns an empty
+snapshot. The neutral API defines the contract; the eclab adapter owns workspace
+hydration and persistence.
+
 A mirror plugin only needs to rewrite the source and declare its rank; it does
 not check whether the source exists:
 

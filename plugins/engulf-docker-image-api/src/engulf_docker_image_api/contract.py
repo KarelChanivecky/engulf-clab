@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import Enum, IntEnum
 from pathlib import Path
 from typing import ClassVar, Protocol, runtime_checkable
 
@@ -18,6 +18,7 @@ from engulf_api import (
 DOCKER_IMAGE_GOAL_REQUIREMENT = GoalRequirement("org.engulf.docker-image", 1)
 IMAGE_PROVIDER_CONTEXT = "org.engulf.docker-image.providers"
 IMAGE_GRAPH_CONTEXT = "org.engulf.docker-image.graphs"
+DOCKER_IMAGE_PROVENANCE_CONTEXT = "org.engulf.docker-image.provenance"
 
 
 def _nonempty(value: object, *, label: str) -> str:
@@ -315,6 +316,88 @@ class ImageBuildGraph:
             raise TypeError("graph provisions must be a tuple of ImageProvision values")
 
 
+class ImageProvisionAction(str, Enum):
+    """Observed result of executing a selected image provision."""
+
+    BUILT = "built"
+    PULLED = "pulled"
+    LOADED = "loaded"
+    REUSED = "reused"
+    EXTERNAL = "external"
+
+
+@dataclass(frozen=True, slots=True)
+class DockerImageProvenance:
+    """Selected Docker image provider and observed result for one image."""
+
+    image: str
+    provider_id: str | None
+    dependencies: tuple[str, ...]
+    authority: ProvisionAuthority | None
+    fallback_on_failure: bool
+    action: ImageProvisionAction
+    recipe_kind: str | None = None
+
+    def __post_init__(self) -> None:
+        image = canonical_image_reference(self.image)
+        object.__setattr__(self, "image", image)
+        if self.provider_id is not None:
+            validate_global_identifier(self.provider_id, label="provenance provider ID")
+        if self.recipe_kind is not None:
+            _nonempty(self.recipe_kind, label="provenance recipe kind")
+        if type(self.dependencies) is not tuple or any(
+            not isinstance(item, str) for item in self.dependencies
+        ):
+            raise TypeError("provenance dependencies must be a tuple of strings")
+        dependencies = tuple(canonical_image_reference(item) for item in self.dependencies)
+        if len(set(dependencies)) != len(dependencies):
+            raise ValueError("provenance dependencies must be unique")
+        object.__setattr__(self, "dependencies", dependencies)
+        if self.authority is not None and not isinstance(self.authority, ProvisionAuthority):
+            raise TypeError("provenance authority must be a ProvisionAuthority or None")
+        if type(self.fallback_on_failure) is not bool:
+            raise TypeError("provenance fallback_on_failure must be a boolean")
+        if not isinstance(self.action, ImageProvisionAction):
+            raise TypeError("provenance action must be an ImageProvisionAction")
+        if self.action is ImageProvisionAction.EXTERNAL:
+            if (
+                self.provider_id is not None
+                or self.authority is not None
+                or self.recipe_kind is not None
+            ):
+                raise ValueError("external image provenance cannot name a selected provider")
+        elif self.authority is None or self.recipe_kind is None:
+            raise ValueError(
+                "provisioned image provenance needs an authority and recipe kind"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class DockerImageProvenanceSnapshot:
+    """The selected Docker image provider record for each resolved image."""
+
+    images: tuple[DockerImageProvenance, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.images) is not tuple or any(
+            not isinstance(item, DockerImageProvenance) for item in self.images
+        ):
+            raise TypeError(
+                "provenance images must be a tuple of DockerImageProvenance values"
+            )
+        keys = tuple(item.image for item in self.images)
+        if len(set(keys)) != len(keys):
+            raise ValueError("Docker image provenance must have one record per image")
+
+    def image(self, reference: str) -> DockerImageProvenance:
+        """Return the selected provider record for one canonical image reference."""
+        canonical = canonical_image_reference(reference)
+        for item in self.images:
+            if item.image == canonical:
+                return item
+        raise KeyError(reference)
+
+
 def image_providers(api: InvocationAPI) -> tuple[RegisteredImageProvider, ...]:
     value = api.get_context(IMAGE_PROVIDER_CONTEXT, ())
     if type(value) is not tuple or any(
@@ -340,6 +423,23 @@ def image_graphs(api: InvocationAPI) -> tuple[ImageBuildGraph, ...]:
 
 def append_image_graph(api: InvocationAPI, graph: ImageBuildGraph) -> None:
     api.set_context(IMAGE_GRAPH_CONTEXT, (*image_graphs(api), graph))
+
+
+def docker_image_provenance(api: InvocationAPI) -> DockerImageProvenanceSnapshot:
+    value = api.get_context(
+        DOCKER_IMAGE_PROVENANCE_CONTEXT, DockerImageProvenanceSnapshot()
+    )
+    if not isinstance(value, DockerImageProvenanceSnapshot):
+        raise TypeError("invalid Docker image provenance context")
+    return value
+
+
+def publish_docker_image_provenance(
+    api: InvocationAPI, snapshot: DockerImageProvenanceSnapshot
+) -> None:
+    if not isinstance(snapshot, DockerImageProvenanceSnapshot):
+        raise TypeError("snapshot must be a DockerImageProvenanceSnapshot")
+    api.set_context(DOCKER_IMAGE_PROVENANCE_CONTEXT, snapshot, allow_unused=True)
 
 
 class DockerImagePlugin(Plugin):

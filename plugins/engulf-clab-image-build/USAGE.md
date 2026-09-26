@@ -73,6 +73,16 @@ graph. Dockerfile `FROM` values must likewise be statically resolvable. The host
 `docker` command and daemon authorization are required for every deployment that
 has an image root.
 
+The image-build adapter restores the workspace's last Docker image provider
+provenance into `DOCKER_IMAGE_PROVENANCE_CONTEXT` on every invocation. A deploy
+or redeploy replaces it with the current resolver result and persists the
+provider IDs, recipe kinds, dependencies, policy, and observed actions. It does
+not include vrnetlab source-provider records; those are hydrated and persisted
+separately by `engulf_clab.vrnetlab_build` in
+`VRNETLAB_SOURCE_PROVENANCE_CONTEXT`. The freeze plugin is ordered after both
+hydrators. Consumers can inspect either registry from the invocation context
+without rerunning providers or Docker.
+
 ## Troubleshooting
 
 - Run `eclab --help` and confirm `engulf_clab.image_build` is active, then use

@@ -10,6 +10,15 @@
 - Merge materialized topology roots with invocation graph fragments after
   mutators and before writer serialization.
 - Build only in `prepare_call`; keep analysis side-effect free.
+- After provisioning and derived-topology policy mutation both succeed, publish
+  the immutable `DockerImageProvenanceSnapshot` for every resolved image. Never
+  publish a partial snapshot when preparation fails.
+- Hydrate Docker image provenance from this plugin's WORKSPACE state in
+  `before_goal` on every call. Persist completed deploy/redeploy calls in
+  `after_call`, storing only image-provider IDs, actions, policy, dependencies,
+  and recipe kinds. Do not store recipes, source-provider IDs, or local paths.
+- Keep the public Docker provenance write marked `allow_unused=True`; consumers
+  are optional and may be absent from a successful invocation.
 - Declare lab-parser, lab-writer, and schema ordering only in
   `engulf.plugins.v1.dependency.engulf_clab_image_build` package metadata. Do
   not restore `plugin_dependencies`; Engulf rejects code-declared edges.
