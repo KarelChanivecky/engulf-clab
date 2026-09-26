@@ -147,6 +147,8 @@ context declarations when correctness relies on another plugin.
 ## Diagnostics and workspace identity
 
 Engulf options are consumed by the wrapper and never passed to Containerlab.
+The default log level is `INFO`; the application and per-plugin options can
+override it for an invocation.
 
 ```bash
 eclab --eclab-log-level INFO deploy -t lab.clab.yml

@@ -38,6 +38,7 @@ DISPLAY_NAME = "eclab"
 VENDOR = "ECLAB"
 PRODUCT = "Engulf Containerlab"
 SHORT_PRODUCT_NAME = "eclab"
+_DEFAULT_LOGGING_CONFIG = LoggingConfig(default_level="INFO")
 
 
 def _distribution_version() -> str:
@@ -233,6 +234,7 @@ CONTAINERLAB_APPLICATION = ApplicationDefinition[CallOutcome](
     product=PRODUCT,
     short_product_name=SHORT_PRODUCT_NAME,
     version=VERSION,
+    logging_config=_DEFAULT_LOGGING_CONFIG,
     plugin_policy=PluginPolicy.declared(),
     workspace_root_resolver=workspace_root,
 )
@@ -283,7 +285,9 @@ class ContainerlabApp(Application[CallOutcome]):
             product=product,
             short_product_name=short_product_name,
             version=version,
-            logging_config=logging_config,
+            logging_config=(
+                _DEFAULT_LOGGING_CONFIG if logging_config is None else logging_config
+            ),
             plugin_policy=(
                 PluginPolicy.declared() if plugin_policy is None else plugin_policy
             ),
