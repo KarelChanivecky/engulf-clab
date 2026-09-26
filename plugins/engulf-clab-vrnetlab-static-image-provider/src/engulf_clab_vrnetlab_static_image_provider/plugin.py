@@ -43,12 +43,12 @@ from engulf_executable_wrapper_api import (
     Runtime,
 )
 
-from .contract import LABEL_PREFIX, vrnetlab_type_env
 from .config import (
     DEFAULT_VRNETLAB_BUILD_JOBS,
     build_requests_from_topology,
     vrnetlab_build_jobs,
 )
+from .contract import LABEL_PREFIX, vrnetlab_type_env
 from .errors import VrnetlabError
 from .options import (
     IMAGE_OPTION,
@@ -356,11 +356,15 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             ):
                 source = sources[0]
                 assert source is not None
-                build_api.set_image_source(source)
+                build_api.set_image_source(source, source_provider_id=PLUGIN_ID)
             else:
                 for request in requests:
                     if request.source is not None:
-                        build_api.set_image_source(request.source, request.node_name)
+                        build_api.set_image_source(
+                            request.source,
+                            request.node_name,
+                            source_provider_id=PLUGIN_ID,
+                        )
             api.logger.debug("published vrnetlab sources from topology %s", topology_path)
         except (
             VrnetlabError,

@@ -17,8 +17,12 @@ from engulf_clab_lab_parser import (
 )
 from engulf_clab_vrnetlab_build_api import (
     VRNETLAB_BUILD_CONTEXT,
+    VRNETLAB_SOURCE_PROVENANCE_CONTEXT,
     VrnetlabBuildAPI,
+    VrnetlabSourceProvenanceSnapshot,
     get_build_context,
+    publish_vrnetlab_source_provenance,
+    vrnetlab_source_provenance,
 )
 from engulf_docker_image_api import (
     IMAGE_PROVIDER_CONTEXT,
@@ -28,6 +32,7 @@ from engulf_docker_image_api import (
 )
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
+    CallMode,
     ExecutableWrapperPlugin,
     PreparationFailedEvent,
     PreparedCallEvent,
@@ -36,6 +41,7 @@ from engulf_executable_wrapper_api import (
 from .errors import VrnetlabError
 from .images import ensure_images
 from .logging import use_logger
+from .provenance import load_source_provenance, save_source_provenance
 from .provider import VRNETLAB_PROVIDER_ID, VrnetlabBuildProvider
 from .requests import build_requests_from_topology
 
@@ -54,9 +60,12 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
             TOPOLOGY_CONTEXT,
             VRNETLAB_BUILD_CONTEXT,
             IMAGE_PROVIDER_CONTEXT,
+            VRNETLAB_SOURCE_PROVENANCE_CONTEXT,
         }
     )
-    context_writes = frozenset({IMAGE_PROVIDER_CONTEXT})
+    context_writes = frozenset(
+        {IMAGE_PROVIDER_CONTEXT, VRNETLAB_SOURCE_PROVENANCE_CONTEXT}
+    )
 
     def __init__(self) -> None:
         self._provider = VrnetlabBuildProvider()
@@ -75,6 +84,7 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
                 priority=self.priority,
             ),
         )
+        publish_vrnetlab_source_provenance(api, load_source_provenance(api))
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
@@ -96,6 +106,9 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
             checkout_context = api.get_context(VRNETLAB_PATH_CONTEXT)
             self._provider.refresh_requests(requests, checkout_context=checkout_context)
             if not requests:
+                publish_vrnetlab_source_provenance(
+                    api, VrnetlabSourceProvenanceSnapshot()
+                )
                 return
 
             max_workers = (
@@ -104,13 +117,14 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
                 else build_api.max_workers
             )
             with use_logger(api.logger):
-                ensure_images(
+                provenance = ensure_images(
                     requests,
                     api=api,
                     checkout_context=checkout_context,
                     state_store=api.state(StateScope.USER),
                     max_workers=max_workers,
                 )
+            publish_vrnetlab_source_provenance(api, provenance)
         except (
             VrnetlabError,
             OSError,
@@ -131,8 +145,14 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
         self._provider.clear()
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
-        del event, api
-        self._provider.clear()
+        try:
+            if (
+                event.mode is not CallMode.HELP
+                and is_topology_mutation_command(event.wrapper_args)
+            ):
+                save_source_provenance(api, vrnetlab_source_provenance(api))
+        finally:
+            self._provider.clear()
 
 
 plugin = VrnetlabBuilderPlugin()

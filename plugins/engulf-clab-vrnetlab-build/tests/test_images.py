@@ -9,6 +9,8 @@ from tempfile import TemporaryDirectory
 from threading import Barrier, Lock
 from unittest.mock import MagicMock, Mock, call, patch
 
+from engulf_clab_vrnetlab_build_api import VrnetlabSourceProvenanceSnapshot
+
 from engulf_clab_vrnetlab_build.errors import VrnetlabError
 from engulf_clab_vrnetlab_build.images import build_native_image, ensure_images
 from engulf_clab_vrnetlab_build.requests import BuildRequest
@@ -165,7 +167,7 @@ class EnsureImagesTest(unittest.TestCase):
         self, image_exists: Mock, require_command: Mock
     ) -> None:
         request = BuildRequest("r1", "vrnetlab/router:1", "vendor/router", None)
-        with self.assertRaisesRegex(VrnetlabError, "no ECLAB_VRNETLAB_IMG_PATH"):
+        with self.assertRaisesRegex(VrnetlabError, "no vrnetlab provider source resolved"):
             ensure_images(
                 [request],
                 api=lease_api(),
@@ -191,7 +193,13 @@ class EnsureImagesTest(unittest.TestCase):
             (builder / "Makefile").touch()
             qcow2 = root / "router-v1.qcow2"
             qcow2.write_bytes(b"qcow")
-            request = BuildRequest("r1", "vrnetlab/router:1", "vendor/router", qcow2)
+            request = BuildRequest(
+                "r1",
+                "vrnetlab/router:1",
+                "vendor/router",
+                qcow2,
+                source_provider_id="org.example.images.static",
+            )
             expected = BuildFingerprint(
                 qcow2="e60e82356bd75d39a38c0cfd1414f5eddfe226b2ce77d0b3d699619b06e9a90b",
                 qcow2_name="router-v1.qcow2",
@@ -202,7 +210,7 @@ class EnsureImagesTest(unittest.TestCase):
             save_state(store, {request.image: expected})
 
             api = lease_api()
-            ensure_images(
+            provenance = ensure_images(
                 [request],
                 api=api,
                 checkout_context=root,
@@ -210,6 +218,14 @@ class EnsureImagesTest(unittest.TestCase):
             )
 
         build.assert_not_called()
+        self.assertIsInstance(provenance, VrnetlabSourceProvenanceSnapshot)
+        self.assertEqual(len(provenance.sources), 1)
+        source = provenance.sources[0]
+        self.assertEqual(source.node_name, "r1")
+        self.assertEqual(source.builder_type, "vendor/router")
+        self.assertEqual(source.source_provider_id, "org.example.images.static")
+        self.assertEqual(source.source_sha256, expected.qcow2)
+        self.assertFalse(hasattr(source, "image"))
         api.leases.assert_called_once_with(
             ("docker-image:vrnetlab/router:1", f"vrnetlab-builder:{builder.resolve()}")
         )

@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engulf_api import InvocationAPI, StateStore
+from engulf_clab_vrnetlab_build_api import (
+    VrnetlabSourceProvenance,
+    VrnetlabSourceProvenanceSnapshot,
+)
 
 from .errors import VrnetlabError
 from .logging import info
@@ -312,9 +316,9 @@ def ensure_images(
     checkout_context: object | None,
     state_store: StateStore,
     max_workers: int = 2,
-) -> None:
+) -> VrnetlabSourceProvenanceSnapshot:
     if not requests:
-        return
+        return VrnetlabSourceProvenanceSnapshot()
 
     _require_command("docker")
     source_requests = [request for request in requests if request.source is not None]
@@ -329,7 +333,7 @@ def ensure_images(
             info(f"using existing image {image}; no source configured")
 
     if not source_requests:
-        return
+        return VrnetlabSourceProvenanceSnapshot()
 
     _require_command("make")
     root = vrnetlab_root(checkout_context)
@@ -413,3 +417,14 @@ def ensure_images(
                 info(f"recorded build fingerprint for {image}")
         if failures:
             raise VrnetlabError("vrnetlab image builds failed: " + "; ".join(failures))
+
+        records = tuple(
+            VrnetlabSourceProvenance(
+                node_name=request.node_name,
+                builder_type=request.builder_type,
+                source_provider_id=request.source_provider_id,
+                source_sha256=prepared_by_image[request.image].fingerprint.qcow2,
+            )
+            for request in source_requests
+        )
+        return VrnetlabSourceProvenanceSnapshot(records)

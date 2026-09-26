@@ -7,7 +7,12 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock
 
 from engulf_api import InvocationAPI, RegistrationAPI
-from engulf_clab_lab_parser import TOPOLOGY_CONTEXT, TopologySession
+from engulf_clab_lab_parser import (
+    TOPOLOGY_CONTEXT,
+    TopologyError,
+    TopologySession,
+    load_topology,
+)
 from engulf_clab_vrnetlab_build_api import VRNETLAB_BUILD_CONTEXT, VrnetlabBuildContext
 from engulf_executable_wrapper_api import (
     ArgumentRegistry,
@@ -18,8 +23,6 @@ from engulf_executable_wrapper_api import (
     Shell,
 )
 
-from engulf_clab_vrnetlab_static_image_provider.config import load_topology
-from engulf_clab_vrnetlab_static_image_provider.errors import VrnetlabError
 from engulf_clab_vrnetlab_static_image_provider.options import IMAGE_OPTION
 from engulf_clab_vrnetlab_static_image_provider.plugin import VrnetlabPlugin
 
@@ -124,7 +127,7 @@ class StaticImageProviderPluginTest(unittest.TestCase):
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"
             topology.write_text("topology: [\n", encoding="utf-8")
-            with self.assertRaises(VrnetlabError):
+            with self.assertRaises(TopologyError):
                 load_topology(topology)
 
     def test_analyze_removes_all_image_selector_arguments(self) -> None:

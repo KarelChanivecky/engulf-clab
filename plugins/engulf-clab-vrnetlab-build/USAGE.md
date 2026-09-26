@@ -4,9 +4,9 @@ Install `engulf-clab-vrnetlab-build` with at least one source provider. Its
 plugin ID is `engulf_clab.vrnetlab_build`. The package provides the one shared
 builder and Docker image recipe adapter; it has no source-selection flags or
 provider-specific YAML controls. Source providers publish absolute input paths
-through `engulf-clab-vrnetlab-build-api`; this builder resolves the opted-in
-nodes, stages source files safely, runs the selected vrnetlab Makefile, and
-offers the resulting tag to the Docker image build graph.
+and their plugin IDs through `engulf-clab-vrnetlab-build-api`. This builder
+resolves the opted-in nodes, stages source files safely, runs the selected
+vrnetlab Makefile, and offers the resulting tag to the Docker image build graph.
 
 Nodes that fall back to the API's `default` source must all use the same
 `ECLAB_VRNETLAB_TYPE`. `fortinet/fortigate` and `fortinet/fortiproxy` nodes
@@ -26,5 +26,9 @@ built images or build fingerprints.
 
 For local source syntax, install `engulf-clab-vrnetlab-static-image-provider`
 and read its `USAGE.md`. Other providers may create or download sources and
-publish their paths through the same API. Dynamic `eclab --help` and the plugin
-list show which providers are installed for the selected edition.
+publish their paths and plugin IDs through the same API. The builder publishes
+per-node source-provider IDs, builder types, and qcow2 SHA-256 values in
+`VRNETLAB_SOURCE_PROVENANCE_CONTEXT`; it persists no source paths. The Docker
+image-build adapter separately records which Docker provider resolved each
+image. Dynamic `eclab --help` and the plugin list show which providers are
+installed for the selected edition.

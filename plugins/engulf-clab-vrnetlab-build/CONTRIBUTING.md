@@ -6,7 +6,7 @@ source fields, CLI completion, or user-facing source-selection help. Those
 contracts belong to independently installable providers.
 
 The builder reads parser `EffectiveNode` snapshots for standard image values
-and `ECLAB_VRNETLAB_TYPE`, then reads source paths from
+and `ECLAB_VRNETLAB_TYPE`, then reads source paths and source-provider IDs from
 `engulf-clab-vrnetlab-build-api`. Keep provider selection out of this package.
 The source context is invocation scoped; never retain it or an `InvocationAPI`
 on the singleton plugin object. Only the Docker recipe request map is held on
@@ -28,3 +28,10 @@ Build work may parallelize across builder directories, but work sharing a
 directory remains serial. Acquire all image and builder leases in the callback
 thread before starting workers. Keep managed state reads and writes serialized,
 and restore temporary builder and Docker context artifacts on every exit path.
+After successful source-backed builds, publish a
+`VrnetlabSourceProvenanceSnapshot` with one record per selected node, source
+provider, and input fingerprint. Keep local paths out of this snapshot. The
+vrnetlab builder owns hydration and persistence of this registry; the Docker
+image-build adapter persists only Docker image provider resolution. Publish the
+vrnetlab snapshot with its API helper so it remains optional when no consumer is
+installed.

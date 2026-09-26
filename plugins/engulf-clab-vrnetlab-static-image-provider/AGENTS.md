@@ -19,7 +19,8 @@ qcow2 files, invoke Make or Docker, or register a Docker image recipe.
   precedence rule, and completion provider in this package.
 - Resolve relative sources against the selected topology directory and publish
   only absolute paths through a `VrnetlabBuildAPI` constructed with the
-  invocation context. Omit its node argument only for one common fallback
+  invocation context, attaching this plugin's globally unique ID as
+  `source_provider_id`. Omit its node argument only for one common fallback
   source whose fallback users all share one `ECLAB_VRNETLAB_TYPE`; the API
   defaults that argument to `default`.
 - Do not write the same API node key twice. Conflicts from this or another

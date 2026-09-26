@@ -134,8 +134,12 @@ The type must be a safe relative `vendor/type` directory containing a
 are not extracted wholesale: the shared builder streams only the single qcow2
 member, retaining its basename for builder tag logic.
 
-During preparation, this provider resolves and publishes source paths and the
-validated job limit. The single shared builder runs next, pairs those paths
+During preparation, this provider resolves and publishes source paths, its
+plugin ID as their provenance, and the validated job limit. The shared builder
+runs next and records source-provider attribution in the separate vrnetlab
+source-provenance registry. Docker image provenance records the Docker provider
+that resolves the image, independently of this source selection. The builder
+pairs those paths
 with opted-in node images and builder types, and constructs missing images. It
 also registers one `VrnetlabBuildRecipe` adapter with the image-build graph so
 any tag still missing at graph resolution can be built from the same request.

@@ -16,6 +16,12 @@ topology session.
   `ECLAB_VRNETLAB_TYPE`; exact-node source paths may use distinct types.
 - Preserve safe qcow2 staging, tag restoration, state fingerprinting, leases,
   per-builder serialization, and invocation-map cleanup.
+- Carry source-provider IDs and staged qcow2 fingerprints into the separate
+  `VRNETLAB_SOURCE_PROVENANCE_CONTEXT`, keyed by topology node; never put source
+  attribution into Docker image provider provenance.
+- Hydrate this registry on every call and persist successful deploy/redeploy
+  snapshots in workspace state without local source paths. Publish through the
+  API helper so the context remains optional when no consumer is installed.
 - Keep reads of `ECLAB_VRNETLAB_TYPE` internal to selecting the vrnetlab
   builder directory; user-facing syntax remains declared by providers.
 - Do not declare source flags, environment aliases, node controls, completion,

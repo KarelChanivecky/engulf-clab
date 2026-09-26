@@ -21,6 +21,7 @@ class BuildRequest:
     image: str
     builder_type: str
     source: Path | None
+    source_provider_id: str | None = None
 
 
 def resolve_image_expression(value: str, environ: Mapping[str, str]) -> str:
@@ -77,6 +78,11 @@ def build_requests_from_topology(
                 image=image,
                 builder_type=builder_type.strip(),
                 source=None if build_api is None else build_api.source_for(node.name),
+                source_provider_id=(
+                    None
+                    if build_api is None
+                    else build_api.source_provenance_for(node.name)
+                ),
             )
         )
 

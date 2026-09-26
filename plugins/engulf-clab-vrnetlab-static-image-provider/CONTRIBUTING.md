@@ -10,7 +10,8 @@ build execution in `engulf-clab-vrnetlab-build`.
   defaults, kinds, and groups are already resolved. Do not reimplement
   inheritance by reading raw YAML node maps.
 - `engulf-clab-vrnetlab-build-api` owns the shared invocation context. Resolve
-  each selected path to an absolute `Path`, then publish it with the API. The
+  each selected path to an absolute `Path`, then publish it with the API and
+  `source_provider_id=PLUGIN_ID`. The
   omitted node name means `default`; exact node sources take precedence over
   that fallback in the builder.
 - The shared builder is a required plugin dependency and must run after every

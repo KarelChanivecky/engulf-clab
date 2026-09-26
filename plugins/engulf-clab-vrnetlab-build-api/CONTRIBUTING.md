@@ -11,7 +11,10 @@ object for all reads and writes. Each source key, including `default`, can be
 set once by default. `set_image_source(..., override=True)` deliberately
 replaces the existing value for that key; callers must use it only when their
 documented source precedence authorizes that replacement. `source_for(node)`
-applies exact-node then default fallback, and `sources()` returns an immutable
+applies exact-node then default fallback, and `source_provenance_for(node)`
+returns the matching `source_provider_id` using the same rule. Publish the
+globally unique source-provider plugin ID with each source; an override without
+an ID clears the previous attribution. `sources()` returns an immutable path
 snapshot. `unprovisioned_nodes(names)` filters caller-supplied candidate names
 using the same exact-node/default coverage rule. It reports missing source
 declarations, not Docker build status. `uses_default_source(node)` reports
@@ -25,6 +28,9 @@ objects inside it. Keep values transportable: absolute `Path` values, node
 names, and a positive integer job count only.
 
 Do not import `engulf`; this public API depends only on `engulf-api`. Keep
-context IDs globally unique and stable across releases. Providers should
-declare the builder plugin as a packaging dependency and order themselves ahead
-of it in preprocessing so all paths are present before it runs.
+context IDs globally unique and stable across releases. Do not store or persist
+local source paths outside the invocation context. The builder publishes
+vrnetlab source attribution by node in its own registry; Docker image provider
+resolution is tracked independently by `engulf-docker-image-api`. Providers
+should declare the builder plugin as a packaging dependency and order themselves
+ahead of it in preprocessing so all paths are present before it runs.

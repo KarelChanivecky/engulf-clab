@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-vrnetlab-build"
-version = "0.1.4"
+version = "0.1.6"
 description = "Shared vrnetlab image builder for independent eclab source providers"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,12 +12,12 @@ license = "MIT"
 dependencies = [
     "engulf-api>=1.0,<2",
     "engulf-executable-wrapper-api>=1.0,<2",
-    "engulf-clab-vrnetlab-build-api>=0.1.0,<1",
+    "engulf-clab-vrnetlab-build-api>=0.3.0,<1",
     "engulf-clab-ensure-vrnetlab>=0.1.0,<1",
     "engulf-clab-lab-parser>=0.2.0,<1",
     "engulf-clab-lab-writer>=0.1.0,<1",
-    "engulf-clab-image-build>=0.1.0,<1",
-    "engulf-docker-image-api>=1.0.0,<2",
+    "engulf-clab-image-build>=0.1.4,<1",
+    "engulf-docker-image-api>=1.1.0,<2",
 ]
 
 [project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]

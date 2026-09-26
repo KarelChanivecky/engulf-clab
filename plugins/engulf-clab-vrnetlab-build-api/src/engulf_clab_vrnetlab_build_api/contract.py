@@ -1,14 +1,70 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from types import MappingProxyType
 
-from engulf_api import InvocationAPI
+from engulf_api import InvocationAPI, validate_global_identifier
 
 VRNETLAB_BUILD_CONTEXT = "org.engulf.clab.vrnetlab-build.sources"
+VRNETLAB_SOURCE_PROVENANCE_CONTEXT = "org.engulf.clab.vrnetlab-build.source-provenance"
 DEFAULT_NODE_NAME = "default"
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class VrnetlabSourceProvenance:
+    """Source-provider attribution for one opted-in topology node."""
+
+    node_name: str
+    builder_type: str
+    source_provider_id: str | None
+    source_sha256: str
+
+    def __post_init__(self) -> None:
+        _validate_node_name(self.node_name)
+        if (
+            not isinstance(self.builder_type, str)
+            or not self.builder_type.strip()
+            or "\0" in self.builder_type
+        ):
+            raise ValueError("vrnetlab provenance builder type must be nonempty and NUL-free")
+        if self.source_provider_id is not None:
+            validate_global_identifier(
+                self.source_provider_id, label="vrnetlab source provider ID"
+            )
+        if not isinstance(self.source_sha256, str) or not _SHA256.fullmatch(
+            self.source_sha256
+        ):
+            raise ValueError("vrnetlab source provenance must contain a lowercase SHA-256")
+
+
+@dataclass(frozen=True, slots=True)
+class VrnetlabSourceProvenanceSnapshot:
+    """Source-provider records for every vrnetlab node in a deployment."""
+
+    sources: tuple[VrnetlabSourceProvenance, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.sources) is not tuple or any(
+            not isinstance(item, VrnetlabSourceProvenance) for item in self.sources
+        ):
+            raise TypeError(
+                "vrnetlab sources must be a tuple of VrnetlabSourceProvenance values"
+            )
+        keys = tuple(item.node_name for item in self.sources)
+        if len(set(keys)) != len(keys):
+            raise ValueError("vrnetlab source provenance must have one record per node")
+
+    def source_for(self, node_name: str) -> VrnetlabSourceProvenance | None:
+        _validate_node_name(node_name)
+        for item in self.sources:
+            if item.node_name == node_name:
+                return item
+        return None
 
 
 class DuplicateImageSourceError(ValueError):
@@ -20,6 +76,7 @@ class VrnetlabBuildContext:
 
     def __init__(self) -> None:
         self._sources: dict[str, Path] = {}
+        self._source_provider_ids: dict[str, str] = {}
         self._max_workers: int | None = None
         self._lock = RLock()
 
@@ -28,12 +85,15 @@ class VrnetlabBuildContext:
         path: Path,
         node_name: str = DEFAULT_NODE_NAME,
         *,
+        source_provider_id: str | None = None,
         override: bool = False,
     ) -> None:
         """Publish a source, replacing an existing node only when requested."""
         _validate_node_name(node_name)
         if not isinstance(path, Path) or not path.is_absolute():
             raise ValueError("vrnetlab source path must be an absolute Path")
+        if source_provider_id is not None:
+            validate_global_identifier(source_provider_id, label="source_provider_id")
         if type(override) is not bool:
             raise TypeError("override must be a bool")
         with self._lock:
@@ -42,6 +102,10 @@ class VrnetlabBuildContext:
                     f"vrnetlab source for node {node_name!r} was already set"
                 )
             self._sources[node_name] = path
+            if source_provider_id is None:
+                self._source_provider_ids.pop(node_name, None)
+            else:
+                self._source_provider_ids[node_name] = source_provider_id
 
     def _unprovisioned_nodes(self, node_names: Iterable[str]) -> tuple[str, ...]:
         """Return candidates with neither an exact-node nor default source."""
@@ -70,6 +134,12 @@ class VrnetlabBuildContext:
                 DEFAULT_NODE_NAME in self._sources
                 and (node_name not in self._sources or node_name == DEFAULT_NODE_NAME)
             )
+
+    def _source_provenance_for(self, node_name: str) -> str | None:
+        with self._lock:
+            if node_name in self._sources:
+                return self._source_provider_ids.get(node_name)
+            return self._source_provider_ids.get(DEFAULT_NODE_NAME)
 
     def sources(self) -> Mapping[str, Path]:
         with self._lock:
@@ -104,10 +174,16 @@ class VrnetlabBuildAPI:
         path: Path,
         node_name: str = DEFAULT_NODE_NAME,
         *,
+        source_provider_id: str | None = None,
         override: bool = False,
     ) -> None:
-        """Publish a path; optionally replace an earlier source for this node."""
-        self._context._set_source(path, node_name, override=override)
+        """Publish a path and optional source-provider ID for one node."""
+        self._context._set_source(
+            path,
+            node_name,
+            source_provider_id=source_provider_id,
+            override=override,
+        )
 
     def unprovisioned_nodes(self, node_names: Iterable[str]) -> tuple[str, ...]:
         """Return candidate nodes with no exact-node or default source."""
@@ -116,6 +192,11 @@ class VrnetlabBuildAPI:
     def source_for(self, node_name: str) -> Path | None:
         """Return the exact-node source or the default source if present."""
         return self._context._source_for(node_name)
+
+    def source_provenance_for(self, node_name: str) -> str | None:
+        """Return the provider ID for the exact or default source declaration."""
+        _validate_node_name(node_name)
+        return self._context._source_provenance_for(node_name)
 
     def uses_default_source(self, node_name: str) -> bool:
         """Return whether source lookup for a node falls back to `default`."""
@@ -135,6 +216,30 @@ class VrnetlabBuildAPI:
         return self._context.max_workers
 
 
+def vrnetlab_source_provenance(
+    api: InvocationAPI,
+) -> VrnetlabSourceProvenanceSnapshot:
+    value = api.get_context(
+        VRNETLAB_SOURCE_PROVENANCE_CONTEXT, VrnetlabSourceProvenanceSnapshot()
+    )
+    if not isinstance(value, VrnetlabSourceProvenanceSnapshot):
+        raise TypeError("invalid vrnetlab source provenance context")
+    return value
+
+
+def publish_vrnetlab_source_provenance(
+    api: InvocationAPI,
+    snapshot: VrnetlabSourceProvenanceSnapshot,
+) -> None:
+    if not isinstance(snapshot, VrnetlabSourceProvenanceSnapshot):
+        raise TypeError("snapshot must be a VrnetlabSourceProvenanceSnapshot")
+    api.set_context(
+        VRNETLAB_SOURCE_PROVENANCE_CONTEXT,
+        snapshot,
+        allow_unused=True,
+    )
+
+
 def get_build_context(
     api: InvocationAPI,
     *,
@@ -148,7 +253,7 @@ def get_build_context(
         value = VrnetlabBuildContext()
         api.set_context(VRNETLAB_BUILD_CONTEXT, value)
     if not isinstance(value, VrnetlabBuildContext):
-        raise RuntimeError(f"invalid vrnetlab build context {VRNETLAB_BUILD_CONTEXT}")
+        raise TypeError(f"invalid vrnetlab build context {VRNETLAB_BUILD_CONTEXT}")
     return value
 
 

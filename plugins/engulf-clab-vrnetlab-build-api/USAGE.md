@@ -2,8 +2,8 @@
 
 Install `engulf-clab-vrnetlab-build-api` when authoring a vrnetlab source
 provider. The package defines a shared invocation context containing a node to
-source-path map and the builder concurrency limit. It does not select paths,
-inspect topology YAML, or build images.
+source-path/provider-ID map and the builder concurrency limit. It does not
+select paths, inspect topology YAML, or build images.
 
 Declare `VRNETLAB_BUILD_CONTEXT` in both `context_reads` and `context_writes`
 for a provider that adds sources. The context is invocation scoped and is
@@ -20,10 +20,17 @@ from engulf_clab_vrnetlab_build_api import (
 context = get_build_context(api, create=True)
 assert isinstance(context, VrnetlabBuildContext)
 build_api = VrnetlabBuildAPI(context)
-build_api.set_image_source(Path("/var/tmp/router.qcow2"), "router-1")
+build_api.set_image_source(
+    Path("/var/tmp/router.qcow2"),
+    "router-1",
+    source_provider_id="org.engulf.clab.router_source",
+)
 pending = build_api.unprovisioned_nodes(("router-1", "router-2"))
 # pending == ("router-2",)
-build_api.set_image_source(Path("/var/tmp/shared.qcow2"))
+build_api.set_image_source(
+    Path("/var/tmp/shared.qcow2"),
+    source_provider_id="org.engulf.clab.shared_source",
+)
 # A default source covers router-2 as well.
 pending = build_api.unprovisioned_nodes(("router-1", "router-2"))
 # pending == ()
@@ -31,10 +38,26 @@ pending = build_api.unprovisioned_nodes(("router-1", "router-2"))
 build_api.set_image_source(
     Path("/var/tmp/generated-router.qcow2"),
     "router-1",
+    source_provider_id="org.engulf.clab.router_override",
     override=True,
 )
 build_api.set_build_jobs(2)
 ```
+
+`source_provider_id` is the globally unique plugin ID that selected or created
+the published input. Pass the same ID for every value from that provider. The
+shared builder records the selected source provider, node, builder type, and
+qcow2 SHA-256 in the separate vrnetlab source-provenance registry. It does not
+persist the local source path. Docker image provider provenance is a different
+registry and records the provider selected to resolve each Docker image.
+
+Read the restored or current source records with
+`vrnetlab_source_provenance(api)`. Declare
+`VRNETLAB_SOURCE_PROVENANCE_CONTEXT` in `context_reads` and order after
+`engulf_clab.vrnetlab_build`. A snapshot contains one selected source record per
+node for the latest successful deploy or redeploy; use
+`snapshot.source_for(node_name)` to retrieve a node's record. The context is
+optional and can remain unread.
 
 Construct `VrnetlabBuildAPI` with the invocation's shared
 `VrnetlabBuildContext`. Omitting the node name from `set_image_source()` stores
