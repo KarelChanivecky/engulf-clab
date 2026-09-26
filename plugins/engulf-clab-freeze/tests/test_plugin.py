@@ -18,6 +18,8 @@ from engulf_clab_schema_api import (
     SCHEMA_SOURCE_CONTEXT,
     SCHEMA_VRNETLAB_SOURCE_CONTEXT,
 )
+from engulf_clab_vrnetlab_build_api import VRNETLAB_SOURCE_PROVENANCE_CONTEXT
+from engulf_docker_image_api import DOCKER_IMAGE_PROVENANCE_CONTEXT
 
 
 class FreezePluginTest(unittest.TestCase):
@@ -30,9 +32,15 @@ class FreezePluginTest(unittest.TestCase):
 
         self.assertEqual(
             group,
-            {"engulf_clab.schema": "preprocess=after; postprocess=none"},
+            {
+                "engulf_clab.schema": "preprocess=after; postprocess=none",
+                "engulf_clab.image_build": "preprocess=before; postprocess=none",
+                "engulf_clab.vrnetlab_build": "preprocess=before; postprocess=none",
+            },
         )
         self.assertNotIn("plugin_dependencies", FreezePlugin.__dict__)
+        self.assertIn(DOCKER_IMAGE_PROVENANCE_CONTEXT, FreezePlugin.context_reads)
+        self.assertIn(VRNETLAB_SOURCE_PROVENANCE_CONTEXT, FreezePlugin.context_reads)
 
     def test_freeze_runs_before_the_wrapped_goal_and_returns_its_exit_code(
         self,

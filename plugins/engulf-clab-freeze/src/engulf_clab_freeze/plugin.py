@@ -18,6 +18,8 @@ from engulf_clab_schema_api import (
     ValueType,
     record_plugin_schema,
 )
+from engulf_clab_vrnetlab_build_api import VRNETLAB_SOURCE_PROVENANCE_CONTEXT
+from engulf_docker_image_api import DOCKER_IMAGE_PROVENANCE_CONTEXT
 from engulf_executable_wrapper_api import HelpAPI
 
 from .command import main as run_freeze_command
@@ -269,7 +271,12 @@ class FreezePlugin(SchemaBackedPlugin):
     schema = PLUGIN_SCHEMA
     priority = 200
     context_reads = SCHEMA_CONTEXTS | frozenset(
-        {SCHEMA_SOURCE_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}
+        {
+            SCHEMA_SOURCE_CONTEXT,
+            SCHEMA_VRNETLAB_SOURCE_CONTEXT,
+            DOCKER_IMAGE_PROVENANCE_CONTEXT,
+            VRNETLAB_SOURCE_PROVENANCE_CONTEXT,
+        }
     )
     context_writes = SCHEMA_CONTEXTS
 

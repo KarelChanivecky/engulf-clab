@@ -15,15 +15,18 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   from `PLUGIN_SCHEMA`. Thread the immutable invocation environment through
   provenance, source resolution, and offline bundling so normalized wrapper
   options survive before-goal preemption.
-- Declare the schema ordering edge only in
-  `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Do not
-  restore `plugin_dependencies` on the class; Engulf rejects code-declared
-  dependencies.
+- Declare schema, Docker image-build, and vrnetlab-build ordering edges only in
+  `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Run
+  both provenance hydrations before this plugin so Docker image provider and
+  vrnetlab source records are restored before freeze or defrost preempts the
+  normal goal. Do not restore `plugin_dependencies` on the class; Engulf rejects
+  code-declared dependencies.
 - Keep `freeze` and `defrost` as before-goal control commands that preempt
   Containerlab. Freeze acquires the workspace freeze lease; offline mode also
   leases the managed Containerlab and vrnetlab repositories. Defrost acquires
   only a lease on its destination, computed by `defrost.lease` without argparse
-  side effects, and reads no workspace state.
+  side effects. Image-build and vrnetlab-build separately hydrate their saved
+  provenance before either control command runs; defrost reads no freeze state.
 - Keep defrost the exact reverse of freeze and never a general archive
   extractor. Require the `x-engulf-clab-freeze` metadata and its supported
   format, remove that key from the restored topology, reject members escaping
