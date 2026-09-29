@@ -7,6 +7,7 @@ from .effective import (
 )
 from .plugin import TopologyPlugin
 from .session import (
+    RUNTIME_TOPOLOGY_CONTEXT,
     TOPOLOGY_CONTEXT,
     WRITER_TEMP_PREFIX,
     TopologyError,
@@ -21,6 +22,7 @@ from .session import (
 
 plugin = TopologyPlugin()
 __all__ = [
+    "RUNTIME_TOPOLOGY_CONTEXT",
     "TOPOLOGY_CONTEXT",
     "WRITER_TEMP_PREFIX",
     "EffectiveNode",

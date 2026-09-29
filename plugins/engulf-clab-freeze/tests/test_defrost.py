@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import ANY, patch
 
 import yaml
+
 from engulf_clab_freeze.defrost import (
     DefrostError,
     _environment_answers,
@@ -88,6 +89,11 @@ class DefrostCommandTestCase(unittest.TestCase):
             self.assertEqual(main(["--help"], program="fclab defrost"), 0)
         self.assertIn("usage: fclab defrost", output.getvalue())
 
+    def test_main_rejects_old_destination_flag(self) -> None:
+        with patch("engulf_clab_freeze.defrost.defrost") as expanded:
+            self.assertEqual(main(["share.tar.gz", "--eclab-into", "restored"]), 2)
+        expanded.assert_not_called()
+
     def test_main_defaults_the_destination_to_the_archive_name(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -127,19 +133,19 @@ class DefrostCommandTestCase(unittest.TestCase):
                     main(
                         [
                             "share.tgz",
-                            "--into",
+                            "--eclab-output",
                             "labs/demo",
-                            "--force",
-                            "--license",
+                            "--eclab-force",
+                            "--eclab-license",
                             "router=/pools/site",
-                            "--license",
+                            "--eclab-license",
                             "$FALLBACK",
-                            "--env",
+                            "--eclab-env",
                             "API_TOKEN=secret=value",
-                            "--no-runtime",
-                            "--no-images",
-                            "--load-images",
-                            "--skip-env-init",
+                            "--eclab-no-runtime",
+                            "--eclab-no-images",
+                            "--eclab-load-images",
+                            "--eclab-skip-env-init",
                         ],
                         cwd=base,
                     ),
@@ -907,14 +913,14 @@ class DefrostTestCase(unittest.TestCase):
         base = Path("/labs")
         self.assertEqual(lease(["share.tar.gz"], base), "eclab-defrost:/labs/share")
         self.assertEqual(
-            lease(["--into", "demo", "share.tar.gz"], base), "eclab-defrost:/labs/demo"
+            lease(["--eclab-output", "demo", "share.tar.gz"], base), "eclab-defrost:/labs/demo"
         )
         self.assertEqual(
-            lease(["--into=demo", "share.tar.gz"], base), "eclab-defrost:/labs/demo"
+            lease(["--eclab-output=demo", "share.tar.gz"], base), "eclab-defrost:/labs/demo"
         )
         # A flag value is never mistaken for the archive.
         self.assertEqual(
-            lease(["--license", "/pools/site", "share.tar.gz"], base),
+            lease(["--eclab-license", "/pools/site", "share.tar.gz"], base),
             "eclab-defrost:/labs/share",
         )
         self.assertEqual(lease(["--help"], base), "eclab-defrost:/labs")

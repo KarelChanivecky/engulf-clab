@@ -124,6 +124,11 @@ pipeline as `deploy`. `redeploy --all` and name-only redeploy remain under
 Containerlab's native handling because they do not identify one authoritative
 source topology.
 
+For a non-deploy call with a selected topology file, the parser also loads the
+file Containerlab will use and publishes it to plugins as a separate runtime
+session. This may be the retained deploy file or an explicitly selected file.
+Calls that do not select one file have no runtime session.
+
 YAML is loaded safely and must have a top-level mapping. Containerlab remains
 responsible for the base schema and semantic validation; each feature plugin
 validates the fields it consumes. Mutation conflicts are reported before the

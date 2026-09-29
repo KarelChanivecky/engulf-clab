@@ -31,6 +31,7 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PathBase,
     PluginSchema,
+    SchemaAudience,
     SchemaBackedPlugin,
     SchemaBuildRequest,
     ValueType,
@@ -50,7 +51,11 @@ ECLAB_INSTALL_COMMAND = "install-develop-eclab-lab-skill"
 ECLAB_SKILL_NAME = "develop-eclab-lab"
 
 PLUGIN_SCHEMA = (
-    PluginSchema(PLUGIN_ID, package="engulf_clab_develop_lab_skill")
+    PluginSchema(
+        PLUGIN_ID,
+        package="engulf_clab_develop_lab_skill",
+        audience=SchemaAudience.SUPPORT,
+    )
     .add_command(
         ECLAB_INSTALL_COMMAND,
         "Install or refresh the runtime-aware lab development skill.",
@@ -81,11 +86,6 @@ PLUGIN_SCHEMA = (
         LifecycleStage.BEFORE_GOAL,
         "The installer requests a build before the schema generator compiles the recorded registry.",
         before=("engulf_clab.schema",),
-    )
-    .route(
-        "install-generated-skill",
-        "USAGE.md",
-        "Read destination safety, atomic replacement, backups, and refresh triggers.",
     )
     .refer("USAGE.md", title="Generated skill installation guide")
 )

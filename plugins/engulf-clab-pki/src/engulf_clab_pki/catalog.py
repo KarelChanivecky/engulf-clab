@@ -183,7 +183,7 @@ def merge_catalogs(
             else str(unresolved)
         )
         raise CatalogError(
-            f"unresolved frozen PKI bindings: {names}; run defrost with --pki-authority BINDING=REF"
+            f"unresolved frozen PKI bindings: {names}; run defrost with --eclab-pki-authority BINDING=REF"
         )
     warnings: list[str] = []
     origins: dict[str, dict[str, Scope]] = {}

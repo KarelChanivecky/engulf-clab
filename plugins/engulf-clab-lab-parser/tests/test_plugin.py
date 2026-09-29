@@ -7,21 +7,120 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock
 
 from engulf_api import InvocationAPI
-from engulf_clab_lab_parser.plugin import TopologyPlugin
-from engulf_clab_lab_parser.session import (
-    TOPOLOGY_CONTEXT,
-    TopologySession,
-    derived_topology_path,
-    is_topology_mutation_command,
-)
 from engulf_executable_wrapper_api import (
     BeforeCallEvent,
     CallMode,
     PreparedCallEvent,
 )
 
+from engulf_clab_lab_parser.plugin import TopologyPlugin
+from engulf_clab_lab_parser.session import (
+    RUNTIME_TOPOLOGY_CONTEXT,
+    TOPOLOGY_CONTEXT,
+    TopologySession,
+    derived_topology_path,
+    is_topology_mutation_command,
+)
+
 
 class TopologyPluginTest(unittest.TestCase):
+    def test_non_deploy_reads_selected_runtime_topology(self) -> None:
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "lab.clab.yml"
+            source.write_text("name: source\ntopology: {}\n", encoding="utf-8")
+            retained = derived_topology_path(source)
+            retained.write_text("name: runtime\ntopology: {}\n", encoding="utf-8")
+            api = Mock(spec=InvocationAPI)
+
+            TopologyPlugin().prepare_call(
+                PreparedCallEvent(
+                    "containerlab",
+                    ("inspect", "-t", str(source)),
+                    ("inspect", "-t", str(retained)),
+                    CallMode.NORMAL,
+                ),
+                api,
+            )
+
+        api.set_context.assert_called_once()
+        key, session = api.set_context.call_args.args
+        self.assertEqual(key, RUNTIME_TOPOLOGY_CONTEXT)
+        self.assertEqual(session.path, retained)
+        self.assertEqual(session.original_document()["name"], "runtime")
+
+    def test_analyze_publishes_runtime_session_for_a_reader_command(self) -> None:
+        # Readers preempt in their own analyze (prepare is skipped on
+        # preemption), so the runtime session must be published during
+        # analysis — from the raw arguments, since routing edits have not
+        # been merged yet.
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "lab.clab.yml"
+            source.write_text("name: source\ntopology: {}\n", encoding="utf-8")
+            api = Mock(spec=InvocationAPI)
+
+            TopologyPlugin().analyze_call(
+                BeforeCallEvent(
+                    "containerlab",
+                    ("get-crashlog", "-t", str(source)),
+                    CallMode.NORMAL,
+                ),
+                api,
+            )
+
+        key, session = api.set_context.call_args.args
+        self.assertEqual(key, RUNTIME_TOPOLOGY_CONTEXT)
+        self.assertEqual(session.path, source)
+        self.assertEqual(session.original_document()["name"], "source")
+
+    def test_analyze_routes_lab_commands_to_the_retained_file(self) -> None:
+        with (
+            TemporaryDirectory() as directory,
+            chdir(directory),
+        ):
+            source = Path(directory) / "lab.clab.yml"
+            source.write_text("name: source\ntopology: {}\n", encoding="utf-8")
+            retained = derived_topology_path(source)
+            retained.write_text("name: runtime\ntopology: {}\n", encoding="utf-8")
+            api = Mock(spec=InvocationAPI)
+
+            TopologyPlugin().analyze_call(
+                BeforeCallEvent("containerlab", ("inspect",), CallMode.NORMAL),
+                api,
+            )
+
+        key, session = api.set_context.call_args.args
+        self.assertEqual(key, RUNTIME_TOPOLOGY_CONTEXT)
+        self.assertEqual(session.path, retained)
+        self.assertEqual(session.original_document()["name"], "runtime")
+
+    def test_analyze_without_selected_file_publishes_nothing(self) -> None:
+        api = Mock(spec=InvocationAPI)
+        for args in (("inspect", "--name", "lab"), ("exec", "--cmd", "true")):
+            TopologyPlugin().analyze_call(
+                BeforeCallEvent("containerlab", args, CallMode.NORMAL), api
+            )
+        api.set_context.assert_not_called()
+
+    def test_analyze_ignores_an_unreadable_runtime_file(self) -> None:
+        api = Mock(spec=InvocationAPI)
+        TopologyPlugin().analyze_call(
+            BeforeCallEvent(
+                "containerlab",
+                ("get-crashlog", "-t", "missing.clab.yml"),
+                CallMode.NORMAL,
+            ),
+            api,
+        )
+        api.set_context.assert_not_called()
+
+    def test_non_deploy_without_selected_file_has_no_context(self) -> None:
+        api = Mock(spec=InvocationAPI)
+        for args in (("inspect", "--name", "lab"), ("exec", "--cmd", "true")):
+            TopologyPlugin().prepare_call(
+                PreparedCallEvent("containerlab", args, args, CallMode.NORMAL), api
+            )
+        api.set_context.assert_not_called()
+
     def test_single_source_redeploy_uses_topology_pipeline(self) -> None:
         with TemporaryDirectory() as directory:
             topology = Path(directory) / "lab.clab.yml"

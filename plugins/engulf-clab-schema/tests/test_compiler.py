@@ -14,6 +14,7 @@ from engulf_clab_schema_api import (
     PluginOrdering,
     RecordedPluginSchema,
     ReferenceSnapshot,
+    SchemaAudience,
     SchemaContribution,
     SchemaDeclarationFailure,
     SchemaScope,
@@ -329,3 +330,57 @@ def test_plugin_node_kind_must_exist_in_selected_containerlab_source() -> None:
     )
     with pytest.raises(SchemaCompilationError, match="selected Containerlab"):
         compile_schema_bundle(APPLICATION, _base(), (provider,), node_kinds)
+
+
+def _support_provider() -> RecordedPluginSchema:
+    reference = b"support details"
+    return RecordedPluginSchema(
+        "example.support",
+        "example_support",
+        "example-support",
+        "0.1.0",
+        (
+            OptionDeclaration(
+                OptionKind.RUNTIME_VAR,
+                "EXAMPLE_SUPPORT",
+                "Tune the support provider.",
+                value_mode=ValueMode.TYPE,
+                values=(ValueType.STRING.value,),
+            ),
+        ),
+        ("Serve other plugins.",),
+        (),
+        (ReferenceSnapshot("USAGE.md", None, reference, hashlib.sha256(reference).hexdigest()),),
+        audience=SchemaAudience.SUPPORT,
+    )
+
+
+def test_support_providers_are_hidden_from_agent_discovery() -> None:
+    visible = compile_schema_bundle(APPLICATION, _base(), (_provider(),))
+    bundle = compile_schema_bundle(APPLICATION, _base(), (_provider(), _support_provider()))
+
+    assert bundle.fingerprint != visible.fingerprint
+    assert bundle.catalog_markdown == visible.catalog_markdown.replace(
+        visible.fingerprint.encode(), bundle.fingerprint.encode()
+    )
+    assert {item.plugin_id for item in bundle.plugin_schemas} == {"example.plugin"}
+    assert {item.plugin_id for item in bundle.references} == {"example.plugin"}
+    catalog = json.loads(bundle.catalog_json)
+    assert [item["plugin_id"] for item in catalog["providers"]] == ["example.plugin"]
+    manifest = json.loads(bundle.manifest)
+    assert [item["plugin_id"] for item in manifest["plugins"]] == ["example.plugin"]
+    assert manifest["support_plugins"] == [
+        {
+            "plugin_id": "example.support",
+            "distribution": "example-support",
+            "distribution_version": "0.1.0",
+            "pipeline_id": "eclab",
+        }
+    ]
+    assert b"example.support" not in bundle.topology_schema
+
+
+def test_support_provider_with_authoring_controls_is_rejected() -> None:
+    provider = replace(_provider(), audience=SchemaAudience.SUPPORT)
+    with pytest.raises(SchemaCompilationError, match="lab-authoring controls"):
+        compile_schema_bundle(APPLICATION, _base(), (provider,))

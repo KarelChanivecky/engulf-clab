@@ -117,10 +117,10 @@ def _git(checkout: Path, *args: str) -> str:
 
 def _is_git_checkout(checkout: Path) -> bool:
     result = subprocess.run(
-        ["git", "-C", str(checkout), "rev-parse", "--is-inside-work-tree"],
+        ["git", "-C", str(checkout), "rev-parse", "--show-toplevel"],
         check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
-    return result.returncode == 0 and result.stdout.strip() == "true"
+    return result.returncode == 0 and Path(result.stdout.strip()).resolve() == checkout.resolve()
 
 
 def _current_branch(checkout: Path) -> str | None:

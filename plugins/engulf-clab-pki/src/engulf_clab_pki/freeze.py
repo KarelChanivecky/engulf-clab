@@ -28,29 +28,33 @@ class PkiFreezeContributor:
 
     def add_freeze_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--include-pki-secrets",
+            "--eclab-include-pki-secrets",
+            dest="include_pki_secrets",
             action="store_true",
             help="include exportable PKI identities in an encrypted bundle",
         )
         parser.add_argument(
-            "--pki-passphrase-file",
+            "--eclab-pki-passphrase-file",
+            dest="pki_passphrase_file",
             metavar="FILE",
             help="read the PKI bundle passphrase from an owner-private file",
         )
 
     def add_defrost_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--pki-authority",
+            "--eclab-pki-authority",
+            dest="pki_authority",
             action="append",
             metavar="BINDING=REF",
             help="resolve one frozen external authority binding",
         )
         parser.add_argument(
-            "--no-pki-prompt",
+            "--eclab-no-pki-prompt",
+            dest="no_pki_prompt",
             action="store_true",
             help="leave unresolved PKI bindings as actionable manifest markers",
         )
-        parser.add_argument("--pki-passphrase-file", metavar="FILE")
+        parser.add_argument("--eclab-pki-passphrase-file", dest="pki_passphrase_file", metavar="FILE")
 
     def freeze(self, context: FreezeContext) -> dict[str, Any] | None:
         document = _document(context.staged_topology)
@@ -611,7 +615,7 @@ def _passphrase(filename: str | None, prompt: str) -> bytes:
         value = getpass.getpass(prompt).encode()
     else:
         raise FreezeError(
-            "PKI identity preservation requires --pki-passphrase-file or an interactive terminal"
+            "PKI identity preservation requires --eclab-pki-passphrase-file or an interactive terminal"
         )
     if not value:
         raise FreezeError("PKI passphrase must not be empty")
@@ -823,7 +827,7 @@ def _binding_answers(values: list[str]) -> dict[str, str]:
     for value in values:
         name, separator, reference = value.partition("=")
         if not separator or not name or not reference:
-            raise FreezeError("--pki-authority requires BINDING=REF")
+            raise FreezeError("--eclab-pki-authority requires BINDING=REF")
         result[name] = reference
     return result
 

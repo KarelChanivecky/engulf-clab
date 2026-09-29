@@ -82,7 +82,7 @@ successful `destroy`. A failure before the process starts unwinds immediately. S
 requests without generating keys.
 
 Freeze vendors the v2 manifest. Ordinary archives contain no private material. Optional
-`--include-pki-secrets --pki-passphrase-file FILE` encrypts only declarations explicitly marked
+`--eclab-include-pki-secrets --eclab-pki-passphrase-file FILE` encrypts only declarations explicitly marked
 `freeze.exportable`; defrost verifies fingerprints and restores canonical declaration identities.
 Exported user authorities become local identities in the recipient. Their explicit
 trust and private-authority requests are rebased with them, so restoring the

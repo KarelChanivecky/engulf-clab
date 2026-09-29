@@ -21,6 +21,7 @@ from engulf_executable_wrapper_api import (
 )
 
 from .session import (
+    RUNTIME_TOPOLOGY_CONTEXT,
     TOPOLOGY_CONTEXT,
     WRITER_TEMP_PREFIX,
     TopologyError,
@@ -43,7 +44,7 @@ class TopologyPlugin(ExecutableWrapperPlugin):
     plugin_id = "engulf_clab.lab_parser"
     priority = 100
     context_reads = SCHEMA_CONTEXTS
-    context_writes = frozenset({TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
+    context_writes = frozenset({TOPOLOGY_CONTEXT, RUNTIME_TOPOLOGY_CONTEXT}) | SCHEMA_CONTEXTS
 
     def before_goal(
         self, invocation: Invocation, api: BeforeGoalAPI
@@ -62,8 +63,17 @@ class TopologyPlugin(ExecutableWrapperPlugin):
                 event.wrapper_args, event.environment
             )
         if event.wrapper_args[0] in _LAB_COMMANDS:
-            return _lab_topology_contribution(event.wrapper_args)
+            return _lab_topology_contribution(
+                event.wrapper_args, api, event.environment
+            )
         if not is_topology_mutation_command(event.wrapper_args):
+            # A non-mutation call that selects one topology publishes its
+            # runtime session here rather than in prepare_call: preemption
+            # skips preparation, and the readers that consume this session
+            # (get-crashlog, get-coverage) preempt in their own analyze. An
+            # unreadable file is not this command's error — degrade to no
+            # session. Invocation-scoped, so no host state is touched.
+            _publish_runtime_session(event.wrapper_args, event.environment, api)
             return None
         try:
             load_topology(
@@ -76,16 +86,49 @@ class TopologyPlugin(ExecutableWrapperPlugin):
         return None
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
-        if not is_topology_mutation_command(event.wrapper_args):
+        if event.mode is CallMode.HELP or not event.wrapper_args:
             return
-        path = topology_path_from_args(tuple(event.wrapper_args[1:]))
-        api.set_context(
-            TOPOLOGY_CONTEXT,
-            TopologySession(path, load_topology(path, event.environment)),
-        )
+        if is_topology_mutation_command(event.wrapper_args):
+            path = topology_path_from_args(tuple(event.wrapper_args[1:]))
+            api.set_context(
+                TOPOLOGY_CONTEXT,
+                TopologySession(path, load_topology(path, event.environment)),
+            )
+            return
+
+        # Effective args include the retained topology selected during analysis.
+        # Analysis already published this session from the raw arguments unless
+        # routing added one; a call with no topology option identifies no
+        # runtime file. Republish from the effective args so the routing edit
+        # (an added -t) is visible to executing consumers.
+        _publish_runtime_session(event.effective_args, event.environment, api)
 
 
-def _lab_topology_contribution(args: tuple[str, ...]) -> CallContribution | None:
+def _publish_runtime_session(
+    args: tuple[str, ...], environment: Mapping[str, str], api: InvocationAPI
+) -> None:
+    """Publish the runtime session for a non-mutation call with one topology.
+
+    The first argument is the command name and is not scanned. An unreadable
+    or missing file raises nothing here: a failing execute is the goal's own
+    diagnostic, and analysis must stay side-effect free.
+    """
+    rest = tuple(args[1:])
+    if not _has_option(rest, ("-t", "--topo", "--topology")):
+        return
+    try:
+        path = topology_path_from_args(rest)
+        session = TopologySession(path, load_topology(path, environment))
+    except (TopologyError, OSError):
+        return
+    api.set_context(RUNTIME_TOPOLOGY_CONTEXT, session, allow_unused=True)
+
+
+def _lab_topology_contribution(
+    args: tuple[str, ...],
+    api: InvocationAPI,
+    environment: Mapping[str, str] | None = None,
+) -> CallContribution | None:
     """Name the deployed topology for a command that otherwise globs for one.
 
     Containerlab searches the working directory when -t is absent, and the
@@ -108,6 +151,10 @@ def _lab_topology_contribution(args: tuple[str, ...]) -> CallContribution | None
         return None
     retained = derived_topology_path(topology)
     target = retained if retained.is_file() else topology
+    # The session carries the file the containers are labelled with — the
+    # routed target, not the operator's source spelling.
+    if environment is not None:
+        _publish_runtime_session((args[0], "-t", str(target)), environment, api)
     explicit = _has_option(rest, ("-t", "--topo", "--topology"))
     if explicit and target == topology:
         return None

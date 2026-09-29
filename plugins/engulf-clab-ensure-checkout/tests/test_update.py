@@ -42,6 +42,19 @@ def git(path: Path, *args: str) -> str:
 
 
 class CheckoutUpdateTest(unittest.TestCase):
+    def test_nested_directory_does_not_use_parent_git_checkout(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            git(root, "init")
+            bundled = root / "bundle" / "vrnetlab"
+            bundled.mkdir(parents=True)
+            (bundled / "vrnetlab.py").write_text("frozen", encoding="utf-8")
+            self.assertFalse(update_checkout(
+                FilesystemState(root / "state"), bundled,
+                {"FIXTURE_VERSION": "frozen-revision"},
+                config=CONFIG, info=lambda _message: None,
+            ))
+
     def test_non_git_directory_is_ignored(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

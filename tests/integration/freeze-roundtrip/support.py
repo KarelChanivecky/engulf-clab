@@ -21,7 +21,7 @@ class CheckFailed(RuntimeError):
 DIAGNOSTICS = {
     "removed-lean": r"unrecognized arguments: --lean",
     "mode-conflict": r"not allowed with argument|cannot.*(?:offline|runtime)|incompatible",
-    "image-conflict": r"requires --offline|external-image.*offline",
+    "image-conflict": r"requires --eclab-offline|eclab-external-image.*offline",
     "missing-image": r"(?:image|archive|input).*(?:missing|unavailable|not found|does not exist|could not|cannot)|(?:missing|unavailable).*(?:image|input)",
     "bad-passphrase": r"PKI identity bundle authentication failed",
     "missing-binding": r"unresolved frozen PKI bindings",

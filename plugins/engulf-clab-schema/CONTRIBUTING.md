@@ -1,5 +1,8 @@
 # Runtime schema generator development notes
 
+- Keep `PLUGIN_SCHEMA` at `audience=SchemaAudience.SUPPORT`: this plugin serves
+  other plugins, so the generated lab skill omits it. Do not add topology
+  controls, task routes, or node kinds to that declaration.
 - Derive from `SchemaBackedPlugin`. Keep the local-schema wrapper flag bound to
   its supported persistent environment default in `PLUGIN_SCHEMA`, and consume
   only callback-normalized environments rather than process-global `os.environ`.
@@ -28,6 +31,10 @@
 - Keep manifest, plugin YAML, and composed-schema serialization deterministic.
   Clone a referenced validation definition at most once per mutation location;
   never retain unreachable generated definitions or growing generated names.
+- Support-audience providers are fingerprinted and listed by identity under
+  manifest `support_plugins`, but never emitted in the catalog, `plugins/`
+  tree, references, or path index. Reject a support record that carries
+  topology controls, routes, or node kinds rather than silently hiding them.
 - Plugin YAML is the agent-facing capability surface. Keep it compact, omit
   empty/default metadata, and leave the full JSON Schema self-contained for
   validators.

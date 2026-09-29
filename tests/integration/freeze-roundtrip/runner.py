@@ -413,27 +413,27 @@ class Suite:
         source = self.source(case.scope)
         before = authored_hashes(source)
         output = self.root / "archives" / f"{case.archive_key}.tar.gz"
-        args = [self.eclab, "freeze", "-t", source / "lab.clab.yml", "--output", output]
+        args = [self.eclab, "freeze", "-t", source / "lab.clab.yml", "--eclab-output", output]
         if case.focus == "defaults":
             args = [self.eclab, "freeze"]
             output = source / f"{source.name}.tar.gz"
         if case.mode == "runtime":
             args += ["--eclab-with-runtime"]
         if case.mode == "offline":
-            args += ["--offline"]
+            args += ["--eclab-offline"]
         if case.image == "external":
-            args += ["--external-image", self.image]
+            args += ["--eclab-external-image", self.image]
         if case.image.startswith("bundle-"):
             args += [
-                "--bundle-image",
+                "--eclab-bundle-image",
                 self.image,
-                "--bundle-image",
+                "--eclab-bundle-image",
                 f"freeze-roundtrip/{self.run_id}-linux:1",
-                "--bundle-image",
+                "--eclab-bundle-image",
                 WAN_IMAGE,
             ]
         if case.encrypted:
-            args += ["--include-pki-secrets", "--pki-passphrase-file", self.passphrase]
+            args += ["--eclab-include-pki-secrets", "--eclab-pki-passphrase-file", self.passphrase]
         self.commands.run(args, cwd=source, timeout=1800)
         self.report.check(
             before == authored_hashes(source),
@@ -610,34 +610,34 @@ class Suite:
             self.recipient_eclab,
             "defrost",
             archive,
-            "--no-pki-prompt",
+            "--eclab-no-pki-prompt",
         ]
         if case.focus != "defaults":
-            args += ["--into", target]
+            args += ["--eclab-output", target]
         if case.runtime == "deferred":
-            args += ["--no-runtime"]
+            args += ["--eclab-no-runtime"]
         if case.environment == "env":
             for key, value in values.items():
-                args += ["--env", f"{key}={value}"]
+                args += ["--eclab-env", f"{key}={value}"]
         else:
             environment.update(values)
             if case.environment == "initialize":
-                args += ["--skip-env-init"]
+                args += ["--eclab-skip-env-init"]
         if case.pki == "user-explicit":
-            args += ["--pki-authority", f"{self.authority}=global/{self.authority}"]
+            args += ["--eclab-pki-authority", f"{self.authority}=global/{self.authority}"]
         if case.encrypted:
-            args += ["--pki-passphrase-file", self.passphrase]
+            args += ["--eclab-pki-passphrase-file", self.passphrase]
         if case.image.endswith("-load"):
-            args += ["--load-images"]
+            args += ["--eclab-load-images"]
         elif case.image.endswith("-explicit"):
-            args += ["--no-images"]
+            args += ["--eclab-no-images"]
         self.commands.run(
             args, cwd=parent, env=environment, prefix=prefix, timeout=1200
         )
         if case.destination == "force":
             (target / "force-sentinel").write_text("previous restore")
             self.commands.run(
-                [*args, "--force"],
+                [*args, "--eclab-force"],
                 cwd=parent,
                 env=environment,
                 prefix=prefix,
@@ -788,16 +788,16 @@ class Suite:
             "freeze",
             "-t",
             source / "lab.clab.yml",
-            "--output",
+            "--eclab-output",
             self.root / "archives" / f"{case.id}.tar.gz",
         ]
         if kind in {"removed-lean", "mode-conflict", "image-conflict"}:
             flags = {
                 "removed-lean": ["--lean"],
-                "mode-conflict": ["--offline", "--eclab-with-runtime"],
-                "image-conflict": ["--offline", "--external-image", self.image]
+                "mode-conflict": ["--eclab-offline", "--eclab-with-runtime"],
+                "image-conflict": ["--eclab-offline", "--eclab-external-image", self.image]
                 if case.mode == "offline"
-                else ["--bundle-image", self.image],
+                else ["--eclab-bundle-image", self.image],
             }
             result = self.commands.run([*common, *flags[kind]], cwd=source, check=False)
             self.report.check(
@@ -840,22 +840,22 @@ class Suite:
             self.recipient_eclab,
             "defrost",
             archive,
-            "--into",
+            "--eclab-output",
             target,
-            "--no-pki-prompt",
+            "--eclab-no-pki-prompt",
         ]
         for key, value in self.answers(archive).items():
-            args += ["--env", f"{key}={value}"]
+            args += ["--eclab-env", f"{key}={value}"]
         environment = {}
         if kind == "bad-passphrase":
             wrong = self.root / "wrong-passphrase"
             wrong.write_text(secrets.token_urlsafe(30))
             wrong.chmod(0o600)
             self.report.secrets.append(wrong.read_text())
-            args += ["--pki-passphrase-file", wrong]
+            args += ["--eclab-pki-passphrase-file", wrong]
         if kind == "bad-binding":
             args += [
-                "--pki-authority",
+                "--eclab-pki-authority",
                 f"{self.authority}=global/nonexistent-roundtrip-authority",
             ]
         if kind == "missing-binding":
@@ -869,7 +869,7 @@ class Suite:
                 "lean defrost persists one compatibility warning",
             )
             warning.write_text(first + "sentinel-old-warning\n")
-            self.commands.run([*args, "--force"])
+            self.commands.run([*args, "--eclab-force"])
             self.report.check(
                 warning.read_text() == first,
                 "force regenerates lean warnings from archive",
@@ -889,7 +889,7 @@ class Suite:
             check_released(self.commands, target)
             return
         if kind in {"missing-binding", "missing-image"}:
-            self.commands.run([*args, "--no-runtime"], env=environment)
+            self.commands.run([*args, "--eclab-no-runtime"], env=environment)
             if kind == "missing-image":
                 doc = yaml.safe_load((target / "lab.clab.yml").read_text())
                 doc["topology"]["nodes"]["fortigate"].setdefault("env", {})[

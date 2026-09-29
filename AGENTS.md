@@ -179,6 +179,10 @@ example `engulf_clab.example`.
   skill tooling. Install atomically, back up only recognized generated targets,
   refuse symlinks and unknown targets, and retain fingerprinted runtime snapshots
   for existing conversations.
+- Declare plugins that only serve other plugins (serializers, registries,
+  platform asset images, schema/skill tooling) with
+  `audience=SchemaAudience.SUPPORT` so the generated skill omits them; they may
+  not declare topology controls, task routes, or node kinds.
 - Every runtime control needs a `PluginSchema` declaration with a one-line
   explanation of at most 240 characters. Use packaged `refer()` snapshots for
   detailed material.

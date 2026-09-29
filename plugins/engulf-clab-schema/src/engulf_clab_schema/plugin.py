@@ -20,6 +20,7 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PathBase,
     PluginSchema,
+    SchemaAudience,
     SchemaBackedPlugin,
     SchemaBuildRequest,
     SchemaContribution,
@@ -47,7 +48,11 @@ from .node_kinds import resolve_node_kind_catalog
 from .source import resolve_base_schema, source_hint_from_environment
 
 PLUGIN_SCHEMA = (
-    PluginSchema("engulf_clab.schema", package="engulf_clab_schema")
+    PluginSchema(
+        "engulf_clab.schema",
+        package="engulf_clab_schema",
+        audience=SchemaAudience.SUPPORT,
+    )
     .add_runtime_var(
         "CONTAINERLAB_SCHEMA",
         "Select an exact local Containerlab base schema; the matching CLI flag wins.",
@@ -93,11 +98,6 @@ PLUGIN_SCHEMA = (
         LifecycleStage.BEFORE_GOAL,
         "The generator compiles only after every opted-in plugin has recorded its contribution.",
         after=("engulf_clab.develop_lab_skill",),
-    )
-    .route(
-        "inspect-runtime-schema",
-        "USAGE.md",
-        "Read source selection, artifact layout, cache, and refresh behavior.",
     )
     .refer("USAGE.md", title="Runtime schema generator guide")
 )

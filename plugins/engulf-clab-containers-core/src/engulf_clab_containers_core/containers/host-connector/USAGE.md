@@ -9,7 +9,8 @@ server, WAN, VPN, application proxy, DNS service, or SSH endpoint.
 
 - `eth0` is management-facing and must route to every target.
 - `lo` holds each VIP as a host address.
-- Every other discovered interface is lab-facing.
+- Every other operational interface is lab-facing, excluding Containerlab's
+  temporary `clab-*` names; do not use that prefix for a permanent endpoint.
 
 Each VIP is exposed on every lab interface using proxy ARP for IPv4 or proxy
 NDP for IPv6. New traffic is translated, its connection is tagged with the
@@ -72,15 +73,29 @@ values.
 
 ## Lifecycle, security, and diagnosis
 
-The entrypoint parses mappings once at startup, then waits for at least one lab
-interface and its kernel sysctl paths to become ready. It re-checks the
-interface set every second, rebuilding its owned
+The entrypoint parses mappings once at startup, then waits up to **15 seconds**
+for at least one lab interface whose operational state is `up` and whose kernel
+sysctl paths exist. It ignores Containerlab's temporary `clab-*` veth names so
+configuration starts after the endpoint is renamed and brought up. Custom
+endpoint names are supported; `eth1` is not required.
+
+If an interface disappears or goes down during configuration, the entrypoint
+re-discovers interfaces and retries within the same deadline. A persistent
+configuration error on ready interfaces still fails immediately. If no stable
+interface can be configured within 15 seconds, it writes
+`WARNING: no lab interface became ready within 15s; exiting` to stderr and exits
+with status 1. Docker may restart it according to the node's restart policy.
+
+It re-checks the interface set every second, rebuilding its owned
 translation, proxy-neighbor, policy-rule, and route state when interfaces
 change. Changing a mapping therefore requires a redeploy, not a restart. After
 a successful configuration it creates `/run/eclab-host-connector.ready`; Docker
 health-checks that marker every five seconds with a two-second timeout and
-twelve retries. The entrypoint then remains in the interface-watch loop as PID
-1 and logs one readiness line. All state stays inside the container namespace;
+twelve retries. The marker is removed at process startup, during
+reconfiguration, and on exit. If all lab interfaces disappear or go down, the
+same 15-second activation deadline applies to recovery. The entrypoint remains
+in the interface-watch loop as PID 1 and logs readiness after each successful
+configuration. All state stays inside the container namespace;
 destroy removes it, while the built image stays cached.
 
 The connector authenticates neither clients nor targets and does not filter by
@@ -96,4 +111,9 @@ address`, `ip neigh`, `ip rule`, the policy route tables, and the `ECLAB_DNAT`,
 replies use the wrong link, confirm the ingress interface still exists and that
 its interface index and policy table were rebuilt after the topology change.
 For IPv6, test management reachability and proxy NDP separately. Redeploy
-rather than restarting the container when veth links are missing.
+rather than restarting the container when veth links are missing. For a
+15-second timeout, confirm the peer node started and the final lab interface
+is up with carrier; an interface stuck under a temporary `clab-*` name is not
+ready. Upgrading this package and redeploying rebuilds the helper image with
+the startup guard; existing containers and frozen runtime bundles retain their
+old entrypoint until replaced or upgraded.

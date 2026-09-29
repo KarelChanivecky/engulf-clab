@@ -15,6 +15,8 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   from `PLUGIN_SCHEMA`. Thread the immutable invocation environment through
   provenance, source resolution, and offline bundling so normalized wrapper
   options survive before-goal preemption.
+- Freeze and defrost both use `--eclab-output`; keep one shared schema annotation
+  for that flag, with command-specific parser meanings and destination leases.
 - Declare schema, Docker image-build, and vrnetlab-build ordering edges only in
   `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Run
   both provenance hydrations before this plugin so Docker image provider and
@@ -38,14 +40,14 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   an optional feature package. Defrost accepts formats 1, 2, and 3.
 - Replace a destination only when it carries this plugin's defrost record. The
   record keeps the removed freeze provenance beside the lab, never inside it.
-- Resolve licenses from `--license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
+- Resolve licenses from `--eclab-license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
   `ECLAB_LICENSE`, then `--eclab-auto-license`, then an interactive prompt;
   accept `auto` as a registered-pool request and leave an unanswered marker
   for deploy. Never log, record, or embed a license value in an error message;
   name only the node, exactly as license-pool does.
 - Select a bundled image archive only when it carries the node's exact image
   reference and the node declares none, because `ECLAB_IMAGE_ARCHIVE` suppresses
-  the registry fallback. Selection must not need Docker; only `--load-images`
+  the registry fallback. Selection must not need Docker; only `--eclab-load-images`
   may use it.
 - Prepare runtime mode after publication so recorded absolute paths are final;
   validate offline completeness before publication. Runtime mode must fail
@@ -55,6 +57,11 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   output suffix validation, overwrite confirmation, external-symlink rejection,
   Git-ignore-style exclusions, empty-directory pruning, and tracked archive
   exclusion.
+- Resolve optional freeze `LAB_DIR` through single-topology discovery, default
+  to the invocation directory, and reject using it with explicit `-t` or
+  `--eclab-topology`. Keep freeze control flags scoped with `--eclab-`.
+- Put the default archive in the invocation directory, named after the selected
+  lab directory; explicit `--eclab-output` still resolves from that directory.
 - Treat `.engulf-clab-lab-*.clab.yml` and `.engulf-clab-lab-*.clab.yaml` as
   deploy-time writer output. Exclude it from new archives and remove it while
   defrosting legacy archives so a portable lab has one authored topology.
@@ -67,11 +74,13 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   topology's expected sibling `.env` file with mode `0600`, accepts exported
   values for noninteractive use, and never carries source values into the archive;
   defrost restores its executable bit and runs
-  it before recipient resolution unless `--skip-env-init` is selected. The
+  it before recipient resolution unless `--eclab-skip-env-init` is selected. The
   format-2 metadata marker gates execution so unmarked legacy files are never
   treated as generated helpers.
 - All image planning uses EffectiveNode snapshots, while sanitizing owned
   acquisition controls at every declaration origin.
+- Lean image planning preserves an authored single-variable source expression,
+  including `${NAME:-}`, so the recipient initializer asks for the authored name.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, defrost's per-node license
   variables and `ECLAB_IMAGE_ARCHIVE` key, and both lease names — never derive
@@ -85,18 +94,40 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   short product metadata (`command._state_prefix`); keep this split
   intentional rather than reusing one prefix for both.
 - Format 3 records all installed package names and versions without URLs or paths.
-  Keep the transitive eclab dependency lock separate for runtime and offline
-  modes. Select a runtime provider by producer edition through the API entry
+  Record runtime package names separately for lean compatibility; never report
+  unrelated producer development tools as missing on the recipient. For older
+  archives, compare the recipient runtime closure plus archived Engulf and edition
+  packages. Keep the version lock and wheelhouse for runtime and offline modes.
+  Select a runtime provider by producer edition through the API entry
   point and fail explicitly when absent.
 - Keep lean, runtime, and offline launchers distinct. Lean uses the installed
-  edition without a compatibility prompt. Runtime mode enforces pinned tools;
-  offline execution uses only bundled runtime/tools and host Docker.
+  edition without a compatibility prompt. Each mode owns one packaged recipient
+  guide in `src/engulf_clab_freeze/readmes/<mode>.md`, rendered into the
+  archive as `FREEZE-README.md`; change it with the mode's behavior. The
+  `$licenses` section is rendered only for nodes whose effective license is the
+  prompt marker, and lists only node names and kinds, never values or pool
+  paths. Runtime
+  mode assumes only Python on the recipient: it bundles a complete wheelhouse for every supported CPython
+  minor plus the producer's Containerlab executable and vrnetlab working tree,
+  and the recipient builds `.eclab-venv` with `pip install --no-index` and
+  installs both tools into it. Never clone, fetch, or rebuild tools for a
+  runtime archive, and never let an index copy replace an installed package:
+  the producer's state may exist nowhere else. Offline execution uses only
+  bundled runtime/tools and host Docker.
+- Frozen runtime launchers must clear checkout version controls: a version
+  value requests a Git update even when the update switch is off. Verify the
+  bundled revisions from archive metadata instead.
+- Bundle vrnetlab without its Git history, then write an invalid `.git` boundary
+  file in the copy so Git cannot traverse into the recipient lab repository.
+  The revision marker remains the bundled tree's source of identity.
 - Use the common image acquisition planner in every mode. Lean and runtime modes
   keep literal Dockerfile dependencies and packaged provider recipes; use
   recipient variables only for unavailable root images or actual missing recipe
   inputs. They emit no captured image archives; a declared, in-scope image
-  archive that survives exclusions remains an authored source input. Offline
-  accepts only bundled artifacts or declared offline builds.
+  archive that survives exclusions remains an authored source input. Reject a
+  missing lab-local image archive in lean mode rather than silently replacing
+  its path with a recipient variable. Offline accepts only bundled artifacts or
+  declared offline builds.
   Do not reintroduce blanket vrnetlab or image-name exclusions.
 - Discover recipe facts from packaged static Dockerfile image providers and the
   freeze image-source entry-point group, never by running deploy preparation.

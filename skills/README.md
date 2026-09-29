@@ -130,6 +130,11 @@ with `annotate()`. Declare plugin-level requirements and ordering with
 `require_host_tool()`, `require_privilege()`, and `order()`. Add task routing
 with `route()`, concise applicability guidance with `use_case()` and `reject()`,
 and detailed installed-package usage material with repeatable `refer()` calls.
+A plugin that only serves other plugins passes
+`audience=SchemaAudience.SUPPORT`; the compiler keeps it in the fingerprint but
+omits it from the catalog, provider YAML, and references so the generated skill
+lists only lab-authoring capabilities. Support declarations cannot add topology
+controls, task routes, or node kinds.
 Reference `USAGE.md`, not contributor-only `CONTRIBUTING.md` or `AGENTS.md`, so
 the generated skill contains operational guidance without implementation noise.
 Every explanation must be one line and at most 240 characters.

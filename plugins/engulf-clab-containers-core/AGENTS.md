@@ -26,8 +26,10 @@ collapse adapters for unrelated goals back onto one ID.
   least one supported `ECLAB_DHCP_*` variable.
 - Make `wan-access` tolerate Containerlab's temporary veth name by retrying
   activation only when the selected interface disappears during the rename.
-- Make `host-connector` tolerate Containerlab's veth/sysctl creation race by
-  waiting until every required per-interface sysctl exists.
+- Make `host-connector` ignore temporary `clab-*` names and wait for an up
+  interface with all required sysctls. Retry configuration only when a selected
+  interface stops being ready. Bound activation/recovery to 15 seconds using a
+  monotonic deadline; warn and exit nonzero on timeout, with no ready marker.
 - Keep images generic. Addressing, routes, credentials, seeds, certificates,
   browser policy, proxy parents, and product-specific behavior belong in the
   consuming lab unless a documented safe development default is essential.

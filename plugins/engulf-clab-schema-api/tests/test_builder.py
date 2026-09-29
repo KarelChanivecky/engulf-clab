@@ -9,6 +9,7 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     Privilege,
+    SchemaAudience,
     ValueMode,
     ValueType,
     builder,
@@ -203,3 +204,33 @@ def test_node_kind_guidance_requires_a_packaged_reference() -> None:
     schema.refer("README.md")
     with pytest.raises(ValueError, match="node kind declarations"):
         schema.snapshot(APPLICATION)
+
+
+def test_support_schema_is_recorded_with_its_audience() -> None:
+    schema = PluginSchema(
+        "engulf_clab.schema",
+        package="engulf_clab_schema",
+        audience=SchemaAudience.SUPPORT,
+    )
+    schema.add_runtime_var("KNOWN", "A known value.", values=ValueType.STRING).refer("README.md")
+    assert schema.snapshot(APPLICATION).audience is SchemaAudience.SUPPORT
+    default = PluginSchema("engulf_clab.schema", package="engulf_clab_schema").refer("README.md")
+    assert default.snapshot(APPLICATION).audience is SchemaAudience.LAB_AUTHOR
+
+
+def test_support_schema_refuses_lab_authoring_surfaces() -> None:
+    def support() -> PluginSchema:
+        return PluginSchema(
+            "engulf_clab.schema",
+            package="engulf_clab_schema",
+            audience=SchemaAudience.SUPPORT,
+        ).refer("README.md")
+
+    with pytest.raises(ValueError, match="topology controls: ECLAB_MODE"):
+        support().add_node_var("ECLAB_MODE", "Select a mode.", values=ValueType.STRING).snapshot(
+            APPLICATION
+        )
+    with pytest.raises(ValueError, match="task routes"):
+        support().route("inspect", "README.md", "Read details.").snapshot(APPLICATION)
+    with pytest.raises(ValueError, match="node kinds"):
+        support().add_node_kind("linux", "Use Linux.", reference="README.md").snapshot(APPLICATION)

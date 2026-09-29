@@ -32,6 +32,7 @@ from .models import (
     ReferenceSnapshot,
     RequirementKind,
     RuntimeRequirement,
+    SchemaAudience,
     SchemaPipeline,
     SchemaScope,
     SemanticAnnotation,
@@ -198,6 +199,7 @@ class PluginSchema:
         *,
         package: str,
         pipeline_id: str = ECLAB_SCHEMA_PIPELINE_ID,
+        audience: SchemaAudience = SchemaAudience.LAB_AUTHOR,
     ) -> None:
         if not isinstance(plugin_id, str) or _PLUGIN_ID.fullmatch(plugin_id) is None:
             raise ValueError("plugin_id must be a lowercase dot-qualified identifier")
@@ -207,6 +209,7 @@ class PluginSchema:
         self.plugin_id = plugin_id
         self.package = package
         self.pipeline_id = pipeline_id
+        self.audience = SchemaAudience(audience)
         self._options: list[OptionDeclaration] = []
         self._use_cases: list[str] = []
         self._rejections: list[str] = []
@@ -761,6 +764,7 @@ class PluginSchema:
     def snapshot(self, application: ApplicationMetadata) -> RecordedPluginSchema:
         if not self._references:
             raise ValueError("an opted-in plugin schema must contain at least one reference")
+        self._validate_audience()
         short_product = normalized_short_product(application)
         options = tuple(self._expanded_option(option, short_product) for option in self._options)
         references = self._snapshot_references()
@@ -795,6 +799,7 @@ class PluginSchema:
             tuple(self._routes),
             tuple(self._ordering),
             tuple(self._node_kinds),
+            self.audience,
         )
 
     def options(self, application: ApplicationMetadata) -> tuple[OptionDeclaration, ...]:
@@ -876,6 +881,23 @@ class PluginSchema:
                 ReferenceSnapshot(path, title, content, hashlib.sha256(content).hexdigest())
             )
         return tuple(snapshots)
+
+    def _validate_audience(self) -> None:
+        if self.audience is not SchemaAudience.SUPPORT:
+            return
+        topology = [
+            option.name
+            for option in self._options
+            if option.kind in (OptionKind.PROPERTY, OptionKind.NODE_VAR)
+        ]
+        if topology:
+            raise ValueError(
+                "a support schema cannot declare topology controls: " + ", ".join(topology)
+            )
+        if self._routes:
+            raise ValueError("a support schema cannot declare task routes")
+        if self._node_kinds:
+            raise ValueError("a support schema cannot declare node kinds")
 
     def _require_command(self, command: str) -> None:
         if not any(

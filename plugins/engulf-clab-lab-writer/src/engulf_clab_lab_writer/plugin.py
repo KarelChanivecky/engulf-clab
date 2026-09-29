@@ -24,6 +24,7 @@ from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     LifecycleStage,
     PluginSchema,
+    SchemaAudience,
     record_plugin_schema,
 )
 from engulf_executable_wrapper_api import (
@@ -41,7 +42,11 @@ from engulf_executable_wrapper_api import (
 
 _PREFIX = WRITER_TEMP_PREFIX
 PLUGIN_SCHEMA = (
-    PluginSchema("engulf_clab.lab_writer", package="engulf_clab_lab_writer")
+    PluginSchema(
+        "engulf_clab.lab_writer",
+        package="engulf_clab_lab_writer",
+        audience=SchemaAudience.SUPPORT,
+    )
     .use_case(
         "Materialize all plugin topology edits into a temporary topology for Containerlab."
     )
@@ -50,11 +55,6 @@ PLUGIN_SCHEMA = (
         LifecycleStage.PREPARE_CALL,
         "The writer runs after the parser and topology mutators so it serializes their final result.",
         after=("engulf_clab.lab_parser",),
-    )
-    .route(
-        "materialize-topology",
-        "USAGE.md",
-        "Read temporary topology ownership, forwarding, and cleanup behavior.",
     )
     .refer("USAGE.md")
 )

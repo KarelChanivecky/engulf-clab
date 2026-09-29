@@ -61,6 +61,11 @@ class SchemaScope(StrEnum):
     LINK = "link"
 
 
+class SchemaAudience(StrEnum):
+    LAB_AUTHOR = "lab-author"
+    SUPPORT = "support"
+
+
 class OptionKind(StrEnum):
     COMMAND = "command"
     CLI_ARGUMENT = "cli-argument"
@@ -203,6 +208,7 @@ class RecordedPluginSchema:
     routes: tuple[TaskRoute, ...] = ()
     ordering: tuple[PluginOrdering, ...] = ()
     node_kinds: tuple[NodeKindDeclaration, ...] = ()
+    audience: SchemaAudience = SchemaAudience.LAB_AUTHOR
 
 
 @dataclass(frozen=True, slots=True)

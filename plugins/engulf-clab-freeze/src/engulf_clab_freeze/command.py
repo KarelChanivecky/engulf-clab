@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import fnmatch
 import hashlib
 import importlib.metadata
+import importlib.resources
 import json
 import os
 import re
 import shlex
 import shutil
+import string
 import subprocess
 import sys
 import tarfile
 import tempfile
+import zipfile
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -29,6 +33,7 @@ from engulf_clab_freeze_api import (
 )
 from engulf_clab_freeze_api import FreezeError as ContributorError
 from engulf_clab_lab_parser import (
+    effective_nodes,
     parse_topology_yaml,
     topology_declarations,
 )
@@ -88,41 +93,50 @@ def main(
     """Run the optional freeze command with an injected workspace state."""
     parser = argparse.ArgumentParser(prog=program)
     parser.add_argument(
+        "lab_dir",
+        nargs="?",
+        metavar="LAB_DIR",
+        help="lab directory containing one source topology (default: current directory)",
+    )
+    parser.add_argument(
         "-t",
-        "--topo",
-        "--topology",
+        "--eclab-topology",
         dest="topology",
         metavar="TOPOLOGY",
-        help="topology to freeze; omit to detect the single lab topology in the current directory",
+        help="select a topology file instead of discovering one in LAB_DIR",
     )
     parser.add_argument(
-        "--output",
+        "--eclab-output",
+        dest="output",
         metavar="ARCHIVE",
-        help="destination archive (default: <lab-directory>/<lab-directory-name>.tar.gz)",
+        help="destination archive (default: ./<lab-directory-name>.tar.gz)",
     )
     parser.add_argument(
-        "--offline",
+        "--eclab-offline",
+        dest="offline",
         action="store_true",
         help="bundle the producer edition runtime, Containerlab, vrnetlab, and lab images for offline use",
     )
     parser.add_argument(
         "--eclab-with-runtime",
         action="store_true",
-        help="include a wheelhouse and pin Containerlab and vrnetlab for the recipient",
+        help="bundle a complete wheelhouse, Containerlab, and vrnetlab for a lab venv built by the recipient",
     )
     parser.add_argument(
-        "--external-image",
+        "--eclab-external-image",
+        dest="external_image",
         action="append",
         default=[],
         metavar="IMAGE",
         help="declare that the recipient supplies this image (repeatable)",
     )
     parser.add_argument(
-        "--bundle-image",
+        "--eclab-bundle-image",
+        dest="bundle_image",
         action="append",
         default=[],
         metavar="IMAGE",
-        help="capture this image in an offline archive (repeatable; requires --offline)",
+        help="capture this image in an offline archive (repeatable; requires --eclab-offline)",
     )
     try:
         contributors = discover_contributors()
@@ -136,11 +150,16 @@ def main(
         return 1
     try:
         arguments = parser.parse_args(argv)
+        if arguments.topology and arguments.lab_dir is not None:
+            parser.error("LAB_DIR and -t/--eclab-topology cannot be used together")
     except SystemExit as error:
         return int(error.code or 0)
     try:
         topology_args = ("-t", arguments.topology) if arguments.topology else ()
-        topology = topology_path_from_args(topology_args)
+        lab_dir = Path(arguments.lab_dir).expanduser().resolve() if arguments.lab_dir else None
+        if lab_dir is not None and not lab_dir.is_dir():
+            raise FreezeError(f"lab directory does not exist: {lab_dir}")
+        topology = topology_path_from_args(topology_args, cwd=lab_dir)
         archive = (
             Path(arguments.output).expanduser().resolve()
             if arguments.output
@@ -199,14 +218,14 @@ def freeze(
     source_root = topology_path.parent.resolve()
     current_environment = os.environ if environment is None else environment
     if offline and with_runtime:
-        raise FreezeError("--offline cannot be combined with --eclab-with-runtime")
+        raise FreezeError("--eclab-offline cannot be combined with --eclab-with-runtime")
     mode = "offline" if offline else "runtime" if with_runtime else "lean"
     if bundle_images and not offline:
-        raise FreezeError("--bundle-image requires --offline")
+        raise FreezeError("--eclab-bundle-image requires --eclab-offline")
     provider = runtime_provider(application_name)
     ignored_archives = tracked_archives(workspace, source_root)
     if not archive.name.endswith((".tar.gz", ".tgz")):
-        raise FreezeError("--output must end in .tar.gz or .tgz")
+        raise FreezeError("--eclab-output must end in .tar.gz or .tgz")
     archive_relative = _relative_to(source_root, archive)
     if archive.exists() or archive.is_symlink():
         if archive.is_symlink() or not archive.is_file():
@@ -265,7 +284,11 @@ def freeze(
             environment=current_environment,
         )
         frozen.update(
-            format=3, mode=mode, producer_edition=application_name, tools=tools
+            format=3,
+            mode=mode,
+            producer_edition=application_name,
+            tools=tools,
+            runtime_packages=[name for name, _ in _locked_packages(application_name)],
         )
         updated = yaml.safe_load(copied_topology.read_text(encoding="utf-8"))
         updated[_FREEZE_KEY] = frozen
@@ -320,6 +343,8 @@ def freeze(
         copied_topology.write_text(
             yaml.safe_dump(image_topology, sort_keys=False), encoding="utf-8"
         )
+        if offline and not _package_installed(packages, "engulf-clab-image-archive"):
+            _write_image_loader(staging, image_plan)
         (staging / "packages.freeze.txt").write_text(
             "\n".join(f"{name}=={version}" for name, version in packages) + "\n",
             encoding="utf-8",
@@ -339,6 +364,24 @@ def freeze(
             provider.launcher(topology_path.name, mode, tools), encoding="utf-8"
         )
         os.chmod(staging / launcher_name, 0o755)
+        substitutions = {
+            "topology": topology_path.name,
+            "edition": application_name,
+            "launcher": launcher_name,
+        }
+        readme = _freeze_readme(
+            mode,
+            topology_name=topology_path.name,
+            edition=application_name,
+            launcher_name=launcher_name,
+            licensed_nodes=_licensed_nodes(image_topology),
+        )
+        supplement = string.Template(provider.readme_supplement(mode)).substitute(
+            **substitutions
+        )
+        if supplement:
+            readme = readme.rstrip("\n") + "\n\n" + supplement.rstrip("\n") + "\n"
+        (staging / FREEZE_README_NAME).write_text(readme, encoding="utf-8")
         temporary_archive = Path(work) / archive.name
         with tarfile.open(temporary_archive, "w:gz") as tar:
             tar.add(staging, arcname=root_name, recursive=True)
@@ -347,10 +390,121 @@ def freeze(
     return True
 
 
+FREEZE_README_NAME = "FREEZE-README.md"
+
+
+def _freeze_readme(
+    mode: str,
+    *,
+    topology_name: str,
+    edition: str,
+    launcher_name: str,
+    licensed_nodes: Iterable[tuple[str, str | None]] = (),
+) -> str:
+    """Render the recipient guide this plugin packages for one freeze mode.
+
+    The guide replaces any same-named file from the source lab, so a lab that
+    is frozen again always carries the guide for its new mode.
+    """
+    template = (
+        importlib.resources.files(__package__)
+        .joinpath("readmes", f"{mode}.md")
+        .read_text(encoding="utf-8")
+    )
+    rendered = string.Template(template).substitute(
+        topology=topology_name,
+        edition=edition,
+        launcher=launcher_name,
+        licenses=_license_section(
+            mode, tuple(licensed_nodes), edition=edition, launcher_name=launcher_name
+        ),
+    )
+    # An omitted section leaves its surrounding blank lines behind.
+    return re.sub(r"\n{3,}", "\n\n", rendered)
+
+
+def _licensed_nodes(document: Mapping[str, Any]) -> tuple[tuple[str, str | None], ...]:
+    """Name each node whose effective license is a recipient prompt, with its kind.
+
+    Only node names and kinds reach the guide; license values were already
+    redacted and pool paths are never known to the archive.
+    """
+    marker = f"__{_LABEL_PREFIX}_LICENSE_PROMPT__"
+    licensed: list[tuple[str, str | None]] = []
+    for effective in effective_nodes(document):
+        if effective.data.get("license") != marker:
+            continue
+        kind = effective.data.get("kind")
+        licensed.append((effective.name, kind if isinstance(kind, str) and kind else None))
+    return tuple(licensed)
+
+
+def _license_section(
+    mode: str,
+    licensed_nodes: tuple[tuple[str, str | None], ...],
+    *,
+    edition: str,
+    launcher_name: str,
+) -> str:
+    if not licensed_nodes:
+        return ""
+    nodes = "\n".join(
+        f"- `{name}` (kind `{kind}`)" if kind else f"- `{name}` (kind not set; check the topology)"
+        for name, kind in licensed_nodes
+    )
+    kinds = sorted({kind for _, kind in licensed_nodes if kind}) or ["KIND"]
+
+    def register(command: str) -> str:
+        return "\n".join(
+            f"{command} init-license-pool /path/to/{kind}-licenses --kind {kind}"
+            for kind in kinds
+        )
+
+    lines = [
+        "## Licenses",
+        "",
+        "Freeze removed the producer's licenses. These nodes need one from you:",
+        "",
+        nodes,
+        "",
+        "The simplest answer is a license pool: a directory holding license files",
+        "directly at its top level. Register one per node kind once; pools belong",
+        "to your user account and are shared by every lab you run:",
+        "",
+        "```bash",
+        register(edition),
+        f"{edition} defrost ARCHIVE.tar.gz --{_LABEL_PREFIX.lower()}-auto-license",
+        "```",
+        "",
+        "Each deploy then claims a free file for every node, and `destroy` releases",
+        "it. `--kind` must match the node's kind exactly.",
+    ]
+    if mode != "lean":
+        lines += [
+            "",
+            f"Without {edition} installed, register through the launcher and answer",
+            "`auto` when deploy asks:",
+            "",
+            "```bash",
+            register(f"./{launcher_name}"),
+            f"{_LABEL_PREFIX}_LICENSE=auto ./{launcher_name}",
+            "```",
+        ]
+    lines += [
+        "",
+        "Instead of `auto` you may answer with a license file, a pool directory, or a",
+        f"`$VARIABLE`, through `--{_LABEL_PREFIX.lower()}-license NODE=VALUE` at defrost,",
+        f"`{_LABEL_PREFIX}_LICENSE_<NODE>` or `{_LABEL_PREFIX}_LICENSE`, or the",
+        "interactive prompt. Node names are uppercased with other characters replaced",
+        "by `_` in the variable name.",
+    ]
+    return "\n".join(lines)
+
+
 def _default_archive(topology_path: Path) -> Path:
     root = topology_path.parent.resolve()
     name = root.name or "frozen-lab"
-    return root / f"{name}.tar.gz"
+    return Path.cwd().resolve() / f"{name}.tar.gz"
 
 
 def _archive_root_name(archive: Path) -> str:
@@ -740,7 +894,7 @@ def _bundle_offline_runtime(staging: Path, edition: str) -> None:
     source = Path(sys.prefix).resolve()
     if sys.prefix == sys.base_prefix or not (source / "bin" / edition).is_file():
         raise FreezeError(
-            f"--offline requires freeze to run from a virtual environment containing {edition}"
+            f"--eclab-offline requires freeze to run from a virtual environment containing {edition}"
         )
     destination = staging / ".eclab-venv"
     shutil.copytree(
@@ -793,7 +947,7 @@ def _containerlab_binary(
         if _executable(resolved):
             return resolved
     raise FreezeError(
-        "--offline requires an executable Containerlab in CONTAINERLAB_BIN, "
+        "--eclab-offline requires an executable Containerlab in CONTAINERLAB_BIN, "
         "CONTAINERLAB_DIR, or PATH"
     )
 
@@ -824,7 +978,7 @@ def _vrnetlab_checkout(
         if (checkout / "common" / "vrnetlab.py").is_file():
             return checkout
     raise FreezeError(
-        "--offline requires a valid VRNETLAB_DIR or managed vrnetlab checkout "
+        "--eclab-offline requires a valid VRNETLAB_DIR or managed vrnetlab checkout "
         "for a vrnetlab-enabled topology"
     )
 
@@ -842,6 +996,9 @@ def _bundle_offline_vrnetlab(
         symlinks=False,
         ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "*.pyo"),
     )
+    # Git otherwise walks up into the recipient lab's repository and reports
+    # its changes as if they belonged to this Git-less frozen tree.
+    (destination / ".git").write_text("frozen vrnetlab tree; no Git metadata\n", encoding="ascii")
     if not (destination / "common" / "vrnetlab.py").is_file():
         raise FreezeError("could not create a complete offline vrnetlab checkout")
 
@@ -908,8 +1065,8 @@ def _run_git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def _locked_packages() -> list[tuple[str, str]]:
-    names = {"engulf-clab"}
+def _locked_packages(edition: str = "eclab") -> list[tuple[str, str]]:
+    names = {"engulf-clab", edition}
     for group in (
         "engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper",
         "engulf.plugins.v1.application.engulf_clab",
@@ -950,55 +1107,321 @@ def _installed_packages() -> list[tuple[str, str]]:
     )
 
 
+def _package_installed(packages: list[tuple[str, str]], package: str) -> bool:
+    normalized = package.lower().replace("_", "-")
+    return any(name.lower().replace("_", "-") == normalized for name, _ in packages)
+
+
+def _write_image_loader(staging: Path, image_plan: Mapping[str, Any]) -> None:
+    """Add a recipient-run Docker loader when the image provider is unavailable."""
+    images = image_plan.get("images")
+    if not isinstance(images, list):
+        return
+    archives = sorted(
+        {
+            item["archive"]
+            for item in images
+            if isinstance(item, dict)
+            and item.get("action") == "archive"
+            and isinstance(item.get("archive"), str)
+        }
+    )
+    if not archives:
+        return
+    path = staging / "load-images.sh"
+    if path.exists() or path.is_symlink():
+        raise FreezeError("load-images.sh conflicts with a source lab file")
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'root="$(cd -- "$(dirname -- "$0")" && pwd)"',
+        "",
+    ]
+    lines.extend(
+        f'docker image load --input "$root"/{shlex.quote(archive)}'
+        for archive in archives
+    )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(path, 0o755)
+
+
+# The oldest CPython the Engulf family supports; runtime wheelhouses cover
+# every minor from here to the producer's own.
+_MINIMUM_PYTHON_MINOR = 12
+PYTHON_VERSIONS_NAME = "python-versions.freeze.txt"
+
+
+def _download_python_wheels(staging: Path, warnings: list[str]) -> list[str]:
+    """Extend a complete wheelhouse to every supported recipient Python.
+
+    The recipient installs without a package index, so each CPython minor
+    needs its own compiled wheels; pure wheels already serve every minor.
+    Only minors whose compiled packages all resolved are recorded, and the
+    producer's own minor always is.
+    """
+    wheelhouse = staging / "wheelhouse"
+    compiled = sorted(
+        f"{name}=={version}"
+        for (name, version), tags in _wheel_tags(wheelhouse).items()
+        if not any(platform == "any" for _python, _abi, platform in tags)
+    )
+    current = sys.version_info[1]
+    supported = []
+    for minor in range(min(_MINIMUM_PYTHON_MINOR, current), current + 1):
+        version = f"3.{minor}"
+        if minor != current and compiled:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "download",
+                    "--only-binary=:all:",
+                    "--no-deps",
+                    "--python-version",
+                    version,
+                    "--dest",
+                    str(wheelhouse),
+                    *compiled,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode:
+                warnings.append(f"recipients cannot use Python {version}: its wheels are unavailable")
+                continue
+        supported.append(version)
+    (staging / PYTHON_VERSIONS_NAME).write_text(
+        "".join(f"{version}\n" for version in supported), encoding="ascii"
+    )
+    return supported
+
+
 def _download_wheels(
     staging: Path, packages: list[tuple[str, str]], warnings: list[str]
 ) -> bool:
+    """Collect the producer's installed packages, then download only the rest.
+
+    Installed artifacts are authoritative: an index copy of the same version
+    may differ or not exist at all, so pip is asked only for packages the
+    producer could not supply itself.
+    """
     wheelhouse = staging / "wheelhouse"
     wheelhouse.mkdir()
     _seed_installed_wheels(packages, wheelhouse, warnings)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "download",
-            "--only-binary=:all:",
-            "--dest",
-            str(wheelhouse),
-            "--find-links",
-            str(wheelhouse),
-            "-r",
-            str(staging / "requirements.freeze.txt"),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode:
+    present = _wheel_tags(wheelhouse)
+    missing = [
+        (name, version)
+        for name, version in packages
+        if (_normalized_name(name), version) not in present
+    ]
+    returncode = 0
+    if missing:
+        (staging / "requirements.missing.txt").write_text(
+            "".join(f"{name}=={version}\n" for name, version in missing),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--only-binary=:all:",
+                "--no-deps",
+                "--dest",
+                str(wheelhouse),
+                "-r",
+                str(staging / "requirements.missing.txt"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        (staging / "requirements.missing.txt").unlink()
+        returncode = result.returncode
+    if returncode:
         warnings.append(
             "could not obtain a complete wheelhouse; launcher will fall back to its package index"
         )
     if not any(wheelhouse.iterdir()):
         wheelhouse.rmdir()
-    return result.returncode == 0 and wheelhouse.is_dir()
+    return returncode == 0 and wheelhouse.is_dir()
+
+
+def _normalized_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _wheel_tags(wheelhouse: Path) -> dict[tuple[str, str], list[tuple[str, str, str]]]:
+    """Index wheel files by normalized project name and version."""
+    tags: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+    for path in wheelhouse.glob("*.whl"):
+        parts = path.name[: -len(".whl")].split("-")
+        if len(parts) < 5:
+            continue
+        key = (_normalized_name(parts[0]), parts[1])
+        tags.setdefault(key, []).append((parts[-3], parts[-2], parts[-1]))
+    return tags
 
 
 def _seed_installed_wheels(
     packages: Iterable[tuple[str, str]], wheelhouse: Path, warnings: list[str]
 ) -> None:
-    """Copy exact file-installed wheels before asking an index for dependencies."""
+    """Capture every installed package as the producer actually has it.
+
+    A recorded local wheel is copied, an editable project is built from its
+    live source, and any other pure-Python installation is repacked from its
+    installed files. Only compiled packages from an index are left for pip.
+    """
     for name, _version in packages:
         try:
             distribution = importlib.metadata.distribution(name)
         except importlib.metadata.PackageNotFoundError:
             continue
         source = _installed_wheel_path(distribution)
-        if source is None:
+        if source is not None:
+            try:
+                shutil.copy2(source, wheelhouse / source.name)
+            except OSError as error:
+                warnings.append(f"could not copy installed wheel for {name}: {error}")
+            continue
+        directory = _installed_source_directory(distribution)
+        if directory is not None:
+            _build_source_wheel(name, directory, wheelhouse, warnings)
             continue
         try:
-            shutil.copy2(source, wheelhouse / source.name)
+            _repack_installed_wheel(distribution, wheelhouse)
         except OSError as error:
-            warnings.append(f"could not copy installed wheel for {name}: {error}")
+            warnings.append(f"could not repack installed {name}: {error}")
+
+
+def _installed_source_directory(
+    distribution: importlib.metadata.Distribution,
+) -> Path | None:
+    """Return the live project behind an editable install."""
+    record = _direct_url(distribution)
+    dir_info = record.get("dir_info") if record else None
+    if record is None or not isinstance(dir_info, dict) or not dir_info.get("editable"):
+        return None
+    parsed = urlsplit(record["url"])
+    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+        return None
+    directory = Path(unquote(parsed.path))
+    return directory if (directory / "pyproject.toml").is_file() else None
+
+
+def _direct_url(distribution: importlib.metadata.Distribution) -> dict[str, Any] | None:
+    try:
+        content = distribution.read_text("direct_url.json")
+        record: object = json.loads(content) if content is not None else None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("url"), str):
+        return None
+    return record
+
+
+def _build_source_wheel(
+    name: str, directory: Path, wheelhouse: Path, warnings: list[str]
+) -> None:
+    """Freeze an editable project as its current source, not an index copy."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheelhouse),
+            str(directory),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        warnings.append(f"could not build a wheel for {name} from its installed source")
+
+
+_REGENERATED_METADATA = {"RECORD", "INSTALLER", "REQUESTED", "direct_url.json"}
+# Fixed so repacking the same installation produces the same archive bytes.
+_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+
+
+def _repack_installed_wheel(
+    distribution: importlib.metadata.Distribution, wheelhouse: Path
+) -> bool:
+    """Rebuild a pure-Python wheel from the files pip installed.
+
+    Console scripts outside site-packages are regenerated from entry points
+    at install time; any other file outside site-packages means the wheel
+    cannot be reconstructed, so the package is left for the index.
+    """
+    wheel = distribution.read_text("WHEEL") or ""
+    tags = [
+        line.split(":", 1)[1].strip()
+        for line in wheel.splitlines()
+        if line.startswith("Tag:")
+    ]
+    if (
+        "Root-Is-Purelib: true" not in wheel
+        or not tags
+        or any(not tag.endswith("-none-any") for tag in tags)
+    ):
+        return False
+    files = distribution.files
+    if not files:
+        return False
+    scripts = {
+        point.name
+        for point in distribution.entry_points
+        if point.group in {"console_scripts", "gui_scripts"}
+    }
+    base = Path(str(distribution.locate_file("")))
+    entries: list[str] = []
+    dist_info: str | None = None
+    for entry in files:
+        parts = entry.parts
+        if parts[0] == "..":
+            if entry.name in scripts:
+                continue
+            return False
+        if "__pycache__" in parts or entry.suffix == ".pyc":
+            continue
+        if parts[0].endswith(".dist-info"):
+            dist_info = parts[0]
+            if len(parts) == 2 and parts[1] in _REGENERATED_METADATA:
+                continue
+        entries.append("/".join(parts))
+    if dist_info is None:
+        return False
+    pythons = ".".join(sorted({tag.split("-", 1)[0] for tag in tags}))
+    name = re.sub(r"[-_.]+", "_", distribution.metadata["Name"]).lower()
+    target = wheelhouse / f"{name}-{distribution.version}-{pythons}-none-any.whl"
+    temporary = target.with_suffix(".tmp")
+    records = []
+    with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+        for relative in sorted(entries):
+            data = (base / relative).read_bytes()
+            archive.writestr(_zip_entry(relative), data)
+            digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+            records.append(f"{relative},sha256={digest.rstrip(b'=').decode()},{len(data)}")
+        records.append(f"{dist_info}/RECORD,,")
+        archive.writestr(
+            _zip_entry(f"{dist_info}/RECORD"), "\n".join(records) + "\n"
+        )
+    temporary.replace(target)
+    return True
+
+
+def _zip_entry(name: str) -> zipfile.ZipInfo:
+    entry = zipfile.ZipInfo(name, _ZIP_TIMESTAMP)
+    entry.compress_type = zipfile.ZIP_DEFLATED
+    entry.external_attr = 0o644 << 16
+    return entry
 
 
 def _installed_wheel_path(distribution: importlib.metadata.Distribution) -> Path | None:
@@ -1067,6 +1490,7 @@ if [[ ! -x "$containerlab" ]]; then
 fi
 export CONTAINERLAB_BIN="$containerlab"
 export CONTAINERLAB_UPDATE=0
+unset CONTAINERLAB_VERSION VRNETLAB_VERSION
 export PATH="$(dirname -- "$containerlab"):$PATH"
 if [[ -d "$vrnetlab" ]]; then
     export VRNETLAB_DIR="$vrnetlab"
@@ -1081,14 +1505,33 @@ root="$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd)"
 requirements="$root/requirements.freeze.txt"
 wheelhouse="$root/wheelhouse"
 venv="$root/.eclab-venv"
-if [[ ! -x "$venv/bin/{edition}" ]]; then
-    python3 -m venv "$venv"
-    "$venv/bin/python" -m pip install --find-links "$wheelhouse" -r "$requirements"
-fi
-if [[ ! -f "$root/.eclab-freeze.env" ]]; then
-    "$venv/bin/python" -m engulf_clab_freeze.runtime prepare "$root"
+if [[ ! -x "$venv/bin/{edition}" || ! -x "$venv/bin/containerlab" || ! -f "$root/.eclab-freeze.env" ]]; then
+    python=""
+    for candidate in ${{ECLAB_PYTHON:-}} python3 $(sed 's/^/python/' "$root/{PYTHON_VERSIONS_NAME}"); do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        version="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])')" || continue
+        if grep -qxF "$version" "$root/{PYTHON_VERSIONS_NAME}"; then
+            python="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$python" ]]; then
+        echo "no supported Python found; install one of: $(tr '\\n' ' ' < "$root/{PYTHON_VERSIONS_NAME}")or set ECLAB_PYTHON" >&2
+        exit 1
+    fi
+    rm -rf "$venv" "$root/.eclab-freeze.env"
+    if ! {{
+        "$python" -m venv "$venv" &&
+        "$venv/bin/python" -m pip install --no-index --find-links "$wheelhouse" -r "$requirements" &&
+        "$venv/bin/python" -m engulf_clab_freeze.runtime prepare "$root"
+    }}; then
+        rm -rf "$venv" "$root/.eclab-freeze.env"
+        echo "could not install the bundled {edition} runtime" >&2
+        exit 1
+    fi
 fi
 source "$root/.eclab-freeze.env"
+unset CONTAINERLAB_VERSION VRNETLAB_VERSION
 "$venv/bin/python" -m engulf_clab_freeze.runtime verify "$root"
 for argument in "$@"; do
     case "$argument" in

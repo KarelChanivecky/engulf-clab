@@ -3,6 +3,9 @@
 This collector runs after topology mutators and retains one stable derived YAML
 file until Containerlab successfully destroys the lab.
 
+- Keep `PLUGIN_SCHEMA` at `audience=SchemaAudience.SUPPORT`: this plugin serves
+  other plugins, so the generated lab skill omits it. Do not add topology
+  controls, task routes, or node kinds to that declaration.
 - Keep plugin ID `engulf_clab.lab_writer`, priority `-100`, parser dependency,
   and topology-context read stable.
 - Declare parser and schema ordering only in the package dependency entry-point

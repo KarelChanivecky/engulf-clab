@@ -6,6 +6,10 @@ read this plugin's state files directly. Publish records in `before_goal` before
 consumers run, read the publication back to acknowledge invocations without a
 consumer, and keep the API package's context name stable.
 
+The schema declaration uses `audience=SchemaAudience.SUPPORT` because this
+package serves other plugins, not lab authors; the generated lab skill omits it.
+Do not add topology controls, task routes, or node kinds to that declaration.
+
 Never publish an Engulf capability. State handles are bound to the activation of
 the callback that produced them, so a store placed in shared context is already
 dead when a consumer reads it in its own callback. Load the snapshot and persist

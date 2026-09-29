@@ -306,8 +306,8 @@ def test_guest_pki_probe_does_not_count_public_keys_as_private(tmp_path):
             "bad-binding",
             "PKI binding 'root' requires fingerprint abc; 'wrong' does not match",
         ),
-        ("mode-conflict", "--offline not allowed with argument --eclab-with-runtime"),
-        ("image-conflict", "--bundle-image requires --offline"),
+        ("mode-conflict", "--eclab-offline not allowed with argument --eclab-with-runtime"),
+        ("image-conflict", "--eclab-bundle-image requires --eclab-offline"),
         ("incomplete", "offline runtime is incomplete"),
         (
             "tool-mismatch",

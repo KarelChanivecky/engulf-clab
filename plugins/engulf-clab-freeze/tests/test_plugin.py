@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
-import tomllib
 from engulf_api import (
     ApplicationMetadata,
     BeforeGoalAPI,
@@ -13,13 +13,14 @@ from engulf_api import (
     StateScope,
     WorkspaceState,
 )
-from engulf_clab_freeze.plugin import FreezePlugin
 from engulf_clab_schema_api import (
     SCHEMA_SOURCE_CONTEXT,
     SCHEMA_VRNETLAB_SOURCE_CONTEXT,
 )
 from engulf_clab_vrnetlab_build_api import VRNETLAB_SOURCE_PROVENANCE_CONTEXT
 from engulf_docker_image_api import DOCKER_IMAGE_PROVENANCE_CONTEXT
+
+from engulf_clab_freeze.plugin import FreezePlugin
 
 
 class FreezePluginTest(unittest.TestCase):
@@ -54,7 +55,7 @@ class FreezePluginTest(unittest.TestCase):
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "fclab"
         invocation = Invocation(
-            ("freeze", "--output", "share.tar.gz"), Path("/labs/demo"), {}
+            ("freeze", "--eclab-output", "share.tar.gz"), Path("/labs/demo"), {}
         )
 
         with patch(
@@ -74,7 +75,7 @@ class FreezePluginTest(unittest.TestCase):
         # editions freezing the same workspace concurrently block each other.
         api.leases.assert_called_once_with(("eclab-freeze:/labs/demo",))
         command.assert_called_once_with(
-            ["--output", "share.tar.gz"],
+            ["--eclab-output", "share.tar.gz"],
             workspace,
             user_state=workspace,
             program="fclab freeze",
@@ -102,7 +103,7 @@ class FreezePluginTest(unittest.TestCase):
         api.leases.return_value.__enter__.return_value = None
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "fclab"
-        invocation = Invocation(("freeze", "--offline"), Path("/labs/demo"), {})
+        invocation = Invocation(("freeze", "--eclab-offline"), Path("/labs/demo"), {})
 
         with patch(
             "engulf_clab_freeze.plugin.run_freeze_command", return_value=0
@@ -110,7 +111,7 @@ class FreezePluginTest(unittest.TestCase):
             FreezePlugin().before_goal(invocation, api)
 
         command.assert_called_once_with(
-            ["--offline"],
+            ["--eclab-offline"],
             workspace,
             user_state=user_state,
             program="fclab freeze",
@@ -139,7 +140,7 @@ class FreezePluginTest(unittest.TestCase):
         api.application = MagicMock(spec=ApplicationMetadata)
         api.application.short_product_name = "fclab"
         invocation = Invocation(
-            ("defrost", "share.tar.gz", "--into", "demo"), Path("/labs"), {}
+            ("defrost", "share.tar.gz", "--eclab-output", "demo"), Path("/labs"), {}
         )
 
         with patch(
@@ -156,7 +157,7 @@ class FreezePluginTest(unittest.TestCase):
         api.state.assert_called_once_with(StateScope.USER)
         api.leases.assert_called_once_with(("eclab-defrost:/labs/demo",))
         command.assert_called_once_with(
-            ["share.tar.gz", "--into", "demo"],
+            ["share.tar.gz", "--eclab-output", "demo"],
             program="fclab defrost",
             application_name="fclab",
             logger=api.logger,
@@ -191,7 +192,7 @@ class FreezePluginTest(unittest.TestCase):
     def test_help_lists_both_control_commands(self) -> None:
         help_text = FreezePlugin().help(MagicMock())
 
-        self.assertIn("freeze [-t TOPOLOGY]", help_text)
+        self.assertIn("freeze [LAB_DIR | -t TOPOLOGY]", help_text)
         self.assertIn("defrost ARCHIVE", help_text)
 
     def test_freeze_priority_precedes_every_other_bundled_plugin(self) -> None:

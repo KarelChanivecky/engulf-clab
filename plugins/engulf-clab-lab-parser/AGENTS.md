@@ -5,6 +5,8 @@ mutation API. Do not write topology files here.
 
 - Keep plugin ID `engulf_clab.lab_parser`, priority `100`, and context ID
   `engulf_clab.topology.session` stable for dependent distributions.
+- Publish a selected non-deploy runtime file under
+  `engulf_clab.topology.runtime_session`, separate from the source mutation session.
 - Parse and publish topology sessions only for deploy or single-source redeploy
   with a local filesystem topology. Preserve native `redeploy --all` and
   name-only handling. For destroy by source, prefer its retained writer topology when it

@@ -11,6 +11,8 @@ from pathlib import Path
 
 _PREFIX = "ECLAB_CONNECT_HOST"
 _READY = Path("/run/eclab-host-connector.ready")
+_INTERFACE_TIMEOUT = 15.0
+_INTERFACE_POLL_INTERVAL = 0.2
 
 
 class ConnectorError(RuntimeError):
@@ -69,14 +71,17 @@ def data_interfaces(
     sysctl_root: Path = Path("/proc/sys/net"),
 ) -> tuple[str, ...]:
     try:
-        names = (item.name for item in root.iterdir())
+        names = [item.name for item in root.iterdir()]
     except OSError as error:
         raise ConnectorError(f"cannot enumerate network interfaces: {error}") from error
-    candidates = sorted(name for name in names if name not in {"lo", "eth0"})
+    candidates = sorted(
+        name for name in names if name not in {"lo", "eth0"} and not name.startswith("clab-")
+    )
     return tuple(
         name
         for name in candidates
-        if all(
+        if _interface_up(root / name)
+        and all(
             (sysctl_root / family / "conf" / name / setting).is_file()
             for family, setting in (
                 ("ipv4", "proxy_arp"),
@@ -85,6 +90,14 @@ def data_interfaces(
             )
         )
     )
+
+
+def _interface_up(path: Path) -> bool:
+    try:
+        return (path / "operstate").read_text(encoding="ascii").strip() == "up"
+    except FileNotFoundError:
+        # A veth may disappear or be renamed between enumeration and this read.
+        return False
 
 
 def _run(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -246,21 +259,45 @@ def configure(mappings: tuple[Mapping, ...], interfaces: tuple[str, ...]) -> Non
     _configure_family(6, mappings, interfaces)
 
 
+def activate_interfaces(mappings: tuple[Mapping, ...]) -> tuple[str, ...]:
+    deadline = time.monotonic() + _INTERFACE_TIMEOUT
+    while True:
+        interfaces = data_interfaces()
+        if interfaces:
+            try:
+                configure(mappings, interfaces)
+            except (ConnectorError, OSError, subprocess.SubprocessError):
+                # Only retry a disappearing/down interface, not a persistent
+                # configuration failure on interfaces that are still ready.
+                if set(interfaces).issubset(data_interfaces()):
+                    raise
+            else:
+                if interfaces == data_interfaces():
+                    return interfaces
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ConnectorError("WARNING: no lab interface became ready within 15s; exiting")
+        time.sleep(min(_INTERFACE_POLL_INTERVAL, remaining))
+
+
 def main() -> int:
     try:
+        _READY.unlink(missing_ok=True)
         mappings = parse_mappings(dict(os.environ))
         configured: tuple[str, ...] = ()
         while True:
             interfaces = data_interfaces()
-            if interfaces and interfaces != configured:
-                configure(mappings, interfaces)
-                configured = interfaces
+            if not interfaces or interfaces != configured:
+                _READY.unlink(missing_ok=True)
+                configured = activate_interfaces(mappings)
                 _READY.touch()
-                print(f"host-connector ready on {', '.join(interfaces)}", flush=True)
+                print(f"host-connector ready on {', '.join(configured)}", flush=True)
             time.sleep(1)
     except (ConnectorError, OSError, subprocess.SubprocessError) as error:
         print(f"host-connector: {error}", file=sys.stderr, flush=True)
         return 1
+    finally:
+        _READY.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

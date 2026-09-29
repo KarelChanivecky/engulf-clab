@@ -5,6 +5,8 @@ mutation API. Do not write topology files here.
 
 - Keep plugin ID `engulf_clab.lab_parser`, priority `100`, and context ID
   `engulf_clab.topology.session` stable for dependent distributions.
+- Keep `engulf_clab.topology.runtime_session` separate: it holds the parsed file
+  selected by effective arguments on non-deploy calls, with no writer handoff.
 - Parse and publish topology sessions only for deploy or single-source redeploy
   with a local filesystem topology. Preserve native `redeploy --all` and
   name-only handling. For destroy by source, prefer its retained writer topology when it
@@ -122,6 +124,11 @@ returns a deep mutable copy; `editor(owner)` attributes deferred operations to a
 nonempty plugin ID; and `materialize()` returns a fresh document with all
 operations resolved. Do not retain the session, editor, or invocation
 API beyond the active callback.
+
+Non-deploy calls that select one topology file publish a separate
+`RUNTIME_TOPOLOGY_CONTEXT` session. Its path comes from the effective call
+arguments after routing, so consumers see the retained writer file when one
+was selected. Calls with no topology option publish no runtime session.
 
 A `YamlPath` is a nonempty tuple of string mapping keys and integer list
 indexes, for example `("topology", "nodes", "router", "env", "FEATURE")`; any

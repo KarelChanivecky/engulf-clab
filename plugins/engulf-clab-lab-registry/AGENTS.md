@@ -1,5 +1,8 @@
 # Plugin instructions
 
+- Keep `PLUGIN_SCHEMA` at `audience=SchemaAudience.SUPPORT`: this plugin serves
+  other plugins, so the generated lab skill omits it. Do not add topology
+  controls, task routes, or node kinds to that declaration.
 - Read `CONTRIBUTING.md`, `USAGE.md`, source, schema, help, and tests together.
 - Own persistence and deploy/redeploy observation in this plugin.
 - Expose records only through `engulf-clab-lab-registry-api`.

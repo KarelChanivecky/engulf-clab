@@ -23,6 +23,7 @@ from .environment import (
 )
 
 TOPOLOGY_CONTEXT = "engulf_clab.topology.session"
+RUNTIME_TOPOLOGY_CONTEXT = "engulf_clab.topology.runtime_session"
 PathPart = str | int
 YamlPath = tuple[PathPart, ...]
 _OPTIONS = frozenset(("-t", "--topo", "--topology"))

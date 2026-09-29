@@ -26,6 +26,10 @@ class TopologySourceTest(unittest.TestCase):
             topology_source_from_args(("destroy", "--topo=labs/one.clab.yml")),
             "labs/one.clab.yml",
         )
+        self.assertEqual(
+            topology_source_from_args(("freeze", "--eclab-topology=labs/one.clab.yml")),
+            "labs/one.clab.yml",
+        )
 
     def test_missing_or_absent_value_returns_none(self) -> None:
         self.assertIsNone(topology_source_from_args(("deploy",)))
@@ -70,6 +74,19 @@ class WorkspaceRootTest(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             self.assertEqual(workspace_root(context(root, ("deploy",))), root)
+
+    def test_freeze_positional_directory_selects_lab_workspace(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            lab = root / "lab"
+            lab.mkdir()
+            for args in (
+                ("freeze", "lab"),
+                ("freeze", "--eclab-offline", "lab"),
+                ("freeze", "--eclab-output", "share.tar.gz", "lab"),
+            ):
+                with self.subTest(args=args):
+                    self.assertEqual(workspace_root(context(root, args)), lab)
 
 
 if __name__ == "__main__":

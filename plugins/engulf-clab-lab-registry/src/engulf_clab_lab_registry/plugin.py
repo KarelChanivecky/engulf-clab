@@ -21,6 +21,7 @@ from engulf_clab_schema_api import (
     LifecycleStage,
     PluginSchema,
     Privilege,
+    SchemaAudience,
     SchemaBackedPlugin,
     record_plugin_schema,
 )
@@ -30,7 +31,11 @@ from .observe import observe_deployed_lab
 from .storage import SessionLabRegistry, StateLabRegistry
 
 PLUGIN_SCHEMA = (
-    PluginSchema("engulf_clab.lab_registry", package="engulf_clab_lab_registry")
+    PluginSchema(
+        "engulf_clab.lab_registry",
+        package="engulf_clab_lab_registry",
+        audience=SchemaAudience.SUPPORT,
+    )
     .use_case("Maintain a shared inventory of deployed and explicitly discovered labs.")
     .order(
         LifecycleStage.BEFORE_GOAL,
@@ -46,11 +51,6 @@ PLUGIN_SCHEMA = (
         Privilege.CONTAINER_RUNTIME,
         "Deployment observation requires read access to the configured container runtime.",
         commands=("deploy", "redeploy"),
-    )
-    .route(
-        "understand-lab-inventory",
-        "USAGE.md",
-        "Read registry identity, observation, persistence, and retention behavior.",
     )
     .refer("USAGE.md")
 )

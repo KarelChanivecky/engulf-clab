@@ -12,12 +12,16 @@ artifact for its specific purpose:
 | `plugins/<plugin-id>/schema.yaml` | Inspect concise controls, relationships, safety, and reference routes. |
 | `plugins/containerlab.node_kinds/schema.yaml` | Index every exact Containerlab kind. |
 | `plugins/containerlab.node_kinds/node-kinds/<kind>/schema.yaml` | One compact source record per kind, plus whichever upstream documents exist for it. |
-| `manifest.json` | Inspect provider ownership, source identity, pipeline, and lineage. |
+| `manifest.json` | Inspect provider ownership, source identity, pipeline, and lineage. `support_plugins` names active support-only providers whose declarations are fingerprinted but not published. |
 | `clab.schema.json` | Validate the final topology; do not use it for feature discovery. |
 
 Each canonical wrapper flag also names its `environment_default` when one
 exists, so an agent knows which supported environment variable persists the
 setting and that the CLI form overrides it for a single invocation.
+
+Providers declared with the support audience serve other plugins rather than
+lab authors. They contribute to the fingerprint and runtime completion but have
+no catalog entry, provider YAML, or references in the generated artifacts.
 
 Detailed usage references live beneath their provider. Base Containerlab CLI
 syntax remains runtime-specific; use the selected launcher's `--help`.

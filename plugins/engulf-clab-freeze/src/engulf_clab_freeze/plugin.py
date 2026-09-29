@@ -29,20 +29,28 @@ from .defrost import main as run_defrost_command
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.freeze", package="engulf_clab_freeze")
     .add_command("freeze", "Create a sanitized, portable archive from a lab topology.")
+    .add_cli_argument(
+        "freeze",
+        "LAB_DIR",
+        "Select the directory containing one source topology; defaults to the current directory.",
+        values=ValueType.DIRECTORY_PATH,
+        required=False,
+        default=".",
+    )
     .add_cli_flag(
-        ("-t", "--topology"),
+        ("-t", "--eclab-topology"),
         "Select the source topology file.",
         command="freeze",
         values=ValueType.FILE_PATH,
     )
     .add_cli_flag(
-        "--output",
+        "--eclab-output",
         "Write the archive to this path.",
         command="freeze",
         values=ValueType.FILE_PATH,
     )
     .add_cli_flag(
-        "--offline",
+        "--eclab-offline",
         "Include cached source material needed for an offline restore.",
         command="freeze",
     )
@@ -52,26 +60,26 @@ PLUGIN_SCHEMA = (
         command="freeze",
     )
     .add_cli_flag(
-        "--external-image",
+        "--eclab-external-image",
         "Declare an image that the recipient supplies; repeat for additional dependencies.",
         command="freeze",
         values=ValueType.IMAGE_REFERENCE,
         repeatable=True,
     )
     .add_cli_flag(
-        "--bundle-image",
+        "--eclab-bundle-image",
         "Export an image into an offline archive.",
         command="freeze",
         values=ValueType.IMAGE_REFERENCE,
         repeatable=True,
     )
     .add_cli_flag(
-        "--include-pki-secrets",
+        "--eclab-include-pki-secrets",
         "Include exportable PKI identities when the PKI contributor is installed.",
         command="freeze",
     )
     .add_cli_flag(
-        "--pki-passphrase-file",
+        "--eclab-pki-passphrase-file",
         "Read the PKI export passphrase from an owner-private file.",
         command="freeze",
         values=ValueType.FILE_PATH,
@@ -80,33 +88,39 @@ PLUGIN_SCHEMA = (
         "freeze",
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         implies=("normal Containerlab execution is preempted",),
-        examples=("eclab freeze -t lab.clab.yml --output share.tar.gz",),
+        examples=("eclab freeze labs/demo --eclab-output share.tar.gz",),
+    )
+    .annotate(
+        "LAB_DIR",
+        commands=("freeze",),
+        path_base=PathBase.INVOCATION_DIRECTORY,
+        conflicts_with=("-t",),
     )
     .annotate(
         "-t",
         commands=("freeze",),
         path_base=PathBase.INVOCATION_DIRECTORY,
-        conflicts_with=("implicit single-topology discovery",),
+        conflicts_with=("LAB_DIR",),
     )
     .annotate(
-        "--output",
-        commands=("freeze",),
+        "--eclab-output",
+        commands=("freeze", "defrost"),
         path_base=PathBase.INVOCATION_DIRECTORY,
     )
     .annotate(
-        "--offline",
+        "--eclab-offline",
         commands=("freeze",),
-        conflicts_with=("--external-image",),
+        conflicts_with=("--eclab-external-image",),
         implies=(
             "bundle runtime/tools and images whose rebuild may require network access",
         ),
     )
     .annotate("--eclab-with-runtime", commands=("freeze",))
-    .annotate("--external-image", commands=("freeze",), conflicts_with=("--offline",))
+    .annotate("--eclab-external-image", commands=("freeze",), conflicts_with=("--eclab-offline",))
     .annotate(
-        "--bundle-image",
+        "--eclab-bundle-image",
         commands=("freeze",),
-        requires=("--offline",),
+        requires=("--eclab-offline",),
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
     )
@@ -121,69 +135,69 @@ PLUGIN_SCHEMA = (
         values=ValueType.FILE_PATH,
     )
     .add_cli_flag(
-        "--into",
+        "--eclab-output",
         "Write the lab into this directory.",
         command="defrost",
         values=ValueType.DIRECTORY_PATH,
     )
     .add_cli_flag(
-        "--force",
+        "--eclab-force",
         "Replace a directory an earlier defrost created at the destination.",
         command="defrost",
     )
     .add_cli_flag(
-        "--license",
+        "--eclab-license",
         "Answer one frozen license prompt as NODE=VALUE, or every prompt as VALUE.",
         command="defrost",
         values=ValueType.STRING,
         repeatable=True,
     )
     .add_cli_flag(
-        "--env",
+        "--eclab-env",
         "Provide a topology environment value to the recipient initializer as NAME=VALUE.",
         command="defrost",
         values=ValueType.STRING,
         repeatable=True,
     )
     .add_cli_flag(
-        "--no-license-prompt",
+        "--eclab-no-license-prompt",
         "Keep frozen license markers instead of asking for paths.",
         command="defrost",
     )
     .add_cli_flag(
-        "--no-runtime",
+        "--eclab-no-runtime",
         "Skip runtime preparation; a runtime archive launcher prepares it on first use.",
         command="defrost",
     )
     .add_cli_flag(
-        "--no-images",
+        "--eclab-no-images",
         "Skip selection of bundled Docker image archives.",
         command="defrost",
     )
     .add_cli_flag(
-        "--load-images",
+        "--eclab-load-images",
         "Load selected bundled image archives into Docker now.",
         command="defrost",
     )
     .add_cli_flag(
-        "--skip-env-init",
+        "--eclab-skip-env-init",
         "Do not run the archive's recipient environment initializer.",
         command="defrost",
     )
     .add_cli_flag(
-        "--pki-authority",
+        "--eclab-pki-authority",
         "Resolve one frozen PKI binding as BINDING=REF.",
         command="defrost",
         values=ValueType.STRING,
         repeatable=True,
     )
     .add_cli_flag(
-        "--no-pki-prompt",
+        "--eclab-no-pki-prompt",
         "Keep unresolved PKI bindings as actionable manifest markers.",
         command="defrost",
     )
     .add_cli_flag(
-        "--pki-passphrase-file",
+        "--eclab-pki-passphrase-file",
         "Read the PKI import passphrase from an owner-private file.",
         command="defrost",
         values=ValueType.FILE_PATH,
@@ -192,7 +206,7 @@ PLUGIN_SCHEMA = (
         "defrost",
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         implies=("normal Containerlab execution is preempted",),
-        examples=("eclab defrost share.tar.gz --into labs/demo",),
+        examples=("eclab defrost share.tar.gz --eclab-output labs/demo",),
     )
     .annotate(
         "ARCHIVE",
@@ -200,41 +214,35 @@ PLUGIN_SCHEMA = (
         path_base=PathBase.INVOCATION_DIRECTORY,
     )
     .annotate(
-        "--into",
-        commands=("defrost",),
-        path_base=PathBase.INVOCATION_DIRECTORY,
-        conflicts_with=("the default directory named after the archive",),
-    )
-    .annotate(
-        "--force",
+        "--eclab-force",
         commands=("defrost",),
         requires=("the destination holds an earlier defrost record",),
     )
     .annotate(
-        "--license",
+        "--eclab-license",
         commands=("defrost",),
         path_base=PathBase.LICENSE_POOL,
-        conflicts_with=("--no-license-prompt",),
+        conflicts_with=("--eclab-no-license-prompt",),
     )
     .annotate(
-        "--env",
+        "--eclab-env",
         commands=("defrost",),
-        conflicts_with=("--skip-env-init",),
+        conflicts_with=("--eclab-skip-env-init",),
     )
     .annotate(
-        "--no-license-prompt",
+        "--eclab-no-license-prompt",
         commands=("defrost",),
         implies=("deploy resolves every frozen license instead",),
     )
     .annotate(
-        "--no-runtime",
+        "--eclab-no-runtime",
         commands=("defrost",),
         implies=("run-eclab.sh prepares the runtime at first use",),
     )
     .annotate(
-        "--load-images",
+        "--eclab-load-images",
         commands=("defrost",),
-        conflicts_with=("--no-images",),
+        conflicts_with=("--eclab-no-images",),
         host_tools=("docker",),
         privilege=Privilege.CONTAINER_RUNTIME,
     )
@@ -242,7 +250,7 @@ PLUGIN_SCHEMA = (
         "Create a sanitized portable archive without deploying or destroying the lab."
     )
     .use_case(
-        "Use the lean default for recipient image inputs, or --offline to bundle images."
+        "Use the lean default for recipient image inputs, or --eclab-offline to bundle images."
     )
     .use_case(
         "Expand a received archive into a lab with local licenses, images, and runtime."
@@ -293,7 +301,7 @@ class FreezePlugin(SchemaBackedPlugin):
             return None
         self._acknowledge_schema_sources(api)
         workspace = api.state(StateScope.WORKSPACE)
-        offline = "--offline" in invocation.arguments[1:]
+        offline = "--eclab-offline" in invocation.arguments[1:]
         application_name = api.application.short_product_name or api.application.product
         user_state = api.state(StateScope.USER)
         # Fixed regardless of edition, so two differently-branded editions
@@ -344,11 +352,11 @@ class FreezePlugin(SchemaBackedPlugin):
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  freeze [-t TOPOLOGY] [--output ARCHIVE] [--eclab-with-runtime | --offline]  "
+            "  freeze [LAB_DIR | -t TOPOLOGY] [--eclab-output ARCHIVE] [--eclab-with-runtime | --eclab-offline]  "
             "Create a sanitized portable lab archive\n"
             "    Default: record compatibility; leave runtime and images to the recipient.\n"
-            "    --eclab-with-runtime: wheelhouse and pinned tools; --offline: bundle runtime, tools, images.\n"
-            "    --external-image IMAGE (non-offline) / --bundle-image IMAGE (offline).\n"
-            "  defrost ARCHIVE [--into DIRECTORY] [--pki-authority BINDING=REF]  "
+            "    --eclab-with-runtime: wheelhouse and tools for a lab venv; --eclab-offline: bundle runtime, tools, images.\n"
+            "    --eclab-external-image IMAGE (non-offline) / --eclab-bundle-image IMAGE (offline).\n"
+            "  defrost ARCHIVE [--eclab-output DIRECTORY] [--eclab-pki-authority BINDING=REF]  "
             "Expand a frozen archive into a runnable lab"
         )

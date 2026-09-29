@@ -46,11 +46,13 @@ generated lab skill.
 
 ## Builder signatures
 
-`PluginSchema(plugin_id: str, *, package: str, pipeline_id: str = "eclab")`
-creates a mutable import-time builder. `plugin_id` is the exact lowercase,
-dot-qualified Engulf plugin ID. `package` is the import package used to resolve
-its distribution metadata and packaged references. `pipeline_id` selects the
-declaration partition; existing eclab contributors may omit it. Every mutator
+`PluginSchema(plugin_id: str, *, package: str, pipeline_id: str = "eclab",
+audience: SchemaAudience = SchemaAudience.LAB_AUTHOR)` creates a mutable
+import-time builder. `plugin_id` is the exact lowercase, dot-qualified Engulf
+plugin ID. `package` is the import package used to resolve its distribution
+metadata and packaged references. `pipeline_id` selects the declaration
+partition; existing eclab contributors may omit it. `audience` says who the
+declaration serves (see [Support plugins](#support-plugins)). Every mutator
 returns the same builder, so declarations may be chained.
 
 ```python
@@ -241,6 +243,18 @@ runs; absolute paths, traversal, case-colliding duplicates, and oversized
 resources are rejected. Runtime plugins conventionally route to and snapshot
 `USAGE.md`; their concise package `README.md` and contributor documentation are
 not agent runtime references.
+
+## Support plugins
+
+A plugin that exists only to serve other plugins — a topology serializer, an
+inventory store, a platform asset image, or the schema and skill tooling itself —
+passes `audience=SchemaAudience.SUPPORT`. Its declaration still fingerprints the
+runtime and its controls still drive completion, but the compiler omits it from
+the generated catalog, provider YAML, and references so it cannot compete with
+lab-authoring providers in an agent's search space. A support declaration must
+not add topology properties, node variables, task routes, or node kinds; snapshot
+creation fails if it does, because anything a lab author writes into a topology
+belongs to a discoverable provider.
 
 ## Edition schema pipelines
 

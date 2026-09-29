@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
+import io
+import itertools
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import call, patch
 
 _RUNTIME_PATH = (
     Path(__file__).parents[1]
     / "src/engulf_clab_containers_core/containers/host-connector/runtime.py"
 )
-_RUNTIME_SPEC = importlib.util.spec_from_file_location("eclab_host_connector_runtime", _RUNTIME_PATH)
+_RUNTIME_SPEC = importlib.util.spec_from_file_location(
+    "eclab_host_connector_runtime", _RUNTIME_PATH
+)
 assert _RUNTIME_SPEC is not None and _RUNTIME_SPEC.loader is not None
 runtime = importlib.util.module_from_spec(_RUNTIME_SPEC)
 sys.modules[_RUNTIME_SPEC.name] = runtime
@@ -32,6 +37,8 @@ class RuntimeTest(unittest.TestCase):
             sysctl = root / "proc/sys/net"
             for name in ("lo", "eth0", "eth1"):
                 (network / name).mkdir(parents=True)
+            state = network / "eth1/operstate"
+            state.write_text("up\n")
 
             self.assertEqual(data_interfaces(network, sysctl), ())
 
@@ -45,6 +52,28 @@ class RuntimeTest(unittest.TestCase):
                 target.touch()
 
             self.assertEqual(data_interfaces(network, sysctl), ("eth1",))
+            state.write_text("down\n")
+            self.assertEqual(data_interfaces(network, sysctl), ())
+            state.unlink()
+            self.assertEqual(data_interfaces(network, sysctl), ())
+
+    def test_temporary_veth_names_are_ignored_and_custom_names_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            network = root / "net"
+            sysctl = root / "sysctl"
+            for name in ("lo", "eth0", "clab-123456", "uplink"):
+                (network / name).mkdir(parents=True)
+                (network / name / "operstate").write_text("up\n")
+                for family, setting in (
+                    ("ipv4", "proxy_arp"),
+                    ("ipv4", "rp_filter"),
+                    ("ipv6", "proxy_ndp"),
+                ):
+                    target = sysctl / family / "conf" / name / setting
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.touch()
+            self.assertEqual(data_interfaces(network, sysctl), ("uplink",))
 
     def test_sparse_dual_stack_mappings(self) -> None:
         mappings = parse_mappings(
@@ -176,6 +205,144 @@ class RuntimeTest(unittest.TestCase):
                 call("ipv6", "eth7", "proxy_ndp", "1"),
             ],
         )
+
+
+class StartupTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.elapsed = 0.0
+        self.enterContext(patch.object(runtime.time, "monotonic", lambda: self.elapsed))
+        self.enterContext(patch.object(runtime.time, "sleep", self.advance))
+        self.mappings = parse_mappings({"ECLAB_CONNECT_HOST": "10.0.0.50;192.0.2.50"})
+
+    def advance(self, seconds: float) -> None:
+        self.elapsed += seconds
+
+    def test_waits_for_interface_to_be_ready(self) -> None:
+        with (
+            patch.object(runtime, "data_interfaces", side_effect=[(), (), ("eth1",), ("eth1",)]),
+            patch.object(runtime, "configure") as configure_mock,
+        ):
+            self.assertEqual(runtime.activate_interfaces(self.mappings), ("eth1",))
+        configure_mock.assert_called_once_with(self.mappings, ("eth1",))
+        self.assertAlmostEqual(self.elapsed, 0.4)
+
+    def test_retries_interface_races_during_configuration(self) -> None:
+        errors = (
+            OSError(errno.ENODEV, "No such device"),
+            ConnectorError("cannot set disappeared sysctl"),
+            CalledProcessError(1, ["ip", "route"]),
+        )
+        for error in errors:
+            with (
+                self.subTest(error=error),
+                patch.object(
+                    runtime,
+                    "data_interfaces",
+                    side_effect=[("old-name",), (), ("eth1",), ("eth1",)],
+                ),
+                patch.object(runtime, "configure", side_effect=[error, None]) as configure_mock,
+            ):
+                self.assertEqual(runtime.activate_interfaces(self.mappings), ("eth1",))
+                self.assertEqual(configure_mock.call_count, 2)
+
+    def test_interface_arriving_during_last_poll_interval_is_accepted(self) -> None:
+        self.elapsed = 1000.0
+        with (
+            patch.object(
+                runtime,
+                "data_interfaces",
+                side_effect=lambda: ("eth1",) if self.elapsed >= 1014.95 else (),
+            ),
+            patch.object(runtime, "configure") as configure_mock,
+        ):
+            self.assertEqual(runtime.activate_interfaces(self.mappings), ("eth1",))
+        self.assertAlmostEqual(self.elapsed, 1015.0)
+        configure_mock.assert_called_once_with(self.mappings, ("eth1",))
+
+    def test_does_not_hide_configuration_errors_on_ready_interfaces(self) -> None:
+        for error in (
+            OSError(errno.EPERM, "Operation not permitted"),
+            ConnectorError("invalid policy rule"),
+            CalledProcessError(1, ["iptables"]),
+        ):
+            with (
+                self.subTest(error=error),
+                patch.object(runtime, "data_interfaces", return_value=("eth1",)),
+                patch.object(runtime, "configure", side_effect=error),
+                self.assertRaises(type(error)) as raised,
+            ):
+                runtime.activate_interfaces(self.mappings)
+            self.assertIs(raised.exception, error)
+        self.assertEqual(self.elapsed, 0)
+
+    def test_interface_changes_after_configuration_are_retried(self) -> None:
+        with (
+            patch.object(
+                runtime,
+                "data_interfaces",
+                side_effect=[("eth1",), (), ("eth2",), ("eth2",)],
+            ),
+            patch.object(runtime, "configure") as configure_mock,
+        ):
+            self.assertEqual(runtime.activate_interfaces(self.mappings), ("eth2",))
+        self.assertEqual(configure_mock.call_count, 2)
+
+    def test_repeated_interface_races_do_not_extend_deadline(self) -> None:
+        with (
+            patch.object(runtime, "data_interfaces", side_effect=itertools.cycle([("eth1",), ()])),
+            patch.object(runtime, "configure", side_effect=OSError(errno.ENODEV, "No such device")),
+            self.assertRaisesRegex(ConnectorError, "WARNING:.*15s"),
+        ):
+            runtime.activate_interfaces(self.mappings)
+        self.assertAlmostEqual(self.elapsed, 15)
+
+    def test_missing_interface_warns_and_exits_within_15_seconds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ready = Path(directory) / "ready"
+            ready.touch()  # A restarted process must not inherit stale health.
+            with (
+                patch.object(runtime, "_READY", ready),
+                patch.dict(
+                    runtime.os.environ, {"ECLAB_CONNECT_HOST": "10.0.0.50;192.0.2.50"}, clear=True
+                ),
+                patch.object(runtime, "data_interfaces", return_value=()),
+                patch.object(runtime, "configure") as configure_mock,
+                patch.object(runtime.sys, "stderr", new_callable=io.StringIO) as stderr,
+            ):
+                self.assertEqual(runtime.main(), 1)
+                self.assertIn(
+                    "WARNING: no lab interface became ready within 15s", stderr.getvalue()
+                )
+                self.assertFalse(ready.exists())
+                configure_mock.assert_not_called()
+        self.assertAlmostEqual(self.elapsed, 15)
+
+    def test_lost_interface_clears_health_and_gets_bounded_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ready = Path(directory) / "ready"
+
+            def interfaces() -> tuple[str, ...]:
+                if self.elapsed < 1:
+                    return ("eth1",)
+                if self.elapsed > 1:
+                    self.assertFalse(ready.exists())
+                return ()
+
+            with (
+                patch.object(runtime, "_READY", ready),
+                patch.dict(
+                    runtime.os.environ, {"ECLAB_CONNECT_HOST": "10.0.0.50;192.0.2.50"}, clear=True
+                ),
+                patch.object(runtime, "data_interfaces", side_effect=interfaces),
+                patch.object(runtime, "configure") as configure_mock,
+                patch.object(runtime.sys, "stdout", new_callable=io.StringIO) as stdout,
+                patch.object(runtime.sys, "stderr", new_callable=io.StringIO),
+            ):
+                self.assertEqual(runtime.main(), 1)
+                self.assertIn("host-connector ready on eth1", stdout.getvalue())
+                self.assertFalse(ready.exists())
+                configure_mock.assert_called_once()
+        self.assertAlmostEqual(self.elapsed, 16)
 
 
 if __name__ == "__main__":

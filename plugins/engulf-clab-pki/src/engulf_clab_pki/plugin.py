@@ -194,8 +194,8 @@ class PkiPlugin(SchemaBackedPlugin):
             f"  [defaults|kind|group|node].env.{PRIVATE_AUTHORITIES_ENVIRONMENT}: REF,...\n"
             "  ECLAB_PKI_TRUST_MODE=all|none with TRUST_INCLUDE/EXCLUDE=REF,...\n"
             "      Request named v2 identities and mount a node-specific read-only inventory\n"
-            "  freeze --include-pki-secrets [--pki-passphrase-file FILE]\n"
-            "  defrost --pki-authority BINDING=REF [--no-pki-prompt]"
+            "  freeze --eclab-include-pki-secrets [--eclab-pki-passphrase-file FILE]\n"
+            "  defrost --eclab-pki-authority BINDING=REF [--eclab-no-pki-prompt]"
         )
 
     def analyze_call(self, event: BeforeCallEvent, api: InvocationAPI) -> CallContribution | None:

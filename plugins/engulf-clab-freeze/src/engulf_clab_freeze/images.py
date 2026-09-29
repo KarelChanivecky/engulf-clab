@@ -36,6 +36,9 @@ from engulf_docker_image_core import ImageResolutionError, resolve_image_graph
 
 MANIFEST = "images.freeze.json"
 DOCKER_IMAGE_PROVIDER_GROUP = "engulf.plugins.v1.goal.v1.org_engulf_docker_image"
+_RECIPIENT_VARIABLE = re.compile(
+    r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*(?::-|:=|-|=)?\})"
+)
 
 
 def _run(
@@ -251,7 +254,7 @@ def freeze_images(
 ) -> dict[str, Any]:
     """Mutate only a staged topology and its files; never build, pull, or load."""
     if bundle_images and not offline:
-        raise FreezeError("--bundle-image requires --offline")
+        raise FreezeError("--eclab-bundle-image requires --eclab-offline")
     source_root = topology_path.parent
     current_env = topology_environment(topology_path, environment)
 
@@ -368,7 +371,7 @@ def freeze_images(
     if external & forced:
         raise FreezeError("an image cannot be both external and forced into the bundle")
     if offline and external:
-        raise FreezeError("--external-image cannot be combined with --offline")
+        raise FreezeError("--eclab-external-image cannot be combined with --eclab-offline")
     entries: dict[str, dict[str, Any]] = {}
     visiting: list[str] = []
     copied: dict[str, str] = {}
@@ -413,6 +416,20 @@ def freeze_images(
         source = (
             declarations[0] if declarations else ImageSource(reference, None, "opaque")
         )
+        if lean and source.kind == "archive":
+            for item in source.inputs:
+                path = item.path
+                if (
+                    path is not None
+                    and path.is_relative_to(source_root)
+                    and "$" not in str(path)
+                    and not path.is_file()
+                ):
+                    owner = f"node {source.node}" if source.node else f"image {reference}"
+                    raise FreezeError(
+                        f"{owner} {item.control} is missing: "
+                        f"{path.relative_to(source_root)}; create it before freezing"
+                    )
         entry: dict[str, Any] = {"image": reference, "nodes": owners(reference)}
         entries[reference] = entry
         portable = (
@@ -456,9 +473,8 @@ def freeze_images(
                         original = (
                             authored[source.node].data.get("env", {}).get(item.control)
                         )
-                        if isinstance(original, str) and re.fullmatch(
-                            r"\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})",
-                            original,
+                        if isinstance(original, str) and _RECIPIENT_VARIABLE.fullmatch(
+                            original
                         ):
                             value = original
                     # Inputs intentionally omitted from a lean archive must not
@@ -597,7 +613,7 @@ def freeze_images(
         if local is None or not isinstance(local.get("Id"), str):
             chain = " -> ".join(visiting)
             raise FreezeError(
-                f"cannot package image {reference} ({chain}): no usable archive, complete recipe, verified registry source, or local image; supply it first or use --lean/--external-image"
+                f"cannot package image {reference} ({chain}): no usable archive, complete recipe, verified registry source, or local image; supply it first or use --eclab-external-image"
             )
         image_id = local["Id"]
         identity = hashlib.sha256(image_id.encode()).hexdigest()
@@ -628,12 +644,23 @@ def freeze_images(
             reason="selected image cannot be obtained or rebuilt from the bundle",
         )
         disable(reference)
+        if offline:
+            # The installed image-archive plugin consumes this node-local path
+            # during deploy. Keep the manifest too for dependency-only images.
+            for name in owners(reference):
+                node = raw_nodes.get(name)
+                if not isinstance(node, dict):
+                    continue
+                node_environment = node.setdefault("env", {})
+                if isinstance(node_environment, dict):
+                    node_environment["ECLAB_IMAGE_ARCHIVE"] = relative
+                    node_environment["ECLAB_IMAGE_ARCHIVE_RELOAD"] = "true"
 
     def require_archive_tag(reference: str) -> None:
         if "@" in reference:
             raise FreezeError(
                 f"cannot restore digest reference {reference} by retagging an archive; "
-                "select a tag before freezing, or use --external-image"
+                "select a tag before freezing, or use --eclab-external-image"
             )
 
     for root in dict.fromkeys(roots):

@@ -224,7 +224,7 @@ Extract it and run `./run-eclab.sh`. License values are redacted and prompt the
 recipient for their own file, pool, or environment variable at deployment time.
 
 ```bash
-eclab defrost demo.tar.gz --into labs/demo
+eclab defrost demo.tar.gz --eclab-output labs/demo
 ```
 
 `eclab defrost` is the receiving side: it expands one archive atomically,

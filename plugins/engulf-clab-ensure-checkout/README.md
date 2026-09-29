@@ -58,8 +58,9 @@ valid target first, that checkout wins.
 
 ## Update and clamp behavior
 
-Update checks apply only to Git worktrees and only when requested. A directory
-without Git metadata is returned unchanged. Check records are keyed by the
+Update checks apply only to Git worktrees rooted at the selected checkout and
+only when requested. A directory without its own Git metadata is returned
+unchanged, even when an enclosing directory is a Git worktree. Check records are keyed by the
 resolved checkout path and retain the requested version and branch; an identical
 request is checked at most once per 24 hours.
 

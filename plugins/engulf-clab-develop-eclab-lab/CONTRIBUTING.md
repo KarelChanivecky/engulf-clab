@@ -1,5 +1,8 @@
 # Generated skill plugin development notes
 
+- Keep `PLUGIN_SCHEMA` at `audience=SchemaAudience.SUPPORT`: this plugin serves
+  other plugins, so the generated lab skill omits it. Do not add topology
+  controls, task routes, or node kinds to that declaration.
 - Derive from `SchemaBackedPlugin` so the install command and configuration-root
   path are completed directly from `PLUGIN_SCHEMA`.
 - Declare the schema ordering edge only in the

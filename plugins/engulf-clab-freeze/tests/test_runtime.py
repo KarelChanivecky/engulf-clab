@@ -1,10 +1,13 @@
 import json
 import tarfile
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
+from engulf_clab_freeze_api import FreezeError as ProviderError
+
 from engulf_clab_freeze.command import freeze
 from engulf_clab_freeze.defrost import (
     DefrostError,
@@ -16,7 +19,6 @@ from engulf_clab_freeze.runtime import (
     _containerlab_version,
     _package_mismatches,
 )
-from engulf_clab_freeze_api import FreezeError as ProviderError
 
 
 def _lab(tmp_path):
@@ -37,10 +39,16 @@ def test_lean_archive_layout_and_launcher(tmp_path):
         launcher = saved.extractfile("share/run-eclab.sh").read().decode()
     assert metadata["format"] == 3
     assert (metadata["mode"], metadata["producer_edition"]) == ("lean", "eclab")
+    assert "engulf-clab" in metadata["runtime_packages"]
+    assert "pytest" not in metadata["runtime_packages"]
     assert not any("wheelhouse/" in name or ".eclab-venv/" in name or "images/" in name for name in names)
     assert "share/requirements.freeze.txt" not in names
     assert "share/packages.freeze.txt" in names
     assert "exec eclab" in launcher
+    with tarfile.open(archive) as saved:
+        readme = saved.extractfile("share/FREEZE-README.md").read().decode()
+    assert readme.startswith("# Frozen eclab lab: lab.clab.yml (lean)")
+    assert "./run-eclab.sh destroy -t lab.clab.yml" in readme
     assert "pip install" not in launcher
     assert "freeze-compatible" not in launcher
 
@@ -99,10 +107,21 @@ def test_runtime_archive_adds_lock_and_wheelhouse_without_images(tmp_path):
     with (
         patch("engulf_clab_freeze.runtime.EclabRuntimeProvider.capture", return_value={"containerlab": {"version": "1", "commit": "abc"}, "vrnetlab": {"revision": "def"}}),
         patch("engulf_clab_freeze.command._download_wheels", side_effect=wheels),
+        patch("engulf_clab_freeze.runtime._tool_paths", return_value=(Path("/bin/clab"), Path("/vrnetlab"))),
+        patch("engulf_clab_freeze.runtime._containerlab_version", return_value={"version": "1", "commit": "abc"}),
+        patch("engulf_clab_freeze.runtime._git_identity", return_value={"revision": "def"}),
+        patch("engulf_clab_freeze.command._bundle_offline_containerlab", side_effect=_bundle_clab),
+        patch("engulf_clab_freeze.command._bundle_offline_vrnetlab", side_effect=_bundle_vrnetlab),
+        patch("engulf_clab_freeze.command._bundle_offline_runtime") as bundle_venv,
+        patch("engulf_clab_freeze.command._download_python_wheels") as python_wheels,
     ):
         freeze(topology, archive, with_runtime=True, environment={})
+    bundle_venv.assert_not_called()
+    python_wheels.assert_called_once()
     with tarfile.open(archive) as saved:
         names = saved.getnames()
+        revision = saved.extractfile("share/tools/vrnetlab/.eclab-freeze-revision").read()
+        readme = saved.extractfile("share/FREEZE-README.md").read().decode()
         metadata = yaml.safe_load(saved.extractfile("share/lab.clab.yml"))["x-engulf-clab-freeze"]
         launcher = saved.extractfile("share/run-eclab.sh").read().decode()
     assert metadata["mode"] == "runtime"
@@ -110,36 +129,118 @@ def test_runtime_archive_adds_lock_and_wheelhouse_without_images(tmp_path):
     assert "share/wheelhouse/demo-1-py3-none-any.whl" in names
     assert not any("images/" in name for name in names)
     assert "runtime verify" in launcher
-    assert "pip install" in launcher
+    assert "unset CONTAINERLAB_VERSION VRNETLAB_VERSION" in launcher
+    assert "pip install --no-index" in launcher
+    assert "python-versions.freeze.txt" in launcher
+    assert revision == b"def\n"
+    assert "(runtime)" in readme
+    assert "ECLAB_PYTHON" in readme
+    assert "share/tools/containerlab/bin/containerlab" in names
+    assert "share/tools/vrnetlab/common/vrnetlab.py" in names
+    assert not any(".eclab-venv/" in name for name in names)
 
 
-def test_runtime_refuses_mismatch_without_provisioning_source(tmp_path):
+def _bundle_clab(root, state, environment):
+    (root / "tools" / "containerlab" / "bin").mkdir(parents=True)
+    (root / "tools" / "containerlab" / "bin" / "containerlab").write_bytes(b"clab")
+
+
+def _bundle_vrnetlab(root, state, environment):
+    (root / "tools" / "vrnetlab" / "common").mkdir(parents=True)
+    (root / "tools" / "vrnetlab" / "common" / "vrnetlab.py").write_bytes(b"vrnetlab")
+
+
+def _bundled_lab(root, revision="123456789abc"):
+    (root / ".eclab-venv" / "bin").mkdir(parents=True, exist_ok=True)
+    (root / ".eclab-venv" / "bin" / "python").write_bytes(b"python")
+    _bundle_clab(root, None, {})
+    (root / "tools" / "containerlab" / "bin" / "containerlab").chmod(0o755)
+    _bundle_vrnetlab(root, None, {})
+    (root / "tools" / "vrnetlab" / ".eclab-freeze-revision").write_text(revision + "\n")
+
+
+_RECORDED_TOOLS = {
+    "containerlab": {"version": "1", "commit": "abcdef0", "repository": "https://example.org/containerlab.git", "revision": "abcdef012345"},
+    "vrnetlab": {"revision": "123456789abc", "repository": "https://example.org/vrnetlab.git"},
+}
+
+
+def test_runtime_uses_bundled_tools_without_fetching(tmp_path):
     provider = EclabRuntimeProvider()
-    tools = {"containerlab": {"version": "1", "commit": "abc"}, "vrnetlab": {"revision": "def"}}
+    _bundled_lab(tmp_path)
     with (
-        patch("engulf_clab_freeze.runtime._tool_paths", return_value=(None, None)),
-        pytest.raises(DefrostError, match="no safe repository"),
-    ):
-        provider.prepare_recipient(tmp_path, "runtime", tools, {}, None, [])
-
-
-def test_runtime_provisions_recorded_tool_revisions_when_needed(tmp_path):
-    provider = EclabRuntimeProvider()
-    tools = {
-        "containerlab": {"version": "1", "commit": "abcdef0", "repository": "https://example.org/containerlab.git", "revision": "abcdef012345"},
-        "vrnetlab": {"revision": "123456789abc", "repository": "https://example.org/vrnetlab.git"},
-    }
-    with (
-        patch("engulf_clab_freeze.runtime._tool_paths", return_value=(None, None)),
-        patch("engulf_clab_freeze.runtime._clone_revision") as clone,
         patch("engulf_clab_freeze.runtime._containerlab_version", return_value={"version": "1", "commit": "abcdef0"}),
-        patch("engulf_clab_freeze.runtime.subprocess.run", return_value=type("Result", (), {"returncode": 0})()),
+        patch("engulf_clab_freeze.runtime.subprocess.run") as run,
     ):
-        provider.prepare_recipient(tmp_path, "runtime", tools, {}, None, [])
-    assert clone.call_count == 2
+        provider.prepare_recipient(
+            tmp_path,
+            "runtime",
+            _RECORDED_TOOLS,
+            {"CONTAINERLAB_DIR": "/host/containerlab", "VRNETLAB_DIR": "/host/vrnetlab"},
+            None,
+            [],
+        )
+    run.assert_not_called()
+    venv = tmp_path / ".eclab-venv"
+    assert (venv / "bin" / "containerlab").read_bytes() == b"clab"
+    assert (venv / "share" / "vrnetlab" / "common" / "vrnetlab.py").is_file()
     env = (tmp_path / ".eclab-freeze.env").read_text()
-    assert "CONTAINERLAB_BIN=" in env
-    assert "VRNETLAB_DIR=" in env
+    assert f"CONTAINERLAB_BIN={venv}/bin/containerlab" in env
+    assert f"VRNETLAB_DIR={venv}/share/vrnetlab" in env
+    assert "VRNETLAB_UPDATE=0" in env
+    assert "VRNETLAB_VERSION" not in env
+    assert "CONTAINERLAB_VERSION" not in env
+    assert "CONTAINERLAB_DIR" not in env
+    assert "/host/" not in env
+    assert not (tmp_path / ".eclab-runtime").exists()
+
+
+def test_runtime_refuses_archive_without_bundled_containerlab(tmp_path):
+    provider = EclabRuntimeProvider()
+    with pytest.raises(DefrostError, match="virtual environment is missing"):
+        provider.prepare_recipient(tmp_path, "runtime", _RECORDED_TOOLS, {}, None, [])
+    (tmp_path / ".eclab-venv" / "bin").mkdir(parents=True)
+    (tmp_path / ".eclab-venv" / "bin" / "python").write_bytes(b"python")
+    with pytest.raises(DefrostError, match="no bundled Containerlab"):
+        provider.prepare_recipient(tmp_path, "runtime", _RECORDED_TOOLS, {}, None, [])
+
+
+def test_runtime_refuses_bundled_tools_that_differ_from_record(tmp_path):
+    provider = EclabRuntimeProvider()
+    _bundled_lab(tmp_path)
+    with (
+        patch("engulf_clab_freeze.runtime._containerlab_version", return_value={"version": "2", "commit": "abcdef0"}),
+        pytest.raises(DefrostError, match="Containerlab identity differs"),
+    ):
+        provider.prepare_recipient(tmp_path, "runtime", _RECORDED_TOOLS, {}, None, [])
+    (tmp_path / "tools" / "vrnetlab" / ".eclab-freeze-revision").write_text("fedcba987654\n")
+    with (
+        patch("engulf_clab_freeze.runtime._containerlab_version", return_value={"version": "1", "commit": "abcdef0"}),
+        pytest.raises(DefrostError, match="vrnetlab revision differs"),
+    ):
+        provider.prepare_recipient(tmp_path, "runtime", _RECORDED_TOOLS, {}, None, [])
+
+
+def test_runtime_freeze_refuses_changed_tools(tmp_path):
+    provider = EclabRuntimeProvider()
+    clab = {"version": "1", "commit": "abc"}
+    with (
+        patch("engulf_clab_freeze.runtime._tool_paths", return_value=(Path("/bin/clab"), Path("/vrnetlab"))),
+        patch("engulf_clab_freeze.runtime._containerlab_version", return_value=clab),
+        patch("engulf_clab_freeze.runtime._git_identity", return_value={"revision": "other"}),
+        pytest.raises(Exception, match="vrnetlab changed while preparing the runtime archive"),
+    ):
+        provider._bundle_tools(tmp_path, "runtime", clab, {"revision": "def"}, {}, None)
+
+
+def test_runtime_archive_verification_requires_bundled_tools(tmp_path):
+    (tmp_path / "requirements.freeze.txt").write_text("demo==1\n")
+    (tmp_path / "wheelhouse").mkdir()
+    (tmp_path / "wheelhouse" / "demo-1-py3-none-any.whl").write_bytes(b"wheel")
+    with pytest.raises(DefrostError, match="no bundled Containerlab"):
+        _verify_format_three_runtime(tmp_path, "runtime")
+    _bundled_lab(tmp_path)
+    _verify_format_three_runtime(tmp_path, "runtime")
 
 
 def test_containerlab_version_reads_json_identity():
@@ -152,7 +253,30 @@ def test_containerlab_version_reads_json_identity():
 def test_extra_recipient_packages_do_not_mismatch(tmp_path):
     (tmp_path / "packages.freeze.txt").write_text("demo==1\n")
     with patch("importlib.metadata.version", return_value="1"):
-        assert _package_mismatches(tmp_path) == []
+        assert _package_mismatches(tmp_path, ["demo"]) == []
+
+
+def test_lean_runtime_inventory_ignores_producer_development_tools(tmp_path):
+    (tmp_path / "packages.freeze.txt").write_text(
+        "engulf-clab==1\npytest==9\n", encoding="utf-8"
+    )
+    with patch("importlib.metadata.version", return_value="1") as version:
+        assert _package_mismatches(tmp_path, ["engulf-clab"]) == []
+    version.assert_called_once_with("engulf-clab")
+
+
+def test_legacy_lean_archive_checks_engulf_packages_without_dev_tools(tmp_path):
+    (tmp_path / "packages.freeze.txt").write_text(
+        "engulf-clab==1\nengulf-clab-extra==1\npytest==9\n", encoding="utf-8"
+    )
+    with (
+        patch("engulf_clab_freeze.command._locked_packages", return_value=[("engulf-clab", "1")]),
+        patch("importlib.metadata.version", side_effect=["1", PackageNotFoundError("engulf-clab-extra")]) as version,
+    ):
+        assert _package_mismatches(tmp_path) == [
+            "package engulf-clab-extra is missing (frozen 1)"
+        ]
+    assert version.call_count == 2
 
 
 def test_offline_archive_layout_contains_bundled_components(tmp_path):
@@ -193,7 +317,7 @@ def test_offline_archive_layout_contains_bundled_components(tmp_path):
         mode = yaml.safe_load(saved.extractfile("share/lab.clab.yml"))["x-engulf-clab-freeze"]["mode"]
         launcher = saved.extractfile("share/run-eclab.sh").read().decode()
     assert mode == "offline"
-    for name in ("share/wheelhouse/demo-1-py3-none-any.whl", "share/.eclab-venv/bin/eclab", "share/tools/containerlab/bin/containerlab", "share/tools/vrnetlab/common/vrnetlab.py"):
+    for name in ("share/FREEZE-README.md", "share/wheelhouse/demo-1-py3-none-any.whl", "share/.eclab-venv/bin/eclab", "share/tools/containerlab/bin/containerlab", "share/tools/vrnetlab/common/vrnetlab.py"):
         assert name in names
     assert "pip install" not in launcher
 
@@ -208,3 +332,155 @@ def test_offline_archive_requires_complete_runtime_artifacts(tmp_path):
         pytest.raises(DefrostError, match="complete .eclab-venv"),
     ):
         _verify_format_three_runtime(tmp_path, "offline")
+
+
+def test_runtime_freeze_requires_complete_wheelhouse(tmp_path):
+    provider = EclabRuntimeProvider()
+    with (
+        patch("engulf_clab_freeze.command._locked_packages", return_value=[("demo", "1")]),
+        patch("engulf_clab_freeze.command._download_wheels", return_value=False),
+        pytest.raises(Exception, match="requires a complete wheelhouse"),
+    ):
+        provider.prepare_archive(
+            tmp_path, "runtime", {"containerlab": {"version": "1", "commit": "abc"}}, {}, None, []
+        )
+
+
+def test_wheelhouse_records_only_resolvable_python_versions(tmp_path, monkeypatch):
+    from engulf_clab_freeze import command
+
+    (tmp_path / "wheelhouse").mkdir()
+    (tmp_path / "wheelhouse" / "pure-1-py3-none-any.whl").write_bytes(b"")
+    (tmp_path / "wheelhouse" / "cffi-2-cp314-cp314-manylinux_2_17_x86_64.whl").write_bytes(b"")
+    monkeypatch.setattr(command.sys, "version_info", (3, 14, 0))
+    failing = {"3.13"}
+
+    def download(argv, **_):
+        version = argv[argv.index("--python-version") + 1]
+        return type("Result", (), {"returncode": 1 if version in failing else 0})()
+
+    warnings = []
+    with patch("engulf_clab_freeze.command.subprocess.run", side_effect=download) as run:
+        assert command._download_python_wheels(tmp_path, warnings) == ["3.12", "3.14"]
+    assert run.call_count == 2
+    assert run.call_args.args[0][-1] == "cffi==2"
+    assert (tmp_path / "python-versions.freeze.txt").read_text() == "3.12\n3.14\n"
+    assert warnings == ["recipients cannot use Python 3.13: its wheels are unavailable"]
+
+
+def test_defrost_selects_a_python_the_wheelhouse_supports(tmp_path):
+    import sys
+
+    from engulf_clab_freeze.defrost import _runtime_python
+
+    assert _runtime_python(tmp_path) == sys.executable
+    (tmp_path / "python-versions.freeze.txt").write_text("3.1\n")
+    with pytest.raises(DefrostError, match="install one of: 3.1"):
+        _runtime_python(tmp_path)
+    current = f"{sys.version_info[0]}.{sys.version_info[1]}"
+    (tmp_path / "python-versions.freeze.txt").write_text(f"{current}\n")
+    assert _runtime_python(tmp_path) == sys.executable
+
+
+def test_runtime_record_falls_back_to_archived_topology(tmp_path):
+    from engulf_clab_freeze.runtime import _runtime_record
+
+    record = {"format": 3, "mode": "runtime", "producer_edition": "eclab", "tools": {}}
+    (tmp_path / "lab.clab.yml").write_text(
+        yaml.safe_dump({"name": "lab", "x-engulf-clab-freeze": record})
+    )
+    assert _runtime_record(tmp_path) == record
+    (tmp_path / ".eclab-defrost.json").write_text(json.dumps({"freeze": {**record, "producer_edition": "fclab"}}))
+    assert _runtime_record(tmp_path)["producer_edition"] == "fclab"
+
+
+@pytest.mark.parametrize("mode", ["lean", "runtime", "offline"])
+def test_every_mode_has_a_packaged_freeze_readme(mode):
+    from engulf_clab_freeze.command import _freeze_readme
+
+    readme = _freeze_readme(
+        mode, topology_name="lab.clab.yml", edition="fclab", launcher_name="run-fclab.sh"
+    )
+    assert readme.startswith(f"# Frozen fclab lab: lab.clab.yml ({mode})")
+    assert "./run-fclab.sh" in readme
+    assert "$" not in readme
+
+
+def test_freeze_readme_replaces_a_source_copy(tmp_path):
+    topology = _lab(tmp_path)
+    (topology.parent / "FREEZE-README.md").write_text("stale guide from an earlier freeze\n")
+    archive = tmp_path / "share.tar.gz"
+    freeze(topology, archive, environment={})
+    with tarfile.open(archive) as saved:
+        readme = saved.extractfile("share/FREEZE-README.md").read().decode()
+    assert "stale guide" not in readme
+    assert "(lean)" in readme
+
+
+def _licensed_lab(tmp_path):
+    topology = _lab(tmp_path)
+    topology.write_text(
+        yaml.safe_dump(
+            {
+                "name": "lab",
+                "topology": {
+                    "kinds": {"fortinet_fortigate": {"license": "/private/pools/fortigate"}},
+                    "nodes": {
+                        "fgt-1": {"kind": "fortinet_fortigate", "image": "example/fgt:1"},
+                        "client": {"kind": "linux", "image": "example/client:1"},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return topology
+
+
+def _readme(archive):
+    with tarfile.open(archive) as saved:
+        return saved.extractfile("share/FREEZE-README.md").read().decode()
+
+
+def test_readme_explains_license_pools_for_licensed_nodes(tmp_path):
+    topology = _licensed_lab(tmp_path)
+    archive = tmp_path / "share.tar.gz"
+    freeze(topology, archive, environment={})
+    readme = _readme(archive)
+    assert "## Licenses" in readme
+    assert "- `fgt-1` (kind `fortinet_fortigate`)" in readme
+    assert "`client`" not in readme
+    assert "eclab init-license-pool /path/to/fortinet_fortigate-licenses --kind fortinet_fortigate" in readme
+    assert "eclab defrost ARCHIVE.tar.gz --eclab-auto-license" in readme
+    assert "`$VARIABLE`" in readme
+    assert "/private/pools" not in readme
+    assert "./run-eclab.sh init-license-pool" not in readme
+    assert readme.index("## Licenses") < readme.index("## Operate")
+    assert "\n\n\n" not in readme
+
+
+def test_readme_omits_license_section_without_licensed_nodes(tmp_path):
+    topology = _lab(tmp_path)
+    archive = tmp_path / "share.tar.gz"
+    freeze(topology, archive, environment={})
+    readme = _readme(archive)
+    assert "Licenses" not in readme
+    assert "$licenses" not in readme
+    assert "\n\n\n" not in readme
+
+
+@pytest.mark.parametrize("mode", ["runtime", "offline"])
+def test_bundled_readmes_register_pools_through_the_launcher(mode):
+    from engulf_clab_freeze.command import _freeze_readme
+
+    readme = _freeze_readme(
+        mode,
+        topology_name="lab.clab.yml",
+        edition="eclab",
+        launcher_name="run-eclab.sh",
+        licensed_nodes=[("fgt-1", "fortinet_fortigate"), ("odd", None)],
+    )
+    assert "./run-eclab.sh init-license-pool /path/to/fortinet_fortigate-licenses --kind fortinet_fortigate" in readme
+    assert "ECLAB_LICENSE=auto ./run-eclab.sh" in readme
+    assert "- `odd` (kind not set; check the topology)" in readme
+    assert "\n\n\n" not in readme

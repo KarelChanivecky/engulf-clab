@@ -6,6 +6,7 @@ from engulf_api import BeforeGoalAPI, Invocation
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     PluginSchema,
+    SchemaAudience,
     SchemaBackedPlugin,
     record_plugin_schema,
 )
@@ -32,7 +33,11 @@ class _Provider:
         return ImageProviderResponse(ImageProvision(IMAGE, DockerfileRecipe(_ASSET / "Dockerfile", _ASSET)), authority=ProvisionAuthority.AUTHORITATIVE)
 
 SCHEMA = (
-    PluginSchema("engulf_clab.pki_linux_debian", package="engulf_clab_pki_linux_debian")
+    PluginSchema(
+        "engulf_clab.pki_linux_debian",
+        package="engulf_clab_pki_linux_debian",
+        audience=SchemaAudience.SUPPORT,
+    )
     .use_case("Build the Debian-family Linux PKI installer asset.")
     .refer("USAGE.md")
 )

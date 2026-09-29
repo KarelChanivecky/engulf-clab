@@ -39,6 +39,7 @@ from .command import (
     _ENV_INITIALIZER,
     _FREEZE_KEY,
     _LABEL_PREFIX,
+    PYTHON_VERSIONS_NAME,
     _archive_root_name,
     _contributor_state,
     _launcher_name,
@@ -155,49 +156,58 @@ def _parser(
         help="frozen .tar.gz or .tgz archive to expand",
     )
     parser.add_argument(
-        "--into",
+        "--eclab-output",
+        dest="into",
         metavar="DIRECTORY",
         help="destination lab directory (default: ./<archive-name-without-suffix>)",
     )
     parser.add_argument(
-        "--force",
+        "--eclab-force",
+        dest="force",
         action="store_true",
         help="replace a directory a previous defrost created at the destination",
     )
     parser.add_argument(
-        "--license",
+        "--eclab-license",
+        dest="license",
         action="append",
         metavar="NODE=VALUE",
         help="answer a frozen license prompt; VALUE alone answers every prompted node",
     )
     parser.add_argument(
-        "--no-license-prompt",
+        "--eclab-no-license-prompt",
+        dest="no_license_prompt",
         action="store_true",
         help="keep frozen license markers instead of asking for paths",
     )
     parser.add_argument(
-        "--env",
+        "--eclab-env",
+        dest="env",
         action="append",
         metavar="NAME=VALUE",
         help="provide a topology environment value for the recipient initializer",
     )
     parser.add_argument(
-        "--no-runtime",
+        "--eclab-no-runtime",
+        dest="no_runtime",
         action="store_true",
         help="skip runtime preparation and leave it to the archive launcher",
     )
     parser.add_argument(
-        "--no-images",
+        "--eclab-no-images",
+        dest="no_images",
         action="store_true",
         help="skip bundled Docker image archive selection",
     )
     parser.add_argument(
-        "--load-images",
+        "--eclab-load-images",
+        dest="load_images",
         action="store_true",
         help="load matched bundled image archives into Docker now instead of at deploy",
     )
     parser.add_argument(
-        "--skip-env-init",
+        "--eclab-skip-env-init",
+        dest="skip_env_init",
         action="store_true",
         help="do not run the archive's recipient environment initializer",
     )
@@ -381,7 +391,9 @@ def defrost(
         if mode == "lean":
             from .runtime import _package_mismatches
 
-            compatibility = _package_mismatches(into) + provider.check_recipient(
+            compatibility = _package_mismatches(
+                into, metadata.get("runtime_packages"), edition=edition
+            ) + provider.check_recipient(
                 tools, current_environment, user_state
             )
             notes.extend(compatibility)
@@ -405,6 +417,8 @@ def defrost(
                         into / "requirements.freeze.txt",
                         into / "wheelhouse",
                         notes,
+                        python=_runtime_python(into),
+                        index=False,
                     )
                 if not (venv / "bin" / edition).is_file():
                     raise DefrostError(
@@ -457,7 +471,7 @@ def _environment_answers(values: list[str]) -> dict[str, str]:
     for value in values:
         name, separator, answer = value.partition("=")
         if not separator or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
-            raise DefrostError("--env values must use NAME=VALUE syntax")
+            raise DefrostError("--eclab-env values must use NAME=VALUE syntax")
         answers[name] = answer
     return answers
 
@@ -470,7 +484,7 @@ def _check_destination(into: Path, record_name: str, *, force: bool) -> bool:
         raise DefrostError(f"destination exists and is not a directory: {into}")
     if not force:
         raise DefrostError(
-            f"destination already exists: {into}; pass --force to replace a previous defrost"
+            f"destination already exists: {into}; pass --eclab-force to replace a previous defrost"
         )
     if not (into / record_name).is_file():
         raise DefrostError(f"refusing to replace an unrecognized directory: {into}")
@@ -601,10 +615,12 @@ def _restore_executables(
             path.chmod(0o755)
         elif relative.name == launcher:
             notes.append(f"archive has no {launcher} launcher")
+    bundled = root / "tools" / "containerlab" / "bin" / "containerlab"
+    if bundled.is_file():
+        bundled.chmod(bundled.stat().st_mode | 0o111)
     if not offline:
         return
     for relative in (
-        Path("tools/containerlab/bin/containerlab"),
         Path(".eclab-venv/bin/python"),
         Path(".eclab-venv") / "bin" / edition,
     ):
@@ -695,6 +711,17 @@ def _verify_format_three_runtime(
     wheelhouse = root / "wheelhouse"
     if not wheelhouse.is_dir() or not any(wheelhouse.glob("*.whl")):
         raise DefrostError("runtime archive has no wheelhouse")
+    if mode == "runtime":
+        if not (root / "tools" / "containerlab" / "bin" / "containerlab").is_file():
+            raise DefrostError(
+                "runtime archive has no bundled Containerlab executable; "
+                "re-freeze it with --eclab-with-runtime"
+            )
+        if not (root / "tools" / "vrnetlab" / "common" / "vrnetlab.py").is_file():
+            raise DefrostError(
+                "runtime archive has no bundled vrnetlab checkout; "
+                "re-freeze it with --eclab-with-runtime"
+            )
     if mode == "offline":
         with tempfile.TemporaryDirectory(prefix=".eclab-wheel-check-") as destination:
             result = subprocess.run(
@@ -789,11 +816,45 @@ def _installed_packages_match(requirements: Path) -> bool:
     return True
 
 
+def _runtime_python(root: Path) -> str:
+    """Select a recipient interpreter the archived wheelhouse supports.
+
+    Archives without a recorded version list predate multi-version
+    wheelhouses and keep using the running interpreter.
+    """
+    listed = root / PYTHON_VERSIONS_NAME
+    if not listed.is_file():
+        return sys.executable
+    supported = listed.read_text(encoding="ascii").split()
+    candidates = [sys.executable, *(f"python{version}" for version in supported)]
+    for candidate in candidates:
+        path = shutil.which(candidate) if os.sep not in candidate else candidate
+        if path is None:
+            continue
+        probe = subprocess.run(
+            [path, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode == 0 and probe.stdout.strip() in supported:
+            return path
+    raise DefrostError(
+        "no supported Python found; install one of: " + ", ".join(supported)
+    )
+
+
 def _create_virtual_environment(
-    venv: Path, requirements: Path, wheelhouse: Path, notes: list[str]
+    venv: Path,
+    requirements: Path,
+    wheelhouse: Path,
+    notes: list[str],
+    *,
+    python: str | None = None,
+    index: bool = True,
 ) -> None:
     creation = subprocess.run(
-        [sys.executable, "-m", "venv", str(venv)],
+        [python or sys.executable, "-m", "venv", str(venv)],
         capture_output=True,
         text=True,
         check=False,
@@ -803,6 +864,8 @@ def _create_virtual_environment(
         notes.append("could not create .eclab-venv; the launcher will prepare it")
         return
     command = [str(venv / "bin" / "python"), "-m", "pip", "install"]
+    if not index:
+        command.append("--no-index")
     if wheelhouse.is_dir():
         command.extend(("--find-links", str(wheelhouse)))
     command.extend(("-r", str(requirements)))
@@ -1210,20 +1273,20 @@ def lease(arguments: list[str], cwd: Path) -> str:
     scans for the destination the same way the parser resolves it and falls back
     to the invocation directory that holds the default destination.
     """
-    values = {"--into", "--license"}
+    values = {"--eclab-output", "--eclab-license"}
     archive: str | None = None
     into: str | None = None
     pending: str | None = None
     for argument in arguments:
         if pending is not None:
-            if pending == "--into":
+            if pending == "--eclab-output":
                 into = argument
             pending = None
             continue
         if argument in values:
             pending = argument
-        elif argument.startswith("--into="):
-            into = argument.removeprefix("--into=")
+        elif argument.startswith("--eclab-output="):
+            into = argument.removeprefix("--eclab-output=")
         elif not argument.startswith("-") and archive is None:
             archive = argument
     try:

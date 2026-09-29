@@ -18,6 +18,7 @@ from engulf_clab_schema_api import (
     OptionDeclaration,
     OptionKind,
     RecordedPluginSchema,
+    SchemaAudience,
     SchemaContribution,
     SchemaDeclarationFailure,
     SchemaPipeline,
@@ -33,7 +34,7 @@ from .node_kinds import NODE_KIND_PROVIDER_ID, NodeKindCatalog, NodeKindRecord, 
 from .source import BaseSchema
 
 FORMAT_VERSION = 2
-COMPILER_VERSION = "4"
+COMPILER_VERSION = "5"
 
 
 class SchemaCompilationError(RuntimeError):
@@ -82,7 +83,12 @@ def compile_schema_bundle(
         detail = "; ".join(f"{item.plugin_id}: {item.error}" for item in failures)
         raise SchemaCompilationError(f"incomplete plugin schema contributions: {detail}")
     providers.sort(key=lambda item: item.plugin_id)
+    _validate_support_providers(providers)
     _validate_node_kind_declarations(providers, node_kinds)
+    # Support providers exist only to serve other plugins. They still validate and
+    # fingerprint the runtime, but agents never see them during lab authoring.
+    support = [item for item in providers if item.audience is SchemaAudience.SUPPORT]
+    providers = [item for item in providers if item.audience is not SchemaAudience.SUPPORT]
     provider_schemas = tuple(
         _compiled_plugin_schema(
             provider,
@@ -113,6 +119,16 @@ def compile_schema_bundle(
             )
             for provider in providers
         ],
+        "support_plugins": [
+            _provider_manifest(
+                provider,
+                include_reference_content=True,
+                plugin_schema=None,
+                pipeline_id=provider_pipelines[provider.plugin_id],
+                target_pipeline_id=pipeline_id,
+            )
+            for provider in support
+        ],
     }
     fingerprint = hashlib.sha256(_json_bytes(fingerprint_input)).hexdigest()
     manifest = {
@@ -136,6 +152,15 @@ def compile_schema_bundle(
                 target_pipeline_id=pipeline_id,
             )
             for provider in providers
+        ],
+        "support_plugins": [
+            {
+                "plugin_id": provider.plugin_id,
+                "distribution": provider.distribution,
+                "distribution_version": provider.distribution_version,
+                "pipeline_id": provider_pipelines[provider.plugin_id],
+            }
+            for provider in support
         ],
         "paths": _path_index(providers),
     }
@@ -222,7 +247,7 @@ def _provider_manifest(
     provider: RecordedPluginSchema,
     *,
     include_reference_content: bool,
-    plugin_schema: CompiledPluginSchema,
+    plugin_schema: CompiledPluginSchema | None,
     pipeline_id: str,
     target_pipeline_id: str,
 ) -> dict[str, object]:
@@ -243,10 +268,14 @@ def _provider_manifest(
         "distribution_version": provider.distribution_version,
         "pipeline_id": pipeline_id,
         "inherited": pipeline_id != target_pipeline_id,
-        "agent_schema": {
-            "path": f"plugins/{provider.plugin_id}/{plugin_schema.path}",
-            "sha256": plugin_schema.sha256,
-        },
+        "agent_schema": (
+            None
+            if plugin_schema is None
+            else {
+                "path": f"plugins/{provider.plugin_id}/{plugin_schema.path}",
+                "sha256": plugin_schema.sha256,
+            }
+        ),
         "options": [
             _option_manifest(
                 option,
@@ -541,6 +570,23 @@ def _put(target: dict[str, object], key: str, value: object) -> None:
 
 def _without_empty(source: Mapping[str, object]) -> dict[str, object]:
     return {key: value for key, value in source.items() if value not in (None, [], {}, ())}
+
+
+def _validate_support_providers(providers: Iterable[RecordedPluginSchema]) -> None:
+    for provider in providers:
+        if provider.audience is not SchemaAudience.SUPPORT:
+            continue
+        if (
+            provider.routes
+            or provider.node_kinds
+            or any(
+                option.kind in (OptionKind.PROPERTY, OptionKind.NODE_VAR)
+                for option in provider.options
+            )
+        ):
+            raise SchemaCompilationError(
+                f"support schema {provider.plugin_id} declares lab-authoring controls"
+            )
 
 
 def _validate_node_kind_declarations(

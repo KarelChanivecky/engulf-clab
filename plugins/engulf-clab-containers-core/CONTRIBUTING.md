@@ -31,9 +31,14 @@ image namespace.
 - In `host-connector`, record ingress identity directly on the connection. Do
   not leave the corresponding mark on request packets: only restored reply
   marks may select a lab-interface policy table.
-- Containerlab may create a veth in sysfs before its per-interface sysctls
-  exist. The host connector must wait for both surfaces before configuring a
-  newly attached lab interface.
+- Containerlab may create a veth under a temporary `clab-*` name before
+  renaming it, bringing it up, and exposing its per-interface sysctls. The host
+  connector ignores temporary names and waits for operational state `up` plus
+  all required sysctls. Retry configuration failures only if a selected
+  interface is no longer ready; persistent errors fail immediately. Use one
+  monotonic 15-second deadline per activation/recovery attempt, including all
+  rename retries. Timeout warns and exits nonzero. Remove stale health markers
+  at startup, during reconfiguration, and on exit. Test timing with a fake clock.
 - Keep images generic. Addressing, routes, credentials, seeds, certificates,
   browser policy, proxy parents, and product-specific behavior belong in the
   consuming lab unless a documented safe development default is essential.

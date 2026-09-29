@@ -7,13 +7,14 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import chdir, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, patch
 
 import pytest
 import yaml
+
 from engulf_clab_freeze.command import (
     FreezeError,
     _bundle_offline_vrnetlab,
@@ -115,7 +116,7 @@ class FreezeCommandTestCase(unittest.TestCase):
 
             with patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
                 self.assertEqual(
-                    main(["--topology", str(topology), "--output", str(archive)]), 0
+                    main(["--eclab-topology", str(topology), "--eclab-output", str(archive)]), 0
                 )
 
             mocked_freeze.assert_called_once_with(
@@ -134,6 +135,38 @@ class FreezeCommandTestCase(unittest.TestCase):
                 contributor_arguments=ANY,
             )
 
+    def test_main_selects_topology_from_positional_lab_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "lab"
+            root.mkdir()
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+
+            with chdir(directory), patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
+                self.assertEqual(main(["lab"]), 0)
+
+            self.assertEqual(mocked_freeze.call_args.args[:2], (
+                topology.resolve(), Path(directory) / "lab.tar.gz"
+            ))
+
+    def test_main_rejects_directory_with_explicit_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
+                self.assertEqual(main([directory, "-t", "lab.clab.yml"]), 2)
+            mocked_freeze.assert_not_called()
+
+    def test_main_rejects_unscoped_freeze_flags(self) -> None:
+        for args in (
+            ["--output", "share.tar.gz"],
+            ["--offline"],
+            ["--external-image", "example/router:1"],
+            ["--bundle-image", "example/router:1"],
+            ["--topology", "lab.clab.yml"],
+        ):
+            with self.subTest(args=args), patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
+                self.assertEqual(main(args), 2)
+                mocked_freeze.assert_not_called()
+
     def test_main_forwards_offline_mode_and_user_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -146,10 +179,10 @@ class FreezeCommandTestCase(unittest.TestCase):
                 self.assertEqual(
                     main(
                         [
-                            "--offline",
-                            "--topology",
+                            "--eclab-offline",
+                            "--eclab-topology",
                             str(topology),
-                            "--output",
+                            "--eclab-output",
                             str(archive),
                         ],
                         user_state=user_state,  # type: ignore[arg-type]
@@ -435,7 +468,9 @@ class FreezeCommandTestCase(unittest.TestCase):
                 ) as clab,
                 patch(
                     "engulf_clab_freeze.command._bundle_offline_vrnetlab",
-                    return_value=False,
+                    side_effect=lambda staging, *_: (
+                        staging / "tools" / "vrnetlab"
+                    ).mkdir(parents=True),
                 ) as vrnetlab,
                 patch(
                     "engulf_clab_freeze.command.freeze_images", return_value={}
@@ -455,6 +490,10 @@ class FreezeCommandTestCase(unittest.TestCase):
             with tarfile.open(archive, "r:gz") as tar:
                 launcher = tar.extractfile("share/run-eclab.sh").read().decode()
                 frozen = yaml.safe_load(tar.extractfile("share/lab.clab.yml").read())
+                revision = tar.extractfile(
+                    "share/tools/vrnetlab/.eclab-freeze-revision"
+                ).read()
+            self.assertEqual(revision, b"a\n")
             self.assertIn('exec "$runtime/bin/python" "$runtime/bin/eclab"', launcher)
             self.assertNotIn("pip install", launcher)
             self.assertTrue(frozen["x-engulf-clab-freeze"]["offline"])
@@ -464,6 +503,7 @@ class OfflineBundleTestCase(unittest.TestCase):
     def test_bundles_actual_vrnetlab_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
             checkout = root / "checkout"
             (checkout / "common").mkdir(parents=True)
             (checkout / "common" / "vrnetlab.py").write_text(
@@ -484,6 +524,13 @@ class OfflineBundleTestCase(unittest.TestCase):
             bundled = staging / "tools" / "vrnetlab"
             self.assertTrue((bundled / "common" / "vrnetlab.py").is_file())
             self.assertTrue((bundled / "vendor" / "router" / "Makefile").is_file())
+            self.assertTrue((bundled / ".git").is_file())
+            status = subprocess.run(
+                ["git", "-C", str(bundled), "status", "--short"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(status.returncode, 0)
+            self.assertEqual(status.stdout, "")
 
     def test_offline_launcher_forces_bundled_tools_and_leaves_images_to_provider(
         self,
@@ -491,6 +538,7 @@ class OfflineBundleTestCase(unittest.TestCase):
         launcher = _launcher("lab.clab.yml", offline=True)
         self.assertIn('export CONTAINERLAB_BIN="$containerlab"', launcher)
         self.assertIn('export VRNETLAB_DIR="$vrnetlab"', launcher)
+        self.assertIn("unset CONTAINERLAB_VERSION VRNETLAB_VERSION", launcher)
         self.assertNotIn("docker image load", launcher)
         self.assertNotIn("pip install", launcher)
 
@@ -503,14 +551,159 @@ class WheelhouseTestCase(unittest.TestCase):
             staging = Path(directory)
             source = staging / "engulf_clab-0.1.0-py3-none-any.whl"
             source.write_bytes(b"locally-built wheel")
-            distribution = SimpleNamespace(
+            local = SimpleNamespace(
                 read_text=lambda name: (
                     json.dumps({"url": source.as_uri()})
                     if name == "direct_url.json"
                     else None
                 )
             )
+            indexed = SimpleNamespace(read_text=lambda _name: None)
             warnings: list[str] = []
+            with (
+                patch(
+                    "engulf_clab_freeze.command.importlib.metadata.distribution",
+                    side_effect=lambda name: local if name == "engulf-clab" else indexed,
+                ),
+                patch(
+                    "engulf_clab_freeze.command.subprocess.run",
+                    return_value=SimpleNamespace(returncode=0),
+                ) as run,
+            ):
+                self.assertTrue(
+                    _download_wheels(
+                        staging,
+                        [("engulf-clab", "0.1.0"), ("PyYAML", "6.0")],
+                        warnings,
+                    )
+                )
+
+            wheelhouse = staging / "wheelhouse"
+            self.assertEqual(
+                (wheelhouse / source.name).read_bytes(), source.read_bytes()
+            )
+            self.assertEqual(warnings, [])
+            command = run.call_args.args[0]
+            self.assertIn("--no-deps", command)
+            self.assertNotIn("--find-links", command)
+            self.assertFalse((staging / "requirements.missing.txt").exists())
+
+    def test_seeded_packages_are_never_replaced_from_an_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            staging = Path(directory)
+            source = staging / "engulf_clab-0.1.0-py3-none-any.whl"
+            source.write_bytes(b"locally-built wheel")
+            distribution = SimpleNamespace(
+                read_text=lambda _name: json.dumps({"url": source.as_uri()})
+            )
+            with (
+                patch(
+                    "engulf_clab_freeze.command.importlib.metadata.distribution",
+                    return_value=distribution,
+                ),
+                patch("engulf_clab_freeze.command.subprocess.run") as run,
+            ):
+                self.assertTrue(
+                    _download_wheels(staging, [("engulf-clab", "0.1.0")], [])
+                )
+            run.assert_not_called()
+
+    def test_incomplete_download_keeps_seeded_wheels(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            staging = Path(directory)
+            source = staging / "engulf_clab-0.1.0-py3-none-any.whl"
+            source.write_bytes(b"locally-built wheel")
+            local = SimpleNamespace(
+                read_text=lambda _name: json.dumps({"url": source.as_uri()})
+            )
+            indexed = SimpleNamespace(read_text=lambda _name: None)
+            warnings: list[str] = []
+            with (
+                patch(
+                    "engulf_clab_freeze.command.importlib.metadata.distribution",
+                    side_effect=lambda name: local if name == "engulf-clab" else indexed,
+                ),
+                patch(
+                    "engulf_clab_freeze.command.subprocess.run",
+                    return_value=SimpleNamespace(returncode=1),
+                ),
+            ):
+                _download_wheels(
+                    staging, [("engulf-clab", "0.1.0"), ("pyyaml", "6.0")], warnings
+                )
+
+            self.assertTrue((staging / "wheelhouse" / source.name).is_file())
+            self.assertEqual(
+                warnings,
+                [
+                    "could not obtain a complete wheelhouse; launcher will fall back to its package index"
+                ],
+            )
+
+    def test_installed_pure_package_is_repacked_from_its_files(self) -> None:
+        import importlib.metadata
+        import zipfile
+
+        from engulf_clab_freeze.command import _repack_installed_wheel
+
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory) / "site"
+            (site / "demo").mkdir(parents=True)
+            (site / "demo" / "__init__.py").write_text("VALUE = 1\n")
+            (site / "demo" / "__pycache__").mkdir()
+            (site / "demo" / "__pycache__" / "x.pyc").write_bytes(b"cache")
+            info = site / "demo_pkg-1.0.dist-info"
+            info.mkdir()
+            (info / "METADATA").write_text("Metadata-Version: 2.1\nName: demo-pkg\nVersion: 1.0\n")
+            (info / "WHEEL").write_text("Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+            (info / "entry_points.txt").write_text("[console_scripts]\ndemo = demo:main\n")
+            (info / "INSTALLER").write_text("pip\n")
+            (info / "RECORD").write_text(
+                "demo/__init__.py,,\ndemo/__pycache__/x.pyc,,\n"
+                "demo_pkg-1.0.dist-info/METADATA,,\ndemo_pkg-1.0.dist-info/WHEEL,,\n"
+                "demo_pkg-1.0.dist-info/entry_points.txt,,\n"
+                "demo_pkg-1.0.dist-info/INSTALLER,,\ndemo_pkg-1.0.dist-info/RECORD,,\n"
+                "../../bin/demo,,\n"
+            )
+            wheelhouse = Path(directory) / "wheelhouse"
+            wheelhouse.mkdir()
+            distribution = importlib.metadata.PathDistribution(info)
+
+            self.assertTrue(_repack_installed_wheel(distribution, wheelhouse))
+
+            with zipfile.ZipFile(wheelhouse / "demo_pkg-1.0-py3-none-any.whl") as wheel:
+                names = sorted(wheel.namelist())
+                record = wheel.read("demo_pkg-1.0.dist-info/RECORD").decode()
+            self.assertEqual(
+                names,
+                [
+                    "demo/__init__.py",
+                    "demo_pkg-1.0.dist-info/METADATA",
+                    "demo_pkg-1.0.dist-info/RECORD",
+                    "demo_pkg-1.0.dist-info/WHEEL",
+                    "demo_pkg-1.0.dist-info/entry_points.txt",
+                ],
+            )
+            self.assertIn("demo/__init__.py,sha256=", record)
+
+            (info / "RECORD").write_text("demo/__init__.py,,\n../../share/data.txt,,\n")
+            self.assertFalse(
+                _repack_installed_wheel(importlib.metadata.PathDistribution(info), wheelhouse)
+            )
+
+    def test_editable_install_is_built_from_its_live_source(self) -> None:
+        from engulf_clab_freeze.command import _seed_installed_wheels
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\nname = 'demo'\n")
+            distribution = SimpleNamespace(
+                read_text=lambda _name: json.dumps(
+                    {"url": project.as_uri(), "dir_info": {"editable": True}}
+                )
+            )
+            wheelhouse = Path(directory) / "wheelhouse"
             with (
                 patch(
                     "engulf_clab_freeze.command.importlib.metadata.distribution",
@@ -521,45 +714,10 @@ class WheelhouseTestCase(unittest.TestCase):
                     return_value=SimpleNamespace(returncode=0),
                 ) as run,
             ):
-                _download_wheels(staging, [("engulf-clab", "0.1.0")], warnings)
-
-            wheelhouse = staging / "wheelhouse"
-            self.assertEqual(
-                (wheelhouse / source.name).read_bytes(), source.read_bytes()
-            )
-            self.assertEqual(warnings, [])
+                _seed_installed_wheels([("demo", "1")], wheelhouse, [])
             command = run.call_args.args[0]
-            self.assertIn("--find-links", command)
-            self.assertIn(str(wheelhouse), command)
-
-    def test_incomplete_download_keeps_seeded_wheels(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            staging = Path(directory)
-            source = staging / "engulf_clab-0.1.0-py3-none-any.whl"
-            source.write_bytes(b"locally-built wheel")
-            distribution = SimpleNamespace(
-                read_text=lambda _name: json.dumps({"url": source.as_uri()})
-            )
-            warnings: list[str] = []
-            with (
-                patch(
-                    "engulf_clab_freeze.command.importlib.metadata.distribution",
-                    return_value=distribution,
-                ),
-                patch(
-                    "engulf_clab_freeze.command.subprocess.run",
-                    return_value=SimpleNamespace(returncode=1),
-                ),
-            ):
-                _download_wheels(staging, [("engulf-clab", "0.1.0")], warnings)
-
-            self.assertTrue((staging / "wheelhouse" / source.name).is_file())
-            self.assertEqual(
-                warnings,
-                [
-                    "could not obtain a complete wheelhouse; launcher will fall back to its package index"
-                ],
-            )
+            self.assertEqual(command[3:5], ["wheel", "--no-deps"])
+            self.assertEqual(command[-1], str(project))
 
     def test_empty_incomplete_wheelhouse_is_removed_and_launcher_allows_that(
         self,

@@ -22,6 +22,9 @@
 - Environment-backed flags are wrapper-global compatibility replacements. The
   named runtime variable must be declared first; CLI normalization and
   completion execution belong to the executable-wrapper runtime.
+- `SchemaAudience.SUPPORT` hides a declaration from agent discovery. Keep the
+  builder rejecting topology controls, routes, and node kinds for support
+  declarations; the compiler enforces the same rule for hand-built records.
 - Changes to exported models require direct-consumer tests in the schema
   generator, develop-skill plugin, and every maintained contributor.
 - Validate with `.venv/bin/python -m pytest -q plugins/engulf-clab-schema-api/tests`.

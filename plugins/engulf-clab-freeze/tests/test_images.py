@@ -12,9 +12,6 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
-from engulf_clab_freeze.command import _write_environment_initializer, freeze, main
-from engulf_clab_freeze.defrost import DefrostError, defrost
-from engulf_clab_freeze.images import MANIFEST, freeze_images, registry_identity
 from engulf_clab_freeze_api import FreezeError, ImageInput, ImageSource
 from engulf_clab_freeze_api.manifest import read_image_manifest
 from engulf_clab_image_archive.config import build_requests_from_topology
@@ -31,6 +28,10 @@ from engulf_docker_image_api import (
     RegisteredImageProvider,
 )
 from engulf_docker_image_core import resolve_image_graph
+
+from engulf_clab_freeze.command import _write_environment_initializer, freeze, main
+from engulf_clab_freeze.defrost import DefrostError, defrost
+from engulf_clab_freeze.images import MANIFEST, freeze_images, registry_identity
 
 
 def saved_image(path: Path, tags=(), image_id="a" * 64):
@@ -452,6 +453,29 @@ def test_lean_archive_freeze_defrost_yaml_roundtrip(tmp_path, host, excluded):
     assert host[2] == []
 
 
+def test_lean_freeze_rejects_missing_lab_local_image_archive(tmp_path, host):
+    topology, _ = lab(
+        tmp_path,
+        {
+            "dmz-archive": {
+                "image": "fclab-demo/archive-server:0.1",
+                "env": {"ECLAB_IMAGE_ARCHIVE": "artifacts/archive-source.tar.gz"},
+            }
+        },
+    )
+    bundle = tmp_path / "bundle.tar.gz"
+
+    with pytest.raises(
+        FreezeError,
+        match=r"node dmz-archive ECLAB_IMAGE_ARCHIVE is missing: "
+        r"artifacts/archive-source\.tar\.gz; create it before freezing",
+    ):
+        freeze(topology, bundle, environment={})
+
+    assert not bundle.exists()
+    assert host[2] == []
+
+
 def test_lean_recursive_missing_base_stays_a_literal_recipe_dependency(tmp_path, host):
     topology, document = lab(
         tmp_path,
@@ -697,7 +721,7 @@ def test_override_can_declare_external_or_force_snapshot(tmp_path, host):
         "debian:12": "registry",
         "private:1": "external",
     }
-    with pytest.raises(FreezeError, match="requires --offline"):
+    with pytest.raises(FreezeError, match="requires --eclab-offline"):
         freeze_images(
             topology,
             copy.deepcopy(document),
@@ -820,7 +844,11 @@ def test_missing_archive_uses_local_image_or_lean_variable(tmp_path, host):
     assert len(host[2]) == 1
 
 
-def test_lean_preserves_existing_unset_vm_variable(tmp_path, host):
+@pytest.mark.parametrize(
+    "expression",
+    ("$MY_VM_INPUT", "${MY_VM_INPUT}", "${FCLAB_DEMO_IMAGE:-}"),
+)
+def test_lean_preserves_existing_unset_vm_variable(tmp_path, host, expression):
     topology, document = lab(
         tmp_path,
         {
@@ -828,7 +856,7 @@ def test_lean_preserves_existing_unset_vm_variable(tmp_path, host):
                 "image": "router:1",
                 "env": {
                     "ECLAB_VRNETLAB_TYPE": "vendor/router",
-                    "ECLAB_VRNETLAB_IMG_PATH": "${MY_VM_INPUT}",
+                    "ECLAB_VRNETLAB_IMG_PATH": expression,
                 },
             }
         },
@@ -836,8 +864,46 @@ def test_lean_preserves_existing_unset_vm_variable(tmp_path, host):
     _, document, _ = plan(tmp_path, topology, document, lean=True)
     assert (
         document["topology"]["nodes"]["router"]["env"]["ECLAB_VRNETLAB_IMG_PATH"]
-        == "${MY_VM_INPUT}"
+        == expression
     )
+
+
+def test_lean_freeze_defrost_keeps_empty_default_vm_variable(tmp_path, host):
+    expression = "${FCLAB_DEMO_IMAGE:-}"
+    topology, _ = lab(
+        tmp_path,
+        {
+            "fgt": {
+                "image": "vrnetlab/fclab-demo.fgt:8.0",
+                "env": {
+                    "ECLAB_VRNETLAB_TYPE": "fortinet/fortigate",
+                    "ECLAB_VRNETLAB_IMG_PATH": expression,
+                },
+            }
+        },
+    )
+    bundle = tmp_path / "bundle.tar.gz"
+    freeze(topology, bundle, environment={})
+
+    with tarfile.open(bundle) as archive:
+        frozen = yaml.safe_load(archive.extractfile("bundle/lab.clab.yml"))
+        initializer = archive.extractfile("bundle/initialize-env.sh").read().decode()
+    assert frozen["topology"]["nodes"]["fgt"]["env"]["ECLAB_VRNETLAB_IMG_PATH"] == expression
+    assert "FCLAB_DEMO_IMAGE" in initializer
+    assert "ECLAB_FREEZE_" not in frozen["topology"]["nodes"]["fgt"]["env"]["ECLAB_VRNETLAB_IMG_PATH"]
+
+    target = tmp_path / "restored"
+    defrost(
+        bundle,
+        target,
+        prepare_runtime=False,
+        prompt_licenses=False,
+        select_images=False,
+        initialize_env=False,
+        environment={},
+    )
+    restored = yaml.safe_load((target / topology.name).read_text())
+    assert restored["topology"]["nodes"]["fgt"]["env"]["ECLAB_VRNETLAB_IMG_PATH"] == expression
 
 
 def test_inherited_vrnetlab_recipe_is_disabled_at_every_origin(tmp_path, host):

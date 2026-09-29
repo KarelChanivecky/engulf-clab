@@ -50,6 +50,11 @@ lab interface. It is protocol-independent but has no port mapping, DHCP, VPN,
 or application proxy. Read its guide for mapping syntax, mixed-family rules,
 packet flow, and target-access security.
 
+Startup waits up to 15 seconds for an operational lab interface and its kernel
+sysctls, ignoring Containerlab's temporary `clab-*` interface names. If none
+becomes ready, the container logs a warning and exits with status 1. The same
+deadline applies when recovering after all lab interfaces disappear or go down.
+
 ### WAN access
 
 `wan-access` forwards and masquerades IPv4 traffic from exactly one lab
