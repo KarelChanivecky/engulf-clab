@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import sys
@@ -9,6 +10,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from engulf import (
@@ -48,6 +50,51 @@ class PackageMetadataTest(unittest.TestCase):
             "engulf-executable-wrapper-api>=1.0.1,<2",
             metadata["project"]["dependencies"],
         )
+
+
+class EditableCompletionFingerprintTest(unittest.TestCase):
+    def test_editable_source_changes_invalidate_completion_metadata(self) -> None:
+        class EditableDistribution:
+            name = "example-plugin"
+            version = "1.0.0"
+            files: tuple[str, ...] = ()
+
+            def __init__(self, project: Path) -> None:
+                self.project = project
+
+            def read_text(self, name: str) -> str | None:
+                if name != "direct_url.json":
+                    return None
+                return json.dumps(
+                    {
+                        "url": self.project.as_uri(),
+                        "dir_info": {"editable": True},
+                    }
+                )
+
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            source = project / "src" / "example_plugin"
+            source.mkdir(parents=True)
+            module = source / "plugin.py"
+            module.write_text("FLAG = 'first'\n", encoding="utf-8")
+            distribution = EditableDistribution(project)
+            entry = SimpleNamespace(
+                group="engulf.plugins.v1.application.engulf_clab",
+                name="example.plugin",
+                value="example_plugin:plugin",
+                dist=distribution,
+            )
+            with patch.object(
+                app_module.importlib.metadata,
+                "entry_points",
+                return_value=(entry,),
+            ):
+                first = app_module.completion_installed_metadata()
+                module.write_text("FLAG = 'other'\n", encoding="utf-8")
+                second = app_module.completion_installed_metadata()
+
+        self.assertNotEqual(first["entry_points"], second["entry_points"])
 
 
 class BinaryPathTest(unittest.TestCase):

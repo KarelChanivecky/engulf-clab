@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
+import json
 import os
 import sys
 from collections.abc import Iterable, Mapping
 from os import PathLike
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from engulf import (
     Application,
@@ -87,6 +90,7 @@ def completion_installed_metadata() -> dict[str, object]:
     except (ImportError, OSError, TypeError, ValueError):
         entries = ()
     records: list[dict[str, object]] = []
+    editable_source_fingerprints: dict[str, str | None] = {}
     for entry in entries:
         if entry.group not in groups and not entry.group.startswith(
             "engulf.plugins.v1.dependency."
@@ -96,10 +100,15 @@ def completion_installed_metadata() -> dict[str, object]:
         if distribution is None:
             distribution_record: dict[str, object] = {}
         else:
+            distribution_name = distribution.name
             try:
                 files = tuple(sorted(str(item) for item in (distribution.files or ())))
             except (OSError, TypeError, ValueError):
                 files = ()
+            if distribution_name not in editable_source_fingerprints:
+                editable_source_fingerprints[distribution_name] = (
+                    _editable_source_fingerprint(distribution)
+                )
             record_stats: list[tuple[str, int, int]] = []
             for item in files:
                 if not item.endswith(".dist-info/RECORD"):
@@ -114,6 +123,9 @@ def completion_installed_metadata() -> dict[str, object]:
                 "version": distribution.version,
                 "files": files,
                 "record_stats": tuple(record_stats),
+                "editable_source_sha256": editable_source_fingerprints[
+                    distribution_name
+                ],
             }
         records.append(
             {
@@ -147,6 +159,60 @@ def completion_installed_metadata() -> dict[str, object]:
             ),
         ),
     }
+
+
+def _editable_source_fingerprint(distribution: Any) -> str | None:
+    """Hash editable Python sources so completion changes invalidate the cache."""
+    try:
+        raw_direct_url = distribution.read_text("direct_url.json")
+        if raw_direct_url is None:
+            return None
+        direct_url = json.loads(raw_direct_url)
+        if not isinstance(direct_url, Mapping):
+            return None
+        directory = direct_url.get("dir_info")
+        if not isinstance(directory, Mapping) or directory.get("editable") is not True:
+            return None
+        parsed_url = urlparse(direct_url.get("url", ""))
+        if parsed_url.scheme != "file" or parsed_url.netloc not in ("", "localhost"):
+            return None
+        project = Path(unquote(parsed_url.path))
+        source = project / "src"
+        if not source.is_dir():
+            source = project
+        ignored = {
+            ".git",
+            ".tox",
+            ".venv",
+            "__pycache__",
+            "build",
+            "dist",
+            "node_modules",
+            "test",
+            "tests",
+            "venv",
+        }
+        paths: list[Path] = []
+        for directory, child_directories, filenames in os.walk(source):
+            child_directories[:] = sorted(
+                name for name in child_directories if name not in ignored
+            )
+            paths.extend(
+                Path(directory) / filename
+                for filename in filenames
+                if filename.endswith(".py")
+            )
+        paths.sort()
+        if not paths:
+            return None
+        digest = hashlib.sha256()
+        for path in paths:
+            digest.update(path.relative_to(source).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+        return digest.hexdigest()
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def load_completion_artifact() -> tuple[CompiledCompletion, str] | None:
