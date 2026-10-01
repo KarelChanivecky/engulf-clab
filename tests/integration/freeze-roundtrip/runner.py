@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 from subprocess import SubprocessError
@@ -46,6 +47,31 @@ def rewrite_archive(source, target, transform):
         for member in src:
             stream = src.extractfile(member) if member.isfile() else None
             data = transform(member.name, stream) if stream is not None else None
+            if member.name.endswith("/lab.tgz") and stream is not None:
+                nested = stream.read()
+                inner_output = io.BytesIO()
+                with (
+                    tarfile.open(fileobj=io.BytesIO(nested), mode="r:gz") as inner_src,
+                    tarfile.open(fileobj=inner_output, mode="w:gz") as inner_dst,
+                ):
+                    for inner_member in inner_src:
+                        inner_stream = (
+                            inner_src.extractfile(inner_member)
+                            if inner_member.isfile()
+                            else None
+                        )
+                        inner_data = (
+                            transform(inner_member.name, inner_stream)
+                            if inner_stream is not None
+                            else None
+                        )
+                        if inner_data is False:
+                            continue
+                        if isinstance(inner_data, bytes):
+                            inner_member.size = len(inner_data)
+                            inner_stream = io.BytesIO(inner_data)
+                        inner_dst.addfile(inner_member, inner_stream)
+                data = inner_output.getvalue()
             if data is False:
                 continue
             if isinstance(data, bytes):
@@ -413,7 +439,14 @@ class Suite:
         source = self.source(case.scope)
         before = authored_hashes(source)
         output = self.root / "archives" / f"{case.archive_key}.tar.gz"
-        args = [self.eclab, "freeze", "-t", source / "lab.clab.yml", "--eclab-output", output]
+        args = [
+            self.eclab,
+            "freeze",
+            "-t",
+            source / "lab.clab.yml",
+            "--eclab-output",
+            output,
+        ]
         if case.focus == "defaults":
             args = [self.eclab, "freeze"]
             output = source / f"{source.name}.tar.gz"
@@ -433,7 +466,11 @@ class Suite:
                 WAN_IMAGE,
             ]
         if case.encrypted:
-            args += ["--eclab-include-pki-secrets", "--eclab-pki-passphrase-file", self.passphrase]
+            args += [
+                "--eclab-include-pki-secrets",
+                "--eclab-pki-passphrase-file",
+                self.passphrase,
+            ]
         self.commands.run(args, cwd=source, timeout=1800)
         self.report.check(
             before == authored_hashes(source),
@@ -444,12 +481,30 @@ class Suite:
         return output
 
     def inspect_archive(self, archive, case):
-        with tarfile.open(archive) as saved:
+        with ExitStack() as stack:
+            package = stack.enter_context(tarfile.open(archive))
+            package_names = package.getnames()
+            inner_member = next(
+                (name for name in package_names if name.endswith("/lab.tgz")), None
+            )
+            if case.mode == "runtime":
+                if inner_member is None:
+                    raise CheckFailed("runtime bundle has no inner lab.tgz")
+                inner_data = package.extractfile(inner_member).read()
+                saved = stack.enter_context(
+                    tarfile.open(fileobj=io.BytesIO(inner_data), mode="r:gz")
+                )
+            else:
+                saved = package
             names = ["/".join(Path(member.name).parts[1:]) for member in saved]
             prefix = saved.getnames()[0].split("/")[0]
             topology_bytes = saved.extractfile(f"{prefix}/lab.clab.yml").read()
             frozen_topology = yaml.safe_load(topology_bytes)
-            metadata = frozen_topology["x-engulf-clab-freeze"]
+            metadata = json.load(saved.extractfile(f"{prefix}/freeze.json"))["freeze"]
+            self.report.check(
+                "x-engulf-clab-freeze" not in frozen_topology,
+                "Containerlab topology stays free of freeze metadata",
+            )
             fortigate = frozen_topology["topology"]["nodes"]["fortigate"]
             self.report.check(
                 metadata["mode"] == case.mode, "archive records selected mode"
@@ -484,17 +539,35 @@ class Suite:
                     "non-offline archive has no image archives",
                 )
             if case.mode in {"runtime", "offline"}:
-                self.report.check(
-                    "requirements.freeze.txt" in names
-                    and any(
-                        name.startswith("wheelhouse/") and name.endswith(".whl")
-                        for name in names
-                    ),
-                    "runtime archive has dependency lock and wheelhouse",
-                )
+                if case.mode == "runtime":
+                    bundle_root = inner_member.split("/")[0]
+                    self.report.check(
+                        f"{bundle_root}/runtime/requirements.freeze.txt"
+                        in package_names
+                        and any(
+                            name.startswith(f"{bundle_root}/runtime/wheelhouse/")
+                            and name.endswith(".whl")
+                            for name in package_names
+                        ),
+                        "runtime bundle has dependency lock and wheelhouse",
+                    )
+                    self.report.check(
+                        "requirements.freeze.txt" not in names
+                        and not any(name.startswith("wheelhouse/") for name in names),
+                        "inner runtime lab archive stays lean",
+                    )
+                else:
+                    self.report.check(
+                        "requirements.freeze.txt" in names
+                        and any(
+                            name.startswith("wheelhouse/") and name.endswith(".whl")
+                            for name in names
+                        ),
+                        "offline archive has dependency lock and wheelhouse",
+                    )
                 self.report.check(
                     bool(metadata["tools"]["containerlab"]["commit"]),
-                    "runtime archive pins Containerlab identity",
+                    "runtime mode pins Containerlab identity",
                 )
             if case.mode == "offline":
                 self.report.check(
@@ -535,7 +608,19 @@ class Suite:
 
     def answers(self, archive):
         values = {"FORTIGATE_IMAGE": self.image, "ROUNDTRIP_VALUE": "roundtrip-v1"}
-        with tarfile.open(archive) as saved:
+        with ExitStack() as stack:
+            package = stack.enter_context(tarfile.open(archive))
+            inner_member = next(
+                (member for member in package if member.name.endswith("/lab.tgz")),
+                None,
+            )
+            if inner_member is not None:
+                inner_data = package.extractfile(inner_member).read()
+                saved = stack.enter_context(
+                    tarfile.open(fileobj=io.BytesIO(inner_data), mode="r:gz")
+                )
+            else:
+                saved = package
             name = next(
                 member.name
                 for member in saved
@@ -601,17 +686,26 @@ class Suite:
     def restore(self, case, archive, *, prefix=(), env=None):
         parent = self.root / "restores" / case.id
         parent.mkdir()
-        target = parent / (
-            archive.name.removesuffix(".tar.gz") if case.focus == "defaults" else "lab"
+        bundle_root = None
+        if case.mode == "runtime":
+            self.commands.run(["tar", "-xzf", archive, "-C", parent], cwd=parent)
+            bundle_name = archive.name.removesuffix(".tar.gz").removesuffix(".tgz")
+            bundle_root = parent / bundle_name
+        target = (
+            bundle_root / "lab"
+            if bundle_root is not None and case.focus == "defaults"
+            else parent / archive.name.removesuffix(".tar.gz").removesuffix(".tgz")
+            if case.focus == "defaults"
+            else parent / "lab"
         )
         values = self.answers(archive)
         environment = (env or {}).copy()
-        args = [
-            self.recipient_eclab,
-            "defrost",
-            archive,
-            "--eclab-no-pki-prompt",
-        ]
+        args = (
+            [bundle_root / "defrost.sh"]
+            if bundle_root is not None
+            else [self.recipient_eclab, "defrost", archive]
+        )
+        args.append("--eclab-no-pki-prompt")
         if case.focus != "defaults":
             args += ["--eclab-output", target]
         if case.runtime == "deferred":
@@ -624,7 +718,10 @@ class Suite:
             if case.environment == "initialize":
                 args += ["--eclab-skip-env-init"]
         if case.pki == "user-explicit":
-            args += ["--eclab-pki-authority", f"{self.authority}=global/{self.authority}"]
+            args += [
+                "--eclab-pki-authority",
+                f"{self.authority}=global/{self.authority}",
+            ]
         if case.encrypted:
             args += ["--eclab-pki-passphrase-file", self.passphrase]
         if case.image.endswith("-load"):
@@ -632,7 +729,11 @@ class Suite:
         elif case.image.endswith("-explicit"):
             args += ["--eclab-no-images"]
         self.commands.run(
-            args, cwd=parent, env=environment, prefix=prefix, timeout=1200
+            args,
+            cwd=parent,
+            env=environment,
+            prefix=prefix,
+            timeout=1800 if bundle_root is not None else 1200,
         )
         if case.destination == "force":
             (target / "force-sentinel").write_text("previous restore")
@@ -795,7 +896,11 @@ class Suite:
             flags = {
                 "removed-lean": ["--lean"],
                 "mode-conflict": ["--eclab-offline", "--eclab-with-runtime"],
-                "image-conflict": ["--eclab-offline", "--eclab-external-image", self.image]
+                "image-conflict": [
+                    "--eclab-offline",
+                    "--eclab-external-image",
+                    self.image,
+                ]
                 if case.mode == "offline"
                 else ["--eclab-bundle-image", self.image],
             }
@@ -824,14 +929,14 @@ class Suite:
                     return False
                 if kind == "warnings" and name.endswith("/packages.freeze.txt"):
                     return stream.read() + b"freeze-roundtrip-missing-package==0.0.0\n"
-                if kind == "tool-mismatch" and name.endswith("/lab.clab.yml"):
-                    doc = yaml.safe_load(stream)
-                    tools = doc["x-engulf-clab-freeze"]["tools"]
+                if kind == "tool-mismatch" and name.endswith("/freeze.json"):
+                    record = json.loads(stream.read())
+                    tools = record["freeze"]["tools"]
                     tools["containerlab"] = {
                         "version": "0.0.0-test",
                         "commit": "bad000000",
                     }
-                    return yaml.safe_dump(doc).encode()
+                    return json.dumps(record).encode()
                 return None
 
             rewrite_archive(archive, changed, transform)

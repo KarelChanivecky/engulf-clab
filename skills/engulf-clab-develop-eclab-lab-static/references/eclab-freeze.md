@@ -7,9 +7,11 @@ Install with `python -m pip install engulf-clab-freeze`.
 ```bash
 eclab freeze
 eclab freeze -t labs/demo/lab.clab.yml --output demo.tar.gz
-eclab freeze -t labs/demo/lab.clab.yml --eclab-with-runtime
+eclab freeze -t labs/demo/lab.clab.yml --eclab-with-runtime --output demo-runtime.run
 eclab freeze -t labs/demo/lab.clab.yml --offline --bundle-image example/router:1
 eclab defrost demo.tar.gz --into restored
+./demo-runtime.run                 # automatically defrosts into ./demo-runtime
+./demo-runtime/run-eclab.sh        # deploys the restored lab
 ```
 
 In a lab directory, `freeze` selects its single recognized Containerlab
@@ -26,34 +28,38 @@ block each other; offline mode also leases the managed tool repositories.
 
 | Behavior | Default lean | `--eclab-with-runtime` | `--offline` |
 | --- | --- | --- | --- |
-| Python | Records every installed package name and version; the recipient runs the producing edition's installed launcher | Adds a dependency lock and wheelhouse; defrost or the launcher creates a pinned environment | Bundles the active edition virtual environment |
-| Containerlab/vrnetlab | Records Containerlab JSON version and commit, and vrnetlab Git revision | Provisions recorded revisions when needed; refuses mismatched tools | Uses the bundled executable and checkout only |
+| Python | Records every installed package name and version; the recipient runs the producing edition's installed launcher | Outer tarball has `runtime/`, `lab.tgz`, and `defrost.sh`; the script builds a pinned environment before normal defrost | Bundles the active edition virtual environment |
+| Containerlab/vrnetlab | Records Containerlab JSON version and commit, and vrnetlab Git revision | Bundles pinned tools in `runtime/`; normal defrost attaches them to the lab | Uses the bundled executable and checkout only |
 | Images | Registry references and complete build recipes; unavailable inputs become recipient variables | Same as lean | Bundles required images or declared offline builds; no network fallback |
-| Package index | Not used | May fill wheelhouse gaps at defrost or launch | Never used at runtime |
+| Package index | Not used | Not used; the package carries a complete wheelhouse | Never used |
 
 `--bundle-image` is repeatable and requires `--offline`; `--external-image`
 is repeatable and applies only to non-offline modes. The lean default
 replaces non-portable image inputs with `${ECLAB_FREEZE_...}` recipient
-variables, which `initialize-env.sh` asks about. `--offline` fails when the
-producing environment lacks a bundled runtime, a required tool, an ordinary
-topology image, or a verifiable vrnetlab revision. It remains
-platform-specific and needs compatible Docker, Linux networking privileges,
-and QEMU/KVM where required. Generated vrnetlab appliance images, vendor VM
+variables, which `initialize-env.sh` asks about during defrost. `--offline` fails when the
+producing environment lacks a bundled runtime, a required tool, a topology or
+plugin-generated service image, or a verifiable vrnetlab revision. The frozen
+topology selects the complete image manifest for the image-archive provider to
+load during deploy. It remains platform-specific and needs compatible Docker, Linux networking privileges,
+and QEMU/KVM where required. Building opted-in vrnetlab images also needs host
+`make`, `qemu-img`, and `qemu-system-x86_64` when the needed images are not
+already available or bundled. Generated vrnetlab appliance images, vendor VM
 inputs, and licenses are never bundled.
 
 ## Sanitization and exclusions
 
-The archive includes the sanitized lab, the recorded package manifest, the
+The lab archive includes the sanitized lab, the recorded package manifest, the
 mode's tool identities, image decisions, and `run-eclab.sh` in the producing
-edition's name (`run-eclab.sh` under eclab, `run-fclab.sh` under fclab). The
-copied topology receives `x-engulf-clab-freeze` metadata recording the
-format (`3`), the mode, the producing edition, every installed package
-version, tool identities, image decisions, and license prompts. Offline
+edition's name (`run-eclab.sh` under eclab, `run-fclab.sh` under fclab). It
+receives a separate `freeze.json` record for the mode, producing
+edition, installed package versions, tool identities, image decisions, and
+license prompts. The Containerlab topology stays free of that private record;
+older archives may carry `x-engulf-clab-freeze` there. Offline
 archives add `images.freeze.json` with each captured image's immutable ID
 and checksum.
 
-Every node license value becomes `__ECLAB_LICENSE_PROMPT__`, which asks the
-recipient for `auto`, a file, pool directory, or `$VARIABLE` at deploy. Every
+Every node license value becomes `__ECLAB_LICENSE_PROMPT__`. Defrost asks the
+recipient for `auto`, a file, pool directory, or `$VARIABLE`. Every
 `*_LIC_CLAMP` entry is removed. Possible license files are excluded by suffix
 (`.lic`, `.license`, `.licence`) and reported. Freeze fails if generated
 `.<state-prefix-lowercase>/licenses` copies exist in the lab, including the
@@ -80,7 +86,7 @@ assumes consent. Symlinks and other non-regular destinations are rejected.
 
 ## Archive and recipient workflow
 
-Each archive has one sanitized root, named after the archive filename,
+Lean archives have one sanitized root, named after the archive filename,
 containing:
 
 | Entry | Purpose |
@@ -94,9 +100,18 @@ containing:
 | `FREEZE-WARNINGS.txt` | Freeze-time acquisition and compatibility warnings. |
 | `tools/`, `images/` | Bundled Containerlab/vrnetlab and image archives; offline mode only. |
 
+The `--eclab-with-runtime` output is a self-extracting `.run` package. Running
+it automatically extracts to a temporary directory and defrosts the lab into
+`./<package-name>`, including environment initialization and license prompts.
+The package contains `runtime/`, `lab.tgz`, `defrost.sh`, and `README.md`; it
+builds the bundled venv if needed, then runs normal defrost. Offline output uses
+the same outer `.run` layout, with its defrost venv under `runtime/` and the
+complete offline lab in `lab.tgz`. Defrost attaches the runtime to the restored
+lab and reports missing host dependencies without blocking.
+
 ```bash
-tar -xzf demo.tar.gz
-cd demo
+./demo-runtime.run
+cd demo-runtime
 ./run-eclab.sh
 ./run-eclab.sh destroy -t lab.clab.yml
 ./run-eclab.sh inspect -t lab.clab.yml
@@ -105,11 +120,10 @@ cd demo
 The launcher is named for the producing edition and every branch executes
 that edition's console script. With no arguments it deploys; arguments
 replace that default. A lean launcher runs the installed edition with no
-environment and no compatibility prompt. A runtime launcher creates
-`.eclab-venv` from the lock and wheelhouse on first use, prepares recorded
-Containerlab and vrnetlab revisions (building a pinned Containerlab when the
-host lacks them), pins them in `.eclab-freeze.env`, verifies tool identities
-on every launch, and rejects tool override flags. An offline launcher uses
+environment and no compatibility prompt. A runtime bundle prepares
+`.eclab-venv` before defrost and attaches the bundled Containerlab and vrnetlab
+tools to the restored lab. Its launcher verifies tool identities on every
+launch and rejects tool override flags. An offline launcher uses
 only bundled runtime/tools and the host Docker daemon, with no package index
 or PATH fallback.
 
@@ -128,9 +142,10 @@ eclab defrost demo.tar.gz --force --skip-env-init
 `--into` defaults to a directory named after the archive. `--force` replaces
 only a directory carrying a prior defrost record. `--no-runtime` skips
 runtime preparation and leaves it to the launcher. `--no-images` skips
-bundled image selection; `--load-images` loads selected archives
-immediately. `--env NAME=VALUE` feeds the recipient initializer
-noninteractively; `--skip-env-init` skips it. `initialize-env.sh` writes
+bundled image selection. Defrost does not load images; the image-archive
+provider loads selected archives during deploy or redeploy. `--env NAME=VALUE`
+feeds the recipient initializer noninteractively; `--skip-env-init` skips it.
+`initialize-env.sh` writes
 only nonempty answers to the topology's sibling `.env` with mode `0600`.
 
 License answers resolve from `--license NODE=VALUE` (or a bare value for all
@@ -142,14 +157,13 @@ are neither frozen nor recorded.
 Defrost requires one archive root and rejects escaping members, invalid image
 checksums, and archives whose contributor or runtime provider is missing.
 Formats 1 and 2 keep their original restore rules; format 3 selects the
-recorded producer edition's provider, so a runtime or offline archive needs
-that edition's provider installed on the recipient. Lean defrost compares the
+recorded producer edition's provider. The runtime bundle includes that
+provider in its venv. Lean defrost compares the
 package manifest (extra recipient packages are allowed), Containerlab
 `version -j` version and commit, and vrnetlab Git revision once, appends
-mismatches to `FREEZE-WARNINGS.txt`, and records them. Runtime mode may reach
-package indexes and tool repositories while provisioning recorded revisions
-and refuses mismatched tools; offline mode validates its artifacts and has no
-network fallback. Defrost never deploys the lab.
+mismatches to `FREEZE-WARNINGS.txt`, and records them. Runtime mode uses its
+bundled complete wheelhouse and pinned tools; offline mode validates its
+artifacts and has no network fallback. Defrost never deploys the lab.
 
 ## Failure semantics and troubleshooting
 

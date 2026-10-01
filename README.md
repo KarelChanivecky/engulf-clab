@@ -558,16 +558,22 @@ The initializer asks the
 recipient for non-empty values for unresolved topology variables and writes
 them to the topology's private sibling `.env` file with restrictive permissions.
 The lean launcher uses the producer edition already installed on the recipient.
-`--eclab-with-runtime` adds a wheelhouse, dependency lock, and pinned tool
-provisioning. `--offline` also includes the active installed eclab virtual
-environment, the resolved Containerlab executable, the actual vrnetlab checkout,
-and required topology images. The offline launcher uses only bundled runtime,
-tools, and images plus host Docker.
+`--eclab-with-runtime` writes a self-extracting `.run` package with `runtime/`,
+`lab.tgz`, and `defrost.sh`. Running it automatically builds the packaged venv
+when needed and performs normal defrost, including recipient environment and
+license values, into `./<package-name>`. Run the restored lab's launcher to
+start it. The restored lab contains the venv and pinned tools. Offline
+packages are self-extracting `.run` files as well. An offline `.run` contains
+`runtime/` for its defrost command and a `lab.tgz` with the wheelhouse, resolved
+Containerlab executable, vrnetlab checkout, and required topology images. The
+outer runtime venv is attached to the expanded lab during defrost. Its launcher
+uses bundled runtime, tools, and images plus host Docker.
 Freeze fails if a required component is unavailable. Offline archives remain
 platform-specific and require compatible Docker and host networking/QEMU facilities.
 
 When no topology option is supplied, freeze selects the one recognized topology
-in the current directory and writes `<lab-directory-name>.tar.gz` there. Pass
+in the current directory. Lean mode writes `<lab-directory-name>.tar.gz`; runtime
+and offline modes write `<lab-directory-name>.run` in the invocation directory. Pass
 `-t`, `--topo`, or `--topology` to select a lab from another directory or to
 disambiguate multiple topology files, or `--output ARCHIVE` for a custom
 destination. When an existing regular archive is selected, freeze asks whether
@@ -580,8 +586,8 @@ have been removed or are no longer regular files are pruned automatically.
 
 Frozen licenses become `__ECLAB_LICENSE_PROMPT__`; pool paths, allocations,
 clamps, and license files are never included. `ECLAB` is a fixed label
-prefix, the same across every edition. The recipient supplies `auto`, a file,
-pool directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
+prefix, the same across every edition. During defrost, the recipient supplies
+`auto`, a file, pool directory, or `$VARIABLE` interactively or through `ECLAB_LICENSE` /
 `ECLAB_LICENSE_<NODE>`; `--eclab-auto-license` selects registered pools for
 all unresolved prompts. Destroy an active lab before freezing it. Use
 `.<state-prefix-lowercase>-freezeignore` for extra Git-ignore-style
@@ -592,8 +598,9 @@ Containerlab's `clab-<lab-name>` runtime directory, and empty directories left
 after exclusions are omitted.
 
 `eclab defrost ARCHIVE` reverses that on the receiving side. It expands the
-archive into `<archive-name>` or `--into DIRECTORY`, removes the
-`x-engulf-clab-freeze` metadata, restores launcher, initializer, and bundled
+archive into `<archive-name>` or `--into DIRECTORY`, reads the separate
+`freeze.json` record (and legacy `x-engulf-clab-freeze` metadata), restores
+launcher, initializer, and bundled
 tool permissions, runs the initializer unless `--skip-env-init` is supplied,
 prepares runtime or checks lean compatibility once, points nodes at bundled Docker image
 archives that carry their exact image, and resolves every redacted license from
@@ -605,6 +612,18 @@ so a failed expansion leaves no partial lab, and it replaces an existing
 directory only with `--force` and only when an earlier defrost recorded it. The
 result is an ordinary lab directory holding real local license selections: do
 not commit or re-share it; freeze redacts them again for the next archive.
+
+For a runtime bundle, run the self-extracting package to defrost the lab:
+
+```bash
+./demo-runtime.run                 # automatically defrosts into ./demo-runtime
+./demo-runtime/run-eclab.sh        # deploys the restored lab
+```
+
+The package builds the edition venv from its local wheelhouse, then uses normal
+defrost to initialize environment values, prompt for licenses, and expand
+`lab.tgz`. The defrosted lab contains its runtime and a repeatable
+`check-dependencies.sh` report.
 
 ## Editions
 

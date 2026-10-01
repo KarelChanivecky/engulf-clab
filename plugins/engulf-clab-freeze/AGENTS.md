@@ -17,6 +17,19 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   options survive before-goal preemption.
 - Freeze and defrost both use `--eclab-output`; keep one shared schema annotation
   for that flag, with command-specific parser meanings and destination leases.
+- `--eclab-with-runtime` writes a self-extracting `.run` package with
+  `runtime/`, `lab.tgz`, and `defrost.sh`; offline packages are `.run` files as
+  well. Running either package automatically executes `defrost.sh`; keep
+  runtime artifacts out of the inner lab archive. The script builds the venv
+  from the wheelhouse when needed and runs normal defrost.
+  Defrost attaches the runtime before publication, then runs the regular env
+  initializer and license resolution. `--eclab-no-runtime` skips attaching the
+  venv so the lab launcher builds it later.
+- Resolve `RuntimeRequirement` records from the schema registry passed by the
+  plugin callback. Keep applicability in the schema API (`commands`, topology
+  features, and `unless_artifacts`); suppress Go when a Containerlab binary is
+  bundled and QEMU tools when the opted-in vrnetlab images are bundled. Keep
+  host-library checks shell-only so extraction never needs Python.
 - Declare schema, Docker image-build, and vrnetlab-build ordering edges only in
   `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Run
   both provenance hydrations before this plugin so Docker image provider and
@@ -30,10 +43,10 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   side effects. Image-build and vrnetlab-build separately hydrate their saved
   provenance before either control command runs; defrost reads no freeze state.
 - Keep defrost the exact reverse of freeze and never a general archive
-  extractor. Require the `x-engulf-clab-freeze` metadata and its supported
-  format, remove that key from the restored topology, reject members escaping
-  the single archive root, and stage the expansion beside the destination so a
-  failure leaves no partial lab and restores a replaced one.
+  extractor. Read `freeze.json` beside the topology for new archives, accept
+  legacy `x-engulf-clab-freeze` metadata, reject members escaping the single
+  archive root, and stage the expansion beside the destination so a failure
+  leaves no partial lab and restores a replaced one.
 - Formats 2 and 3 discover optional hooks only through `engulf-clab-freeze-api` entry
   points. Contributors may claim namespaced flags, transform the staged copy,
   add metadata, and restore inside unpublished staging; freeze must never import
@@ -45,10 +58,21 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   accept `auto` as a registered-pool request and leave an unanswered marker
   for deploy. Never log, record, or embed a license value in an error message;
   name only the node, exactly as license-pool does.
+- On defrost, query registered pools through `engulf-clab-license-pool-lib`.
+  If frozen license prompts exist and no pool is registered, offer the existing
+  edition `init-license-pool` workflow before asking for per-node sources.
+  Keep relative pool paths anchored to the caller's directory even though a
+  self-extractor runs defrost from its temporary staging directory. After
+  publication, point the recipient at the lab's `FREEZE-README.md`.
 - Select a bundled image archive only when it carries the node's exact image
   reference and the node declares none, because `ECLAB_IMAGE_ARCHIVE` suppresses
-  the registry fallback. Selection must not need Docker; only `--eclab-load-images`
-  may use it.
+  the registry fallback. Freeze and defrost must not load images; the image
+  archive provider loads them during deploy or redeploy.
+- Include plugin-generated image roots from freeze image-source declarations.
+  A dynamic node absent from the authored topology still needs an image decision
+  and immutable archive in offline mode. Keep their archive paths in the image
+  manifest selected by `ECLAB_IMAGE_ARCHIVE_MANIFEST`, so the image-archive
+  provider can provision them after the plugin creates the nodes.
 - Prepare runtime mode after publication so recorded absolute paths are final;
   validate offline completeness before publication. Runtime mode must fail
   rather than run mismatched tools. Lean mode checks compatibility once at
@@ -93,13 +117,19 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   ignore-file name are the one thing that stays derived from callback-bound
   short product metadata (`command._state_prefix`); keep this split
   intentional rather than reusing one prefix for both.
-- Format 3 records all installed package names and versions without URLs or paths.
+- Format 3 records all installed package names and versions without URLs or paths
+  in `freeze.json`, outside the Containerlab topology.
   Record runtime package names separately for lean compatibility; never report
   unrelated producer development tools as missing on the recipient. For older
   archives, compare the recipient runtime closure plus archived Engulf and edition
   packages. Keep the version lock and wheelhouse for runtime and offline modes.
   Select a runtime provider by producer edition through the API entry
   point and fail explicitly when absent.
+- Offline bundling must remove `pyvenv.cfg`'s producer-specific creation command
+  and rewrite Python console scripts as wrappers around `.eclab-venv/bin/python`.
+  Keep their original `sys.argv[0]` and script-directory import path; the offline
+  launcher must use the wrapper for new archives and retain its Python fallback
+  for older archives.
 - Keep lean, runtime, and offline launchers distinct. Lean uses the installed
   edition without a compatibility prompt. Each mode owns one packaged recipient
   guide in `src/engulf_clab_freeze/readmes/<mode>.md`, rendered into the
@@ -154,3 +184,7 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   tool lookup; use temporary labs and archives, and never deploy or load images
   during automated validation. Record the
   schema before handling either command, and run `make check-skill`.
+- Run `test_runtime.py` and `test_defrost.py` after changing the runtime bundle
+  wrapper, runtime attachment, or recipient setup. Their shell and archive
+  cases cover venv preparation before defrost and normal license and
+  environment initialization.

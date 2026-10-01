@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
 from engulf_api import (
     BeforeGoalAPI,
     GoalResult,
     Invocation,
+    PluginLogger,
     StateScope,
 )
+from engulf_clab_license_pool_lib import LicensePoolError, LicensePoolManager
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     SCHEMA_SOURCE_CONTEXT,
@@ -14,9 +22,11 @@ from engulf_clab_schema_api import (
     PathBase,
     PluginSchema,
     Privilege,
+    RecordedPluginSchema,
     SchemaBackedPlugin,
     ValueType,
     record_plugin_schema,
+    schema_registry,
 )
 from engulf_clab_vrnetlab_build_api import VRNETLAB_SOURCE_PROVENANCE_CONTEXT
 from engulf_docker_image_api import DOCKER_IMAGE_PROVENANCE_CONTEXT
@@ -45,18 +55,18 @@ PLUGIN_SCHEMA = (
     )
     .add_cli_flag(
         "--eclab-output",
-        "Write the archive to this path.",
+        "Write the package here: .tar.gz/.tgz for lean, or .run with runtime/offline packaging.",
         command="freeze",
         values=ValueType.FILE_PATH,
     )
     .add_cli_flag(
         "--eclab-offline",
-        "Include cached source material needed for an offline restore.",
+        "Create a self-extracting .run with the runtime, tools, and lab images for offline use.",
         command="freeze",
     )
     .add_cli_flag(
         "--eclab-with-runtime",
-        "Bundle a wheelhouse and enforce recorded Containerlab and vrnetlab identities.",
+        "Create a self-extracting .run with runtime/ and lab.tgz; defrost.sh builds the venv and prompts for recipient values.",
         command="freeze",
     )
     .add_cli_flag(
@@ -116,7 +126,11 @@ PLUGIN_SCHEMA = (
         ),
     )
     .annotate("--eclab-with-runtime", commands=("freeze",))
-    .annotate("--eclab-external-image", commands=("freeze",), conflicts_with=("--eclab-offline",))
+    .annotate(
+        "--eclab-external-image",
+        commands=("freeze",),
+        conflicts_with=("--eclab-offline",),
+    )
     .annotate(
         "--eclab-bundle-image",
         commands=("freeze",),
@@ -166,17 +180,12 @@ PLUGIN_SCHEMA = (
     )
     .add_cli_flag(
         "--eclab-no-runtime",
-        "Skip runtime preparation; a runtime archive launcher prepares it on first use.",
+        "Skip attaching the prepared venv; the restored lab launcher handles runtime setup.",
         command="defrost",
     )
     .add_cli_flag(
         "--eclab-no-images",
         "Skip selection of bundled Docker image archives.",
-        command="defrost",
-    )
-    .add_cli_flag(
-        "--eclab-load-images",
-        "Load selected bundled image archives into Docker now.",
         command="defrost",
     )
     .add_cli_flag(
@@ -237,20 +246,16 @@ PLUGIN_SCHEMA = (
     .annotate(
         "--eclab-no-runtime",
         commands=("defrost",),
-        implies=("run-eclab.sh prepares the runtime at first use",),
-    )
-    .annotate(
-        "--eclab-load-images",
-        commands=("defrost",),
-        conflicts_with=("--eclab-no-images",),
-        host_tools=("docker",),
-        privilege=Privilege.CONTAINER_RUNTIME,
+        implies=("the restored lab launcher handles runtime setup at first use",),
     )
     .use_case(
         "Create a sanitized portable archive without deploying or destroying the lab."
     )
     .use_case(
         "Use the lean default for recipient image inputs, or --eclab-offline to bundle images."
+    )
+    .use_case(
+        "Use --eclab-with-runtime to create a bundle whose defrost.sh uses its bundled runtime and runs the normal license and environment setup."
     )
     .use_case(
         "Expand a received archive into a lab with local licenses, images, and runtime."
@@ -301,6 +306,13 @@ class FreezePlugin(SchemaBackedPlugin):
             return None
         self._acknowledge_schema_sources(api)
         workspace = api.state(StateScope.WORKSPACE)
+        registry = schema_registry(api)
+        requirements = tuple(
+            requirement
+            for contribution in registry.contributions
+            if isinstance(contribution.entry, RecordedPluginSchema)
+            for requirement in contribution.entry.requirements
+        )
         offline = "--eclab-offline" in invocation.arguments[1:]
         application_name = api.application.short_product_name or api.application.product
         user_state = api.state(StateScope.USER)
@@ -320,6 +332,7 @@ class FreezePlugin(SchemaBackedPlugin):
                 application_name=application_name,
                 logger=api.logger,
                 environment=invocation.environment,
+                requirements=requirements,
             )
         return GoalResult.completed(exit_code=exit_code)
 
@@ -338,6 +351,16 @@ class FreezePlugin(SchemaBackedPlugin):
         # Fixed regardless of edition, for the same reason the freeze lease is:
         # two differently-branded editions writing one destination must block.
         with api.leases((defrost_lease(arguments, invocation.cwd),)):
+            user_state = api.state(StateScope.USER)
+            try:
+                pools_registered = bool(
+                    LicensePoolManager(user_state).registered_pools()
+                )
+            except (LicensePoolError, OSError, ValueError) as error:
+                api.logger.warning(
+                    "could not check registered license pools: %s", error
+                )
+                pools_registered = None
             exit_code = run_defrost_command(
                 arguments,
                 program=f"{application_name} defrost",
@@ -345,18 +368,111 @@ class FreezePlugin(SchemaBackedPlugin):
                 logger=api.logger,
                 environment=invocation.environment,
                 cwd=invocation.cwd,
-                user_state=api.state(StateScope.USER).directory,
+                user_state=user_state.directory,
+                license_pools_registered=pools_registered,
+                setup_license_pool=(
+                    None
+                    if pools_registered is not False
+                    else lambda: _offer_license_pool_setup(
+                        invocation, application_name, api.logger
+                    )
+                ),
             )
         return GoalResult.completed(exit_code=exit_code)
 
     def help(self, api: HelpAPI) -> str:
         del api
         return (
-            "  freeze [LAB_DIR | -t TOPOLOGY] [--eclab-output ARCHIVE] [--eclab-with-runtime | --eclab-offline]  "
+            "  freeze [LAB_DIR | -t TOPOLOGY] [--eclab-output PACKAGE] [--eclab-with-runtime | --eclab-offline]  "
             "Create a sanitized portable lab archive\n"
             "    Default: record compatibility; leave runtime and images to the recipient.\n"
-            "    --eclab-with-runtime: wheelhouse and tools for a lab venv; --eclab-offline: bundle runtime, tools, images.\n"
+            "    --eclab-with-runtime: self-extracting .run with runtime/, lab.tgz, and defrost.sh; --eclab-offline: self-extracting .run with runtime, tools, images.\n"
             "    --eclab-external-image IMAGE (non-offline) / --eclab-bundle-image IMAGE (offline).\n"
             "  defrost ARCHIVE [--eclab-output DIRECTORY] [--eclab-pki-authority BINDING=REF]  "
             "Expand a frozen archive into a runnable lab"
         )
+
+
+def _offer_license_pool_setup(
+    invocation: Invocation, application_name: str, logger: PluginLogger
+) -> bool:
+    """Create and initialize a pool directory when a frozen lab has no pool."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(
+            "\nNo license pool is registered. Would you like to set one up now? [y/N]: "
+        )
+    except EOFError:
+        return False
+    if answer.strip().casefold() not in {"y", "yes"}:
+        return False
+    try:
+        selected = input(
+            "Where should the license-pool directory be created? "
+            "(you can add license files afterward; empty to cancel): "
+        ).strip()
+    except EOFError:
+        return False
+    if not selected:
+        return False
+
+    caller_cwd = Path(
+        invocation.environment.get("ECLAB_FREEZE_CALLER_CWD", str(invocation.cwd))
+    ).expanduser()
+    if not caller_cwd.is_absolute():
+        caller_cwd = invocation.cwd / caller_cwd
+    caller_cwd = caller_cwd.resolve()
+    # Expand `~` using the invocation environment. Path.expanduser() only
+    # consults the current process environment, which can differ when defrost
+    # was entered through a bundled runtime or an edition launcher.
+    if selected == "~" or selected.startswith("~/"):
+        home = invocation.environment.get("HOME") or os.environ.get("HOME")
+        pool = Path(home) / selected[2:] if home else Path(selected).expanduser()
+    else:
+        pool = Path(selected).expanduser()
+    if not pool.is_absolute():
+        pool = caller_cwd / pool
+    pool = pool.resolve()
+
+    launcher_arg = sys.argv[0]
+    launcher = Path(launcher_arg).expanduser()
+    if not launcher.is_absolute():
+        located = shutil.which(launcher_arg)
+        launcher = Path(located) if located else caller_cwd / launcher
+    launcher = launcher.resolve()
+    if not launcher.is_file():
+        logger.warning("could not locate this edition's launcher to register the pool")
+        return False
+
+    try:
+        pool.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        logger.warning("could not create license-pool directory %s: %s", pool, error)
+        return False
+
+    environment = os.environ.copy()
+    environment.update(invocation.environment)
+    try:
+        result = subprocess.run(
+            [str(launcher), "init-license-pool", str(pool)],
+            cwd=pool,
+            env=environment,
+            check=False,
+        )
+    except OSError:
+        logger.warning(
+            "could not start the license-pool registration command; you can register one later with %s init-license-pool PATH",
+            application_name,
+        )
+        return False
+    if result.returncode:
+        logger.warning(
+            "license-pool setup did not complete; you can register one later with %s init-license-pool PATH",
+            application_name,
+        )
+        return False
+    logger.info(
+        "license pool initialized; add entitled license files before choosing auto at deployment"
+    )
+    return True

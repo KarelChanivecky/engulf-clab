@@ -21,6 +21,24 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   respective `--eclab-output` flags. The schema allows one annotation per flag
   name, so annotate that shared name once for both commands; keep defrost's
   destination lease parser aligned with its argparse option.
+- `--eclab-with-runtime` writes a self-extracting `.run` package with
+  `runtime/`, `lab.tgz`, and `defrost.sh`; keep runtime files out of the inner
+  archive. Offline packages are self-extracting `.run` files too. Running the
+  package extracts to a temporary directory and invokes `defrost.sh`, which
+  builds the bundled venv from its wheelhouse when needed and runs normal
+  defrost. The defrost path owns `initialize-env.sh`, license prompts, runtime attachment,
+  and the non-blocking dependency report. The restored launcher blocks only
+  operations whose declared host tools or libraries are missing.
+- Keep license-pool discovery on the public `engulf-clab-license-pool-lib`
+  manager. When a defrosted topology has redacted license prompts but no pool
+  is registered, offer the edition's `init-license-pool` command and preserve
+  the caller's working directory for relative pool paths. Direct `auto` answers
+  still require a registered pool; never describe the marker as an assigned
+  license.
+- Resolve host requirements from callback-collected `RuntimeRequirement` records.
+  Use the schema API's command, topology-feature, and `unless_artifacts`
+  conditions; do not duplicate plugin dependency declarations in freeze code.
+  Tests cover Containerlab binaries and vrnetlab images supplied in the package.
 - Declare schema, Docker image-build, and vrnetlab-build ordering edges only in
   `engulf.plugins.v1.dependency.engulf_clab_freeze` package metadata. Run the
   two provenance hydrations before this plugin so Docker image provider and
@@ -34,10 +52,10 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   side effects. Image-build and vrnetlab-build separately hydrate their saved
   provenance before either control command runs; defrost reads no freeze state.
 - Keep defrost the exact reverse of freeze and never a general archive
-  extractor. Require the `x-engulf-clab-freeze` metadata and its supported
-  format, remove that key from the restored topology, reject members escaping
-  the single archive root, and stage the expansion beside the destination so a
-  failure leaves no partial lab and restores a replaced one.
+  extractor. Read `freeze.json` beside the topology for new archives, accept
+  legacy `x-engulf-clab-freeze` metadata, reject members escaping the single
+  archive root, and stage the expansion beside the destination so a failure
+  leaves no partial lab and restores a replaced one.
 - Replace a destination only when it carries this plugin's defrost record. The
   record keeps the removed freeze provenance beside the lab, never inside it.
 - Resolve licenses from `--eclab-license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
@@ -47,8 +65,13 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   name only the node, exactly as license-pool does.
 - Select a bundled image archive only when it carries the node's exact image
   reference and the node declares none, because `ECLAB_IMAGE_ARCHIVE` suppresses
-  the registry fallback. Selection must not need Docker; only `--eclab-load-images`
-  may use it.
+  the registry fallback. Freeze and defrost must not load images; the image
+  archive provider loads them during deploy or redeploy.
+- Treat image-source declarations with a node absent from authored topology as
+  generated image roots. Their offline archives must be captured even though
+  the plugin will recreate those nodes only during deploy preparation. Keep the
+  image-manifest selector in the frozen topology so the image-archive provider
+  can activate for the generated nodes.
 - Prepare runtime mode after publication so recorded absolute paths are final;
   validate offline completeness before publication. Runtime mode must fail
   rather than run mismatched tools. Lean mode checks compatibility once at
@@ -83,13 +106,19 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   ignore-file name are the one thing that stays derived from callback-bound
   short product metadata (`command._state_prefix`); keep this split
   intentional rather than reusing one prefix for both.
-- Format 3 records all installed package names and versions without URLs or paths.
+- Format 3 records all installed package names and versions without URLs or paths
+  in `freeze.json`, outside the Containerlab topology.
   Record the producing edition's transitive runtime package names separately for
   lean compatibility checks; development tools remain provenance only. Older
   format 3 archives fall back to the recipient runtime closure plus archived
   Engulf and edition packages. Keep the version lock and wheelhouse exclusive to
   runtime and offline modes. The producing edition selects a runtime provider through
   `engulf_clab.freeze.runtime.v1`; no provider means an explicit error.
+- Offline bundling removes the producer-specific `command` from `pyvenv.cfg`
+  and converts Python console scripts to shell wrappers backed by
+  `.eclab-frozen-scripts/`. Preserve `sys.argv[0]` and the original bin path on
+  `sys.path`; the launcher uses the new edition wrapper when present and keeps
+  its old direct-Python path for previously frozen archives.
 - Keep lean, runtime, and offline launchers distinct. Lean uses the installed
   edition without a compatibility prompt. `_freeze_readme()` renders the packaged
   `readmes/<mode>.md` guide into every archive as `FREEZE-README.md` with
@@ -159,6 +188,7 @@ Run the narrowest checks that exercise the changed boundary:
 ```bash
 .venv/bin/python -m compileall -q plugins/engulf-clab-freeze/src
 .venv/bin/python -m pytest -q plugins/engulf-clab-freeze/tests
+.venv/bin/python -m pytest -q plugins/engulf-clab-freeze/tests/test_runtime.py plugins/engulf-clab-freeze/tests/test_defrost.py
 make check-skill
 ```
 

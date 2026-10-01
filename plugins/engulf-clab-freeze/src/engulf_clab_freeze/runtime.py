@@ -27,9 +27,18 @@ _REVISION_MARKER = ".eclab-freeze-revision"
 def _safe_repository(value: str) -> str | None:
     """Keep fetchable public HTTPS locations, never embedded credentials or paths."""
     parsed = urlsplit(value)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
         return None
-    path = parsed.path.split("/tree/", 1)[0] if parsed.hostname == "github.com" else parsed.path
+    path = (
+        parsed.path.split("/tree/", 1)[0]
+        if parsed.hostname == "github.com"
+        else parsed.path
+    )
     return urlunsplit((parsed.scheme, parsed.hostname, path, "", ""))
 
 
@@ -37,7 +46,11 @@ def _git_identity(path: Path) -> dict[str, str] | None:
     pinned = path / _REVISION_MARKER
     if pinned.is_file():
         revision = pinned.read_text(encoding="ascii").strip()
-        return {"revision": revision} if re.fullmatch(r"[0-9a-fA-F]{7,40}", revision) else None
+        return (
+            {"revision": revision}
+            if re.fullmatch(r"[0-9a-fA-F]{7,40}", revision)
+            else None
+        )
     if not (path / ".git").exists():
         return None
     try:
@@ -53,7 +66,9 @@ def _git_identity(path: Path) -> dict[str, str] | None:
 
 def _containerlab_version(binary: Path) -> dict[str, str] | None:
     try:
-        result = subprocess.run([str(binary), "version", "-j"], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [str(binary), "version", "-j"], capture_output=True, text=True, check=False
+        )
         data = json.loads(result.stdout) if result.returncode == 0 else None
     except (OSError, ValueError):
         return None
@@ -61,12 +76,18 @@ def _containerlab_version(binary: Path) -> dict[str, str] | None:
         return None
     version = data.get("version") or data.get("Version")
     commit = data.get("gitCommit") or data.get("git_commit") or data.get("commit")
-    return {key: value for key, value in (("version", version), ("commit", commit)) if isinstance(value, str) and value}
+    return {
+        key: value
+        for key, value in (("version", version), ("commit", commit))
+        if isinstance(value, str) and value
+    }
 
 
 def _containerlab_repository(binary: Path) -> str | None:
     try:
-        result = subprocess.run([str(binary), "version", "-j"], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [str(binary), "version", "-j"], capture_output=True, text=True, check=False
+        )
         data = json.loads(result.stdout) if result.returncode == 0 else None
     except (OSError, ValueError):
         return None
@@ -75,25 +96,41 @@ def _containerlab_repository(binary: Path) -> str | None:
     return None
 
 
-def _tool_paths(environment: Mapping[str, str], user_state: Path | None) -> tuple[Path | None, Path | None]:
+def _tool_paths(
+    environment: Mapping[str, str], user_state: Path | None
+) -> tuple[Path | None, Path | None]:
     binary: Path | None = None
     candidates: list[Path] = []
     if configured := environment.get("CONTAINERLAB_BIN", "").strip():
         candidates.append(Path(configured).expanduser())
     if configured := environment.get("CONTAINERLAB_DIR", "").strip():
         containerlab_dir = Path(configured).expanduser()
-        candidates.extend((containerlab_dir / "bin" / "containerlab", containerlab_dir / "containerlab"))
-    if found := shutil.which("containerlab", path=environment.get("PATH", os.environ.get("PATH"))):
+        candidates.extend(
+            (
+                containerlab_dir / "bin" / "containerlab",
+                containerlab_dir / "containerlab",
+            )
+        )
+    if found := shutil.which(
+        "containerlab", path=environment.get("PATH", os.environ.get("PATH"))
+    ):
         candidates.append(Path(found))
     if user_state is not None:
-        candidates.extend((user_state / "containerlab" / "bin" / "containerlab", user_state / "containerlab" / "containerlab"))
+        candidates.extend(
+            (
+                user_state / "containerlab" / "bin" / "containerlab",
+                user_state / "containerlab" / "containerlab",
+            )
+        )
     for candidate in candidates:
         if command._executable(candidate):
             binary = candidate.resolve()
             break
     checkout: Path | None = None
     configured = environment.get("VRNETLAB_DIR", "")
-    candidates = ([Path(configured).expanduser()] if configured else []) + ([user_state / "vrnetlab"] if user_state else [])
+    candidates = ([Path(configured).expanduser()] if configured else []) + (
+        [user_state / "vrnetlab"] if user_state else []
+    )
     for candidate in candidates:
         if (candidate / "common" / "vrnetlab.py").is_file():
             checkout = candidate.resolve()
@@ -155,7 +192,9 @@ def _package_mismatches(
 class EclabRuntimeProvider:
     edition = "eclab"
 
-    def capture(self, environment: Mapping[str, str], user_state: Path | None) -> Mapping[str, Any]:
+    def capture(
+        self, environment: Mapping[str, str], user_state: Path | None
+    ) -> Mapping[str, Any]:
         binary, checkout = _tool_paths(environment, user_state)
         containerlab: dict[str, Any] = {}
         if binary is not None:
@@ -166,23 +205,51 @@ class EclabRuntimeProvider:
                     break
             if "repository" not in containerlab:
                 configured = environment.get("CONTAINERLAB_REPO", "")
-                containerlab["repository"] = _safe_repository(configured) or _containerlab_repository(binary) or _DEFAULT_CONTAINERLAB_REPOSITORY
+                containerlab["repository"] = (
+                    _safe_repository(configured)
+                    or _containerlab_repository(binary)
+                    or _DEFAULT_CONTAINERLAB_REPOSITORY
+                )
         vrnetlab = _git_identity(checkout) if checkout is not None else None
         if vrnetlab is not None and "repository" not in vrnetlab:
-            vrnetlab["repository"] = _safe_repository(environment.get("VRNETLAB_REPO", "")) or _DEFAULT_VRNETLAB_REPOSITORY
+            vrnetlab["repository"] = (
+                _safe_repository(environment.get("VRNETLAB_REPO", ""))
+                or _DEFAULT_VRNETLAB_REPOSITORY
+            )
         return {"containerlab": containerlab or None, "vrnetlab": vrnetlab}
 
-    def prepare_archive(self, root: Path, mode: str, tools: Mapping[str, Any], environment: Mapping[str, str], user_state: Path | None, warnings: list[str]) -> None:
+    def prepare_archive(
+        self,
+        root: Path,
+        mode: str,
+        tools: Mapping[str, Any],
+        environment: Mapping[str, str],
+        user_state: Path | None,
+        warnings: list[str],
+    ) -> None:
         if mode == "lean":
             return
         clab = tools.get("containerlab")
         vrnetlab = tools.get("vrnetlab")
-        if not isinstance(clab, dict) or not clab.get("version") or not clab.get("commit"):
-            raise command.FreezeError("runtime modes require a verifiable Containerlab version and commit")
-        if mode == "offline" and (not isinstance(vrnetlab, dict) or not vrnetlab.get("revision")):
-            raise command.FreezeError("--eclab-offline requires a verifiable vrnetlab Git revision")
+        if (
+            not isinstance(clab, dict)
+            or not clab.get("version")
+            or not clab.get("commit")
+        ):
+            raise command.FreezeError(
+                "runtime modes require a verifiable Containerlab version and commit"
+            )
+        if mode == "offline" and (
+            not isinstance(vrnetlab, dict) or not vrnetlab.get("revision")
+        ):
+            raise command.FreezeError(
+                "--eclab-offline requires a verifiable vrnetlab Git revision"
+            )
         packages = command._locked_packages(self.edition)
-        (root / "requirements.freeze.txt").write_text("\n".join(f"{name}=={version}" for name, version in packages) + "\n", encoding="utf-8")
+        (root / "requirements.freeze.txt").write_text(
+            "\n".join(f"{name}=={version}" for name, version in packages) + "\n",
+            encoding="utf-8",
+        )
         complete = command._download_wheels(root, packages, warnings)
         if mode == "offline" and not complete:
             raise command.FreezeError("--eclab-offline requires a complete wheelhouse")
@@ -192,7 +259,9 @@ class EclabRuntimeProvider:
             # The recipient builds its virtual environment without a
             # package index, so every locked wheel must travel with the lab.
             if not complete:
-                raise command.FreezeError("--eclab-with-runtime requires a complete wheelhouse")
+                raise command.FreezeError(
+                    "--eclab-with-runtime requires a complete wheelhouse"
+                )
             command._download_python_wheels(root, warnings)
         self._bundle_tools(root, mode, clab, vrnetlab, environment, user_state)
 
@@ -213,15 +282,28 @@ class EclabRuntimeProvider:
         what the lab was frozen with even when that state was never pushed.
         """
         label = "--eclab-offline" if mode == "offline" else "runtime mode"
-        if not isinstance(vrnetlab, dict) or not isinstance(vrnetlab.get("revision"), str):
-            raise command.FreezeError(f"{label} requires a verifiable vrnetlab Git revision")
+        if not isinstance(vrnetlab, dict) or not isinstance(
+            vrnetlab.get("revision"), str
+        ):
+            raise command.FreezeError(
+                f"{label} requires a verifiable vrnetlab Git revision"
+            )
         binary, checkout = _tool_paths(environment, user_state)
         if binary is None or checkout is None:
-            raise command.FreezeError(f"{label} requires selected Containerlab and vrnetlab tools")
-        if _containerlab_version(binary) != {"version": clab["version"], "commit": clab["commit"]}:
-            raise command.FreezeError(f"Containerlab changed while preparing the {mode} archive")
+            raise command.FreezeError(
+                f"{label} requires selected Containerlab and vrnetlab tools"
+            )
+        if _containerlab_version(binary) != {
+            "version": clab["version"],
+            "commit": clab["commit"],
+        }:
+            raise command.FreezeError(
+                f"Containerlab changed while preparing the {mode} archive"
+            )
         if (_git_identity(checkout) or {}).get("revision") != vrnetlab["revision"]:
-            raise command.FreezeError(f"vrnetlab changed while preparing the {mode} archive")
+            raise command.FreezeError(
+                f"vrnetlab changed while preparing the {mode} archive"
+            )
         selected = dict(environment)
         selected["CONTAINERLAB_BIN"] = str(binary)
         selected["VRNETLAB_DIR"] = str(checkout)
@@ -232,7 +314,12 @@ class EclabRuntimeProvider:
             vrnetlab["revision"] + "\n", encoding="ascii"
         )
 
-    def check_recipient(self, tools: Mapping[str, Any], environment: Mapping[str, str], user_state: Path | None) -> list[str]:
+    def check_recipient(
+        self,
+        tools: Mapping[str, Any],
+        environment: Mapping[str, str],
+        user_state: Path | None,
+    ) -> list[str]:
         binary, checkout = _tool_paths(environment, user_state)
         issues: list[str] = []
         recorded_clab = tools.get("containerlab")
@@ -243,35 +330,59 @@ class EclabRuntimeProvider:
                 if not expected:
                     issues.append(f"frozen Containerlab {key} is unavailable")
                 elif (actual or {}).get(key) != expected:
-                    issues.append(f"Containerlab {key} is {(actual or {}).get(key) or 'missing'} (frozen {expected})")
+                    issues.append(
+                        f"Containerlab {key} is {(actual or {}).get(key) or 'missing'} (frozen {expected})"
+                    )
         else:
             issues.append("frozen Containerlab version and commit are unavailable")
         recorded_vrnetlab = tools.get("vrnetlab")
         if isinstance(recorded_vrnetlab, dict) and recorded_vrnetlab.get("revision"):
             actual = _git_identity(checkout) if checkout is not None else None
             if (actual or {}).get("revision") != recorded_vrnetlab["revision"]:
-                issues.append(f"vrnetlab revision is {(actual or {}).get('revision') or 'missing'} (frozen {recorded_vrnetlab['revision']})")
+                issues.append(
+                    f"vrnetlab revision is {(actual or {}).get('revision') or 'missing'} (frozen {recorded_vrnetlab['revision']})"
+                )
         else:
             issues.append("frozen vrnetlab revision is unavailable")
         return issues
 
-    def prepare_recipient(self, root: Path, mode: str, tools: Mapping[str, Any], environment: Mapping[str, str], user_state: Path | None, notes: list[str]) -> None:
+    def prepare_recipient(
+        self,
+        root: Path,
+        mode: str,
+        tools: Mapping[str, Any],
+        environment: Mapping[str, str],
+        user_state: Path | None,
+        notes: list[str],
+    ) -> None:
         if mode != "runtime":
             return
         from .defrost import DefrostError
 
         clab = tools.get("containerlab")
         vrnetlab = tools.get("vrnetlab")
-        if not isinstance(clab, dict) or not clab.get("version") or not clab.get("commit"):
-            raise DefrostError("runtime archive lacks a verifiable Containerlab version and commit")
-        vrnetlab_data = vrnetlab if isinstance(vrnetlab, dict) and vrnetlab.get("revision") else None
+        if (
+            not isinstance(clab, dict)
+            or not clab.get("version")
+            or not clab.get("commit")
+        ):
+            raise DefrostError(
+                "runtime archive lacks a verifiable Containerlab version and commit"
+            )
+        vrnetlab_data = (
+            vrnetlab
+            if isinstance(vrnetlab, dict) and vrnetlab.get("revision")
+            else None
+        )
         # Runtime archives run only the tools frozen beside the lab, installed
         # into the lab's own virtual environment. Never fetch or rebuild them:
         # a producer revision may exist nowhere else, and host tool
         # selections must not leak into the pinned launcher.
         venv = root / ".eclab-venv"
         if not (venv / "bin" / "python").is_file():
-            raise DefrostError("runtime virtual environment is missing; run the lab launcher to create it")
+            raise DefrostError(
+                "runtime virtual environment is missing; run the lab launcher to create it"
+            )
         source = root / "tools" / "containerlab" / "bin" / "containerlab"
         if not command._executable(source):
             raise DefrostError(
@@ -279,7 +390,9 @@ class EclabRuntimeProvider:
             )
         expected_clab = {"version": clab["version"], "commit": clab["commit"]}
         if _containerlab_version(source) != expected_clab:
-            raise DefrostError("bundled Containerlab identity differs from the archive record")
+            raise DefrostError(
+                "bundled Containerlab identity differs from the archive record"
+            )
         binary = venv / "bin" / "containerlab"
         shutil.copy2(source, binary)
         binary.chmod(binary.stat().st_mode | 0o111)
@@ -290,25 +403,35 @@ class EclabRuntimeProvider:
                 raise DefrostError(
                     "runtime archive has no bundled vrnetlab checkout; re-freeze it with --eclab-with-runtime"
                 )
-            if (_git_identity(bundled) or {}).get("revision") != vrnetlab_data["revision"]:
-                raise DefrostError("bundled vrnetlab revision differs from the archive record")
+            if (_git_identity(bundled) or {}).get("revision") != vrnetlab_data[
+                "revision"
+            ]:
+                raise DefrostError(
+                    "bundled vrnetlab revision differs from the archive record"
+                )
             checkout = venv / "share" / "vrnetlab"
             shutil.rmtree(checkout, ignore_errors=True)
             shutil.copytree(bundled, checkout, symlinks=True)
         lines = []
         lines.append(f"export CONTAINERLAB_BIN={command._shell_quote(str(binary))}")
-        lines.append(f"export PATH={command._shell_quote(str(binary.parent))}:\"$PATH\"")
+        lines.append(f'export PATH={command._shell_quote(str(binary.parent))}:"$PATH"')
         if checkout is not None:
             lines.append(f"export VRNETLAB_DIR={command._shell_quote(str(checkout))}")
-        lines.extend((
-            "export CONTAINERLAB_UPDATE=0",
-            "export VRNETLAB_UPDATE=0",
-        ))
-        (root / ".eclab-freeze.env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        lines.extend(
+            (
+                "export CONTAINERLAB_UPDATE=0",
+                "export VRNETLAB_UPDATE=0",
+            )
+        )
+        (root / ".eclab-freeze.env").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
         notes.append("installed bundled Containerlab and vrnetlab into .eclab-venv")
 
     def launcher(self, topology: str, mode: str, tools: Mapping[str, Any]) -> str:
-        return command._launcher(topology, offline=mode == "offline", mode=mode, edition=self.edition)
+        return command._launcher(
+            topology, offline=mode == "offline", mode=mode, edition=self.edition
+        )
 
     def readme_supplement(self, mode: str) -> str:
         """Edition-specific markdown appended to the archived FREEZE-README.md.
@@ -330,12 +453,24 @@ class _PathState:
 
 
 def _runtime_record(root: Path) -> dict[str, Any]:
-    """Read the runtime freeze record from defrost, or from the archived topology.
+    """Read the runtime record from defrost or the separate archive record.
 
     A recipient may run the launcher straight from an extracted archive, so
-    the topology's own freeze metadata is the fallback when defrost never ran.
+    the freeze record is the fallback when defrost never ran. Older archives
+    stored this record in their topology YAML.
     """
-    records = [json.loads(path.read_text(encoding="utf-8")).get("freeze") for path in sorted(root.glob(".*-defrost.json"))]
+    records = [
+        json.loads(path.read_text(encoding="utf-8")).get("freeze")
+        for path in sorted(root.glob(".*-defrost.json"))
+    ]
+    if not records:
+        freeze_path = root / command._FREEZE_RECORD_NAME
+        if freeze_path.is_file() and not freeze_path.is_symlink():
+            try:
+                record = json.loads(freeze_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                record = None
+            records.append(record.get("freeze") if isinstance(record, dict) else None)
     if not records:
         for path in sorted(root.glob("*.y*ml")):
             try:
@@ -345,8 +480,11 @@ def _runtime_record(root: Path) -> dict[str, Any]:
             if isinstance(document, dict):
                 records.append(document.get(command._FREEZE_KEY))
     matching = [
-        data for data in records
-        if isinstance(data, dict) and data.get("format") == 3 and data.get("mode") == "runtime"
+        data
+        for data in records
+        if isinstance(data, dict)
+        and data.get("format") == 3
+        and data.get("mode") == "runtime"
     ]
     if len(matching) != 1:
         raise ValueError("expected one format 3 runtime record")
@@ -356,7 +494,10 @@ def _runtime_record(root: Path) -> dict[str, Any]:
 def _cli() -> int:
     """Prepare deferred pins and verify selected tools before runtime launch."""
     if len(sys.argv) != 3 or sys.argv[1] not in {"prepare", "verify"}:
-        print("usage: python -m engulf_clab_freeze.runtime {prepare|verify} LAB", file=sys.stderr)
+        print(
+            "usage: python -m engulf_clab_freeze.runtime {prepare|verify} LAB",
+            file=sys.stderr,
+        )
         return 2
     root = Path(sys.argv[2]).resolve()
     try:
@@ -371,10 +512,21 @@ def _cli() -> int:
         if sys.argv[1] == "prepare":
             provider.prepare_recipient(root, "runtime", tools, os.environ, None, [])
         else:
-            issues = [issue for issue in provider.check_recipient(tools, os.environ, None) if not issue.startswith("frozen ")]
+            issues = [
+                issue
+                for issue in provider.check_recipient(tools, os.environ, None)
+                if not issue.startswith("frozen ")
+            ]
             if issues:
                 raise ValueError("; ".join(issues))
-    except (OSError, ValueError, TypeError, StopIteration, KeyError, RuntimeError) as error:
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        StopIteration,
+        KeyError,
+        RuntimeError,
+    ) as error:
         print(f"pinned runtime check failed: {error}", file=sys.stderr)
         return 1
     return 0

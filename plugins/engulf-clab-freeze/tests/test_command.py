@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -14,7 +15,6 @@ from unittest.mock import ANY, patch
 
 import pytest
 import yaml
-
 from engulf_clab_freeze.command import (
     FreezeError,
     _bundle_offline_vrnetlab,
@@ -23,9 +23,17 @@ from engulf_clab_freeze.command import (
     _environment_initializer_script,
     _environment_references,
     _launcher,
+    _write_self_extracting_archive,
     freeze,
     main,
 )
+
+
+def _open_self_extracting_archive(path: Path) -> tarfile.TarFile:
+    data = path.read_bytes()
+    marker = b"__ECLAB_ARCHIVE_BELOW__\n"
+    payload_offset = data.index(marker) + len(marker)
+    return tarfile.open(fileobj=io.BytesIO(data[payload_offset:]), mode="r:gz")
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +113,134 @@ class FreezeCommandTestCase(unittest.TestCase):
                 environment=None,
                 contributors=ANY,
                 contributor_arguments=ANY,
+                requirements=(),
             )
+
+    def test_main_defaults_runtime_bundle_to_self_extracting_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+            with (
+                patch("engulf_clab_freeze.command.freeze") as mocked_freeze,
+                patch("engulf_clab_lab_parser.session.Path.cwd", return_value=root),
+            ):
+                self.assertEqual(main(["--eclab-with-runtime"]), 0)
+
+            self.assertEqual(
+                mocked_freeze.call_args.args[:2],
+                (topology.resolve(), root / f"{root.name}.run"),
+            )
+            self.assertTrue(mocked_freeze.call_args.kwargs["with_runtime"])
+
+    def test_main_defaults_offline_package_to_self_extracting_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            topology = root / "lab.clab.yml"
+            topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
+            with (
+                patch("engulf_clab_freeze.command.freeze") as mocked_freeze,
+                patch("engulf_clab_lab_parser.session.Path.cwd", return_value=root),
+            ):
+                self.assertEqual(main(["--eclab-offline"]), 0)
+
+            self.assertEqual(
+                mocked_freeze.call_args.args[:2],
+                (topology.resolve(), root / f"{root.name}.run"),
+            )
+            self.assertTrue(mocked_freeze.call_args.kwargs["offline"])
+
+    def test_self_extracting_archive_runs_defrost_to_default_and_custom_outputs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            content = root / "content"
+            content.mkdir()
+            (content / "defrost.sh").write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                '[ "$1" = --eclab-output ]\n'
+                "output=$2\n"
+                "shift 2\n"
+                'mkdir -p -- "$output"\n'
+                "printf '%s\\n' ran > \"$output/defrost-ran\"\n"
+                'if [ "$#" -gt 0 ]; then\n'
+                '  printf \'%s\\n\' "$@" > "$output/forwarded-args"\n'
+                "else\n"
+                '  : > "$output/forwarded-args"\n'
+                "fi\n",
+                encoding="utf-8",
+            )
+            (content / "defrost.sh").chmod(0o755)
+            payload = root / "payload.tar.gz"
+            with tarfile.open(payload, "w:gz") as tar:
+                tar.add(content / "defrost.sh", arcname="defrost.sh")
+            package = root / "runtime-package.run"
+            _write_self_extracting_archive(package, payload, package.name)
+            minimal_path = root / "minimal-path"
+            minimal_path.mkdir()
+            for tool in (
+                "basename",
+                "dirname",
+                "gzip",
+                "mkdir",
+                "mktemp",
+                "mv",
+                "rm",
+                "tail",
+                "tar",
+            ):
+                executable = shutil.which(tool)
+                self.assertIsNotNone(executable)
+                (minimal_path / tool).symlink_to(executable)
+
+            default = subprocess.run(
+                [str(package)],
+                cwd=root,
+                env={"PATH": str(minimal_path)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(default.returncode, 0, default.stderr)
+            self.assertTrue((root / "runtime-package" / "defrost-ran").is_file())
+            self.assertEqual(
+                (root / "runtime-package" / "forwarded-args").read_text(), ""
+            )
+            self.assertEqual(list(root.glob(".runtime-package.extract.*")), [])
+
+            custom = root / "custom output"
+            selected = subprocess.run(
+                [
+                    str(package),
+                    "--eclab-output",
+                    str(custom),
+                    "--eclab-license",
+                    "router=/pool",
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(selected.returncode, 0, selected.stderr)
+            self.assertTrue((custom / "defrost-ran").is_file())
+            self.assertEqual(
+                (custom / "forwarded-args").read_text(),
+                "--eclab-license\nrouter=/pool\n",
+            )
+            self.assertEqual(list(root.glob(".custom output.extract.*")), [])
+
+            conflict = subprocess.run(
+                [str(package), "--eclab-output", str(custom)],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(conflict.returncode, 0)
+            self.assertIn("already exists", conflict.stderr)
 
     def test_main_accepts_an_explicit_topology(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -116,7 +251,15 @@ class FreezeCommandTestCase(unittest.TestCase):
 
             with patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
                 self.assertEqual(
-                    main(["--eclab-topology", str(topology), "--eclab-output", str(archive)]), 0
+                    main(
+                        [
+                            "--eclab-topology",
+                            str(topology),
+                            "--eclab-output",
+                            str(archive),
+                        ]
+                    ),
+                    0,
                 )
 
             mocked_freeze.assert_called_once_with(
@@ -133,6 +276,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 environment=None,
                 contributors=ANY,
                 contributor_arguments=ANY,
+                requirements=(),
             )
 
     def test_main_selects_topology_from_positional_lab_directory(self) -> None:
@@ -142,12 +286,16 @@ class FreezeCommandTestCase(unittest.TestCase):
             topology = root / "lab.clab.yml"
             topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
 
-            with chdir(directory), patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
+            with (
+                chdir(directory),
+                patch("engulf_clab_freeze.command.freeze") as mocked_freeze,
+            ):
                 self.assertEqual(main(["lab"]), 0)
 
-            self.assertEqual(mocked_freeze.call_args.args[:2], (
-                topology.resolve(), Path(directory) / "lab.tar.gz"
-            ))
+            self.assertEqual(
+                mocked_freeze.call_args.args[:2],
+                (topology.resolve(), Path(directory) / "lab.tar.gz"),
+            )
 
     def test_main_rejects_directory_with_explicit_topology(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -163,7 +311,10 @@ class FreezeCommandTestCase(unittest.TestCase):
             ["--bundle-image", "example/router:1"],
             ["--topology", "lab.clab.yml"],
         ):
-            with self.subTest(args=args), patch("engulf_clab_freeze.command.freeze") as mocked_freeze:
+            with (
+                self.subTest(args=args),
+                patch("engulf_clab_freeze.command.freeze") as mocked_freeze,
+            ):
                 self.assertEqual(main(args), 2)
                 mocked_freeze.assert_not_called()
 
@@ -204,6 +355,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 environment=None,
                 contributors=ANY,
                 contributor_arguments=ANY,
+                requirements=(),
             )
 
     def test_freeze_sanitizes_a_copy_without_changing_source(self) -> None:
@@ -250,6 +402,7 @@ class FreezeCommandTestCase(unittest.TestCase):
                 names = tar.getnames()
                 self.assertFalse(any(name.endswith("private.lic") for name in names))
                 frozen = yaml.safe_load(tar.extractfile("share/lab.clab.yml").read())
+                metadata = json.load(tar.extractfile("share/freeze.json"))["freeze"]
             router = frozen["topology"]["nodes"]["router"]
             self.assertEqual(router["license"], "__ECLAB_LICENSE_PROMPT__")
             self.assertNotIn("ECLAB_LIC_CLAMP", router["env"])
@@ -261,9 +414,10 @@ class FreezeCommandTestCase(unittest.TestCase):
             ):
                 self.assertEqual(definition["license"], "__ECLAB_LICENSE_PROMPT__")
                 self.assertNotIn("ECLAB_LIC_CLAMP", definition["env"])
-            self.assertEqual(frozen["x-engulf-clab-freeze"]["licenses"], "prompt")
+            self.assertNotIn("x-engulf-clab-freeze", frozen)
+            self.assertEqual(metadata["licenses"], "prompt")
             self.assertEqual(
-                frozen["x-engulf-clab-freeze"]["env_initializer"],
+                metadata["env_initializer"],
                 "initialize-env.sh",
             )
 
@@ -438,8 +592,15 @@ class FreezeCommandTestCase(unittest.TestCase):
             root.mkdir()
             topology = root / "lab.clab.yml"
             topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
-            archive = Path(directory) / "share.tar.gz"
+            archive = Path(directory) / "share.run"
             user_state = SimpleNamespace()
+
+            def bundle_venv(staging, edition):
+                binaries = staging / ".eclab-venv" / "bin"
+                binaries.mkdir(parents=True)
+                for binary in ("python", edition):
+                    (binaries / binary).write_text("#!/bin/sh\nexit 0\n")
+                    (binaries / binary).chmod(0o755)
 
             with (
                 patch(
@@ -462,7 +623,10 @@ class FreezeCommandTestCase(unittest.TestCase):
                     return_value={"revision": "a"},
                 ),
                 patch("engulf_clab_freeze.command._download_wheels"),
-                patch("engulf_clab_freeze.command._bundle_offline_runtime") as runtime,
+                patch(
+                    "engulf_clab_freeze.command._bundle_offline_runtime",
+                    side_effect=bundle_venv,
+                ) as runtime,
                 patch(
                     "engulf_clab_freeze.command._bundle_offline_containerlab"
                 ) as clab,
@@ -487,16 +651,26 @@ class FreezeCommandTestCase(unittest.TestCase):
             clab.assert_called_once()
             vrnetlab.assert_called_once()
             images.assert_called_once()
-            with tarfile.open(archive, "r:gz") as tar:
+            with _open_self_extracting_archive(archive) as tar:
+                self.assertIn("runtime/.eclab-venv/bin/eclab", tar.getnames())
+                defroster = tar.extractfile("defrost.sh").read().decode()
+                inner_data = tar.extractfile("lab.tgz").read()
+            with tarfile.open(fileobj=io.BytesIO(inner_data), mode="r:gz") as tar:
+                inner_names = tar.getnames()
                 launcher = tar.extractfile("share/run-eclab.sh").read().decode()
                 frozen = yaml.safe_load(tar.extractfile("share/lab.clab.yml").read())
+                metadata = json.load(tar.extractfile("share/freeze.json"))["freeze"]
                 revision = tar.extractfile(
                     "share/tools/vrnetlab/.eclab-freeze-revision"
                 ).read()
             self.assertEqual(revision, b"a\n")
+            self.assertIn('defrost "$root/lab.tgz"', defroster)
+            self.assertIn("ECLAB_FREEZE_RUNTIME", defroster)
+            self.assertFalse(any("/.eclab-venv/" in name for name in inner_names))
             self.assertIn('exec "$runtime/bin/python" "$runtime/bin/eclab"', launcher)
             self.assertNotIn("pip install", launcher)
-            self.assertTrue(frozen["x-engulf-clab-freeze"]["offline"])
+            self.assertNotIn("x-engulf-clab-freeze", frozen)
+            self.assertTrue(metadata["offline"])
 
 
 class OfflineBundleTestCase(unittest.TestCase):
@@ -527,7 +701,9 @@ class OfflineBundleTestCase(unittest.TestCase):
             self.assertTrue((bundled / ".git").is_file())
             status = subprocess.run(
                 ["git", "-C", str(bundled), "status", "--short"],
-                capture_output=True, text=True, check=False,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             self.assertNotEqual(status.returncode, 0)
             self.assertEqual(status.stdout, "")
@@ -541,6 +717,13 @@ class OfflineBundleTestCase(unittest.TestCase):
         self.assertIn("unset CONTAINERLAB_VERSION VRNETLAB_VERSION", launcher)
         self.assertNotIn("docker image load", launcher)
         self.assertNotIn("pip install", launcher)
+
+    def test_runtime_launcher_can_prepare_the_venv_without_deploying(self) -> None:
+        launcher = _launcher("lab.clab.yml")
+
+        self.assertIn('"${1-}" == --eclab-build-venv', launcher)
+        self.assertIn('"$prepare_only" -eq 1', launcher)
+        self.assertIn('echo "prepared .eclab-venv"', launcher)
 
 
 class WheelhouseTestCase(unittest.TestCase):
@@ -563,7 +746,9 @@ class WheelhouseTestCase(unittest.TestCase):
             with (
                 patch(
                     "engulf_clab_freeze.command.importlib.metadata.distribution",
-                    side_effect=lambda name: local if name == "engulf-clab" else indexed,
+                    side_effect=lambda name: (
+                        local if name == "engulf-clab" else indexed
+                    ),
                 ),
                 patch(
                     "engulf_clab_freeze.command.subprocess.run",
@@ -621,7 +806,9 @@ class WheelhouseTestCase(unittest.TestCase):
             with (
                 patch(
                     "engulf_clab_freeze.command.importlib.metadata.distribution",
-                    side_effect=lambda name: local if name == "engulf-clab" else indexed,
+                    side_effect=lambda name: (
+                        local if name == "engulf-clab" else indexed
+                    ),
                 ),
                 patch(
                     "engulf_clab_freeze.command.subprocess.run",
@@ -654,9 +841,15 @@ class WheelhouseTestCase(unittest.TestCase):
             (site / "demo" / "__pycache__" / "x.pyc").write_bytes(b"cache")
             info = site / "demo_pkg-1.0.dist-info"
             info.mkdir()
-            (info / "METADATA").write_text("Metadata-Version: 2.1\nName: demo-pkg\nVersion: 1.0\n")
-            (info / "WHEEL").write_text("Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
-            (info / "entry_points.txt").write_text("[console_scripts]\ndemo = demo:main\n")
+            (info / "METADATA").write_text(
+                "Metadata-Version: 2.1\nName: demo-pkg\nVersion: 1.0\n"
+            )
+            (info / "WHEEL").write_text(
+                "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+            )
+            (info / "entry_points.txt").write_text(
+                "[console_scripts]\ndemo = demo:main\n"
+            )
             (info / "INSTALLER").write_text("pip\n")
             (info / "RECORD").write_text(
                 "demo/__init__.py,,\ndemo/__pycache__/x.pyc,,\n"
@@ -688,7 +881,9 @@ class WheelhouseTestCase(unittest.TestCase):
 
             (info / "RECORD").write_text("demo/__init__.py,,\n../../share/data.txt,,\n")
             self.assertFalse(
-                _repack_installed_wheel(importlib.metadata.PathDistribution(info), wheelhouse)
+                _repack_installed_wheel(
+                    importlib.metadata.PathDistribution(info), wheelhouse
+                )
             )
 
     def test_editable_install_is_built_from_its_live_source(self) -> None:
@@ -764,6 +959,7 @@ class FreezePrivateEnvironmentTest(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertNotIn("FREEZE-README.md", completed.stdout)
             self.assertEqual(
                 (root / "lab.env").read_text(encoding="utf-8"),
                 'API_TOKEN="secret=value"\n',
@@ -809,6 +1005,9 @@ class FreezePrivateEnvironmentTest(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("FREEZE-README.md", completed.stdout)
+            self.assertIn("Value for ROUTER_IMAGE", completed.stdout)
+            self.assertIn("Left API_TOKEN unset.", completed.stdout)
             self.assertNotIn(
                 "no topology environment values need initialization.",
                 completed.stdout,

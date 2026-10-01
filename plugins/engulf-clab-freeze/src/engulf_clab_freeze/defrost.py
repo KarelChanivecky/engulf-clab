@@ -33,11 +33,12 @@ from engulf_clab_vrnetlab_static_image_provider.config import (
     build_requests_from_topology,
     resolve_image_expression,
 )
-from engulf_docker_image_core import loaded_archive_references
 
 from .command import (
+    _DEFROST_RUNTIME_ENV,
     _ENV_INITIALIZER,
     _FREEZE_KEY,
+    _FREEZE_RECORD_NAME,
     _LABEL_PREFIX,
     PYTHON_VERSIONS_NAME,
     _archive_root_name,
@@ -45,6 +46,7 @@ from .command import (
     _launcher_name,
     _state_prefix,
 )
+from .host_requirements import _checker_script
 
 # Keys the recipient's plugins read back. They use the fixed `ECLAB` prefix for
 # exactly the reason freeze writes it: engulf-clab-license-pool and
@@ -63,8 +65,7 @@ _TOPOLOGY_PATTERNS = (
     "topology.yml",
     "topology.yaml",
 )
-# `docker load` reads an uncompressed tar or a gzip, bzip2, or xz compressed one;
-# engulf-clab-image-archive accepts exactly these suffixes.
+# Accepted by the image-archive provider's Docker archive recipe.
 _IMAGE_ARCHIVE_SUFFIXES = (
     ".tar",
     ".tar.gz",
@@ -95,6 +96,8 @@ def main(
     environment: Mapping[str, str] | None = None,
     cwd: Path | None = None,
     user_state: Path | None = None,
+    license_pools_registered: bool | None = None,
+    setup_license_pool: Callable[[], bool] | None = None,
 ) -> int:
     """Run the optional defrost command against one frozen archive."""
     try:
@@ -121,7 +124,6 @@ def main(
             environment_values=_environment_answers(arguments.env or []),
             prepare_runtime=not arguments.no_runtime,
             select_images=not arguments.no_images,
-            load_images=arguments.load_images,
             initialize_env=not arguments.skip_env_init,
             force=arguments.force,
             application_name=application_name,
@@ -130,6 +132,8 @@ def main(
             contributors=contributors,
             contributor_arguments=arguments,
             user_state=user_state,
+            license_pools_registered=license_pools_registered,
+            setup_license_pool=setup_license_pool,
         )
     except (
         DefrostError,
@@ -191,19 +195,13 @@ def _parser(
         "--eclab-no-runtime",
         dest="no_runtime",
         action="store_true",
-        help="skip runtime preparation and leave it to the archive launcher",
+        help="skip attaching the prepared venv; the restored lab launcher handles runtime setup",
     )
     parser.add_argument(
         "--eclab-no-images",
         dest="no_images",
         action="store_true",
         help="skip bundled Docker image archive selection",
-    )
-    parser.add_argument(
-        "--eclab-load-images",
-        dest="load_images",
-        action="store_true",
-        help="load matched bundled image archives into Docker now instead of at deploy",
     )
     parser.add_argument(
         "--eclab-skip-env-init",
@@ -237,7 +235,6 @@ def defrost(
     environment_values: Mapping[str, str] | None = None,
     prepare_runtime: bool = True,
     select_images: bool = True,
-    load_images: bool = False,
     initialize_env: bool = True,
     force: bool = False,
     application_name: str = "eclab",
@@ -246,6 +243,8 @@ def defrost(
     contributors: tuple[Any, ...] = (),
     contributor_arguments: argparse.Namespace | None = None,
     user_state: Path | None = None,
+    license_pools_registered: bool | None = None,
+    setup_license_pool: Callable[[], bool] | None = None,
 ) -> bool:
     """Expand one frozen archive into an atomically published, runnable lab."""
     archive = archive.expanduser().resolve()
@@ -261,13 +260,15 @@ def defrost(
     record_name = f".{_state_prefix(application_name).lower()}-defrost.json"
     replacing = _check_destination(into, record_name, force=force)
     notes: list[str] = []
+    attached_runtime_venv = False
     with tempfile.TemporaryDirectory(prefix=".eclab-defrost-", dir=into.parent) as work:
         temporary_root = Path(work)
         root = _extract(archive, temporary_root / "staging")
         _remove_generated_topologies(root)
         topology_path = _archive_topology(root)
         document = _load_document(topology_path)
-        metadata = _freeze_metadata(document, notes)
+        metadata = _freeze_metadata(root, document, notes)
+        (root / _FREEZE_RECORD_NAME).unlink(missing_ok=True)
         format_three = metadata["format"] == 3
         mode = (
             metadata.get("mode")
@@ -298,6 +299,23 @@ def defrost(
             if not isinstance(recorded, dict):
                 raise DefrostError("format 3 archive has invalid tool identities")
             tools = recorded
+        runtime_path = current_environment.get(_DEFROST_RUNTIME_ENV)
+        if runtime_path:
+            if not format_three or mode not in {"runtime", "offline"}:
+                raise DefrostError(
+                    "a bundled runtime can only defrost a format 3 runtime or offline archive"
+                )
+            runtime_root = Path(runtime_path).expanduser()
+            if offline:
+                _attach_offline_runtime(runtime_root, root, edition)
+            else:
+                _attach_runtime(
+                    runtime_root,
+                    root,
+                    edition,
+                    include_venv=prepare_runtime,
+                )
+                attached_runtime_venv = prepare_runtime
         has_env_initializer = metadata.get("env_initializer") == _ENV_INITIALIZER
         _restore_executables(
             root,
@@ -320,7 +338,6 @@ def defrost(
             current_environment = _initialized_environment(
                 topology_path, current_environment
             )
-        selected: dict[str, str] = {}
         image_plan = metadata.get("image_plan")
         if image_plan is not None:
             if (
@@ -329,21 +346,15 @@ def defrost(
             ):
                 raise DefrostError("invalid frozen image plan")
             try:
-                entries = read_image_manifest(root / "images.freeze.json")
+                read_image_manifest(root / "images.freeze.json")
             except ContributorError as error:
                 raise DefrostError(str(error)) from error
-            selected = {
-                entry["image"]: entry["archive"]
-                for entry in entries
-                if entry.get("archive")
-            }
             if not select_images:
-                selected = {}
                 for node in document["topology"]["nodes"].values():
                     if isinstance(node, dict) and isinstance(node.get("env"), dict):
                         node["env"].pop(IMAGE_MANIFEST_ENV, None)
         elif select_images:
-            selected = _select_image_archives(
+            _select_image_archives(
                 root, topology_path, document, notes, environment=current_environment
             )
         _resolve_licenses(
@@ -353,6 +364,8 @@ def defrost(
             prompt=prompt_licenses,
             ask=ask,
             environment=current_environment,
+            license_pools_registered=license_pools_registered,
+            setup_license_pool=setup_license_pool,
         )
         _report_vrnetlab_inputs(
             topology_path, document, notes, environment=current_environment
@@ -393,9 +406,7 @@ def defrost(
 
             compatibility = _package_mismatches(
                 into, metadata.get("runtime_packages"), edition=edition
-            ) + provider.check_recipient(
-                tools, current_environment, user_state
-            )
+            ) + provider.check_recipient(tools, current_environment, user_state)
             notes.extend(compatibility)
             if compatibility:
                 warnings = into / "FREEZE-WARNINGS.txt"
@@ -427,20 +438,76 @@ def defrost(
             provider.prepare_recipient(
                 into, mode, tools, current_environment, user_state, notes
             )
+            if attached_runtime_venv:
+                _relocate_virtual_environment(into / ".eclab-venv")
     elif prepare_runtime:
         _prepare_runtime(into, notes, offline=offline)
-    if load_images:
-        if image_plan is not None and select_images:
-            _load_manifest_images(into, entries, notes)
-        else:
-            _load_images(into, selected, notes)
     _write_record(
         into / record_name, archive, topology_path.relative_to(root), metadata, notes
     )
+    _log(logger, f"expanded {archive.name} into {into}")
     for note in notes:
         _log(logger, note)
-    _log(logger, f"expanded {archive.name} into {into}")
+    readme = into / "FREEZE-README.md"
+    if readme.is_file():
+        _log(logger, f"next: read {readme} for instructions on how to run this lab")
+    _report_host_dependencies(into, current_environment, logger)
     return True
+
+
+def _report_host_dependencies(
+    into: Path,
+    environment: Mapping[str, str],
+    logger: PluginLogger | None,
+) -> None:
+    """Report packaged host requirements after publication without blocking it."""
+    requirements = into / ".eclab-host-requirements.tsv"
+    if requirements.is_symlink() or not requirements.is_file():
+        return
+    try:
+        if not requirements.read_text(encoding="utf-8").strip():
+            return
+    except (OSError, UnicodeError):
+        return
+    checker = into / ".eclab-check-host-requirements.sh"
+    if checker.is_symlink() or not checker.is_file():
+        return
+    try:
+        if checker.read_text(encoding="utf-8") != _checker_script():
+            return
+    except (OSError, UnicodeError):
+        return
+    try:
+        child_environment = {
+            key: value
+            for key, value in environment.items()
+            if key
+            in {
+                "PATH",
+                "HOME",
+                "DOCKER_HOST",
+                "DOCKER_CONTEXT",
+                "DOCKER_CONFIG",
+                "CONTAINERLAB_BIN",
+                "CONTAINERLAB_DIR",
+            }
+        }
+        result = subprocess.run(
+            ["/bin/sh", str(checker), "report"],
+            cwd=into,
+            env=child_environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        _log(logger, f"could not report host dependencies: {error}")
+        return
+    for message in (*result.stdout.splitlines(), *result.stderr.splitlines()):
+        if message.strip():
+            _warn(logger, message.removeprefix("WARNING: "))
+    if result.returncode:
+        _log(logger, f"host dependency report exited with status {result.returncode}")
 
 
 def _resolve(base: Path, value: str) -> Path:
@@ -511,7 +578,32 @@ def _extract(archive: Path, staging: Path) -> Path:
 
 
 def _archive_topology(root: Path) -> Path:
-    """Return the one topology freeze stamped, which is never ambiguous."""
+    """Return the topology named by the separate record or a legacy marker."""
+    freeze_record_path = root / _FREEZE_RECORD_NAME
+    if freeze_record_path.is_symlink():
+        raise DefrostError(f"{_FREEZE_RECORD_NAME} must be a regular file")
+    if freeze_record_path.exists():
+        record = _load_external_freeze_record(root)
+        topology_name = record.get("topology")
+        if not isinstance(topology_name, str):
+            raise DefrostError(f"{_FREEZE_RECORD_NAME} has no topology path")
+        relative = PurePosixPath(topology_name)
+        if (
+            relative.is_absolute()
+            or len(relative.parts) != 1
+            or ".." in relative.parts
+            or not any(
+                Path(topology_name).match(pattern) for pattern in _TOPOLOGY_PATTERNS
+            )
+        ):
+            raise DefrostError(f"invalid topology path in {_FREEZE_RECORD_NAME}")
+        topology = root / relative.name
+        if topology.is_symlink() or not topology.is_file():
+            raise DefrostError(
+                f"frozen topology is missing or not a regular file: {topology_name}"
+            )
+        return topology
+
     matches: list[Path] = []
     for pattern in _TOPOLOGY_PATTERNS:
         for path in sorted(root.glob(pattern)):
@@ -526,7 +618,8 @@ def _archive_topology(root: Path) -> Path:
         return frozen[0]
     if not frozen:
         raise DefrostError(
-            f"no archive topology carries {_FREEZE_KEY}; this is not a frozen lab archive"
+            f"archive has no {_FREEZE_RECORD_NAME} or legacy {_FREEZE_KEY} marker; "
+            "this is not a frozen lab archive"
         )
     raise DefrostError(f"archive has several topologies carrying {_FREEZE_KEY}")
 
@@ -564,19 +657,46 @@ def _load_document(path: Path) -> dict[str, Any]:
     return document
 
 
+def _load_external_freeze_record(root: Path) -> dict[str, Any]:
+    path = root / _FREEZE_RECORD_NAME
+    if path.is_symlink() or not path.is_file():
+        raise DefrostError(f"{_FREEZE_RECORD_NAME} must be a regular file")
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise DefrostError(f"could not read {_FREEZE_RECORD_NAME}: {error}") from error
+    if (
+        not isinstance(record, dict)
+        or type(record.get("version")) is not int
+        or record["version"] != 1
+    ):
+        raise DefrostError(f"unsupported {_FREEZE_RECORD_NAME} record")
+    if not isinstance(record.get("freeze"), dict):
+        raise DefrostError(f"{_FREEZE_RECORD_NAME} has invalid freeze metadata")
+    return record
+
+
 def _write_document(path: Path, document: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
-def _freeze_metadata(document: dict[str, Any], notes: list[str]) -> dict[str, Any]:
-    """Remove and validate the freeze metadata the recipient must not deploy."""
-    metadata = document.pop(_FREEZE_KEY, None)
+def _freeze_metadata(
+    root: Path, document: dict[str, Any], notes: list[str]
+) -> dict[str, Any]:
+    """Load separate metadata, while accepting records from older archives."""
+    record_path = root / _FREEZE_RECORD_NAME
+    if record_path.exists() or record_path.is_symlink():
+        metadata = _load_external_freeze_record(root)["freeze"]
+        document.pop(_FREEZE_KEY, None)
+    else:
+        metadata = document.pop(_FREEZE_KEY, None)
     if metadata is None:
         raise DefrostError(
-            f"the topology has no {_FREEZE_KEY} metadata; it was not produced by freeze"
+            f"the archive has no {_FREEZE_RECORD_NAME} or legacy {_FREEZE_KEY} metadata; "
+            "it was not produced by freeze"
         )
     if not isinstance(metadata, dict):
-        raise DefrostError(f"{_FREEZE_KEY} metadata must be a YAML mapping")
+        raise DefrostError("freeze metadata must be a mapping")
     if metadata.get("format") not in _SUPPORTED_FORMATS:
         raise DefrostError(
             f"unsupported freeze format: {metadata.get('format')!r}; upgrade this plugin"
@@ -703,11 +823,14 @@ def _verify_runtime(root: Path, *, offline: bool, edition: str = "eclab") -> Non
         raise DefrostError("bundled vrnetlab checkout is incomplete")
 
 
-def _verify_format_three_runtime(
-    root: Path, mode: str, edition: str = "eclab"
-) -> None:
+def _verify_format_three_runtime(root: Path, mode: str, edition: str = "eclab") -> None:
     if not (root / "requirements.freeze.txt").is_file():
-        raise DefrostError("runtime archive has no dependency lock")
+        message = "runtime archive has no dependency lock"
+        if mode == "runtime":
+            message += (
+                "; extract the outer --eclab-with-runtime bundle and run defrost.sh"
+            )
+        raise DefrostError(message)
     wheelhouse = root / "wheelhouse"
     if not wheelhouse.is_dir() or not any(wheelhouse.glob("*.whl")):
         raise DefrostError("runtime archive has no wheelhouse")
@@ -748,6 +871,64 @@ def _verify_format_three_runtime(
         _verify_runtime(root, offline=True, edition=edition)
         if not (root / "tools" / "vrnetlab" / "common" / "vrnetlab.py").is_file():
             raise DefrostError("offline archive has no complete vrnetlab checkout")
+
+
+def _attach_runtime(
+    runtime: Path, root: Path, edition: str, *, include_venv: bool = True
+) -> None:
+    """Copy runtime files beside an inner lab archive before defrost."""
+    if runtime.is_symlink() or not runtime.is_dir():
+        raise DefrostError(f"bundled runtime is not a directory: {runtime}")
+    runtime = runtime.resolve()
+    required_files = [
+        "requirements.freeze.txt",
+        "python-versions.freeze.txt",
+        "tools/containerlab/bin/containerlab",
+        "tools/vrnetlab/common/vrnetlab.py",
+    ]
+    if include_venv:
+        required_files.extend((f".eclab-venv/bin/{edition}", ".eclab-venv/bin/python"))
+    for relative in required_files:
+        path = runtime / relative
+        # POSIX venvs commonly make bin/python a symlink to the host
+        # interpreter. copytree(symlinks=False) below dereferences it into the
+        # restored lab, so accept a valid interpreter symlink here.
+        if (
+            path.is_symlink() and relative != ".eclab-venv/bin/python"
+        ) or not path.is_file():
+            raise DefrostError(f"bundled runtime is incomplete: {relative}")
+    if not (runtime / "wheelhouse").is_dir():
+        raise DefrostError("bundled runtime has no wheelhouse")
+    if include_venv and (
+        (root / ".eclab-venv").exists() or (root / ".eclab-venv").is_symlink()
+    ):
+        raise DefrostError("inner lab archive already contains a virtual environment")
+
+    if include_venv:
+        shutil.copytree(runtime / ".eclab-venv", root / ".eclab-venv", symlinks=False)
+    shutil.copy2(runtime / "requirements.freeze.txt", root / "requirements.freeze.txt")
+    shutil.copy2(
+        runtime / "python-versions.freeze.txt", root / "python-versions.freeze.txt"
+    )
+    shutil.copytree(runtime / "wheelhouse", root / "wheelhouse", symlinks=False)
+    shutil.copytree(
+        runtime / "tools", root / "tools", symlinks=False, dirs_exist_ok=True
+    )
+
+
+def _attach_offline_runtime(runtime: Path, root: Path, edition: str) -> None:
+    """Attach the offline venv stored beside the inner lab archive."""
+    if runtime.is_symlink() or not runtime.is_dir():
+        raise DefrostError(f"bundled runtime is not a directory: {runtime}")
+    venv = runtime / ".eclab-venv"
+    for relative in (Path("bin") / edition, Path("bin/python")):
+        path = venv / relative
+        if path.is_symlink() or not path.is_file():
+            raise DefrostError(f"bundled runtime is incomplete: .eclab-venv/{relative}")
+    destination = root / ".eclab-venv"
+    if destination.exists() or destination.is_symlink():
+        raise DefrostError("inner lab archive already contains a virtual environment")
+    shutil.copytree(venv, destination, symlinks=False)
 
 
 def _prepare_runtime(
@@ -886,17 +1067,16 @@ def _select_image_archives(
     notes: list[str],
     *,
     environment: Mapping[str, str],
-) -> dict[str, str]:
-    """Point nodes at bundled image archives so deploy loads instead of pulls.
+) -> None:
+    """Point nodes at bundled archives so the image provider loads them at deploy.
 
     Only an archive that actually carries the node's exact image reference is
     selected, because engulf-clab-image-archive treats a declared archive as the
     node's image source and never falls back to a registry pull.
     """
-    selected: dict[str, str] = {}
     available = _bundled_images(root)
     if not available:
-        return selected
+        return
     nodes = _nodes(document)
     for effective in effective_nodes(document):
         name = effective.name
@@ -925,9 +1105,7 @@ def _select_image_archives(
             continue
         relative = os.path.relpath(archive, topology_path.parent)
         node_environment[_IMAGE_ARCHIVE_ENV] = PurePosixPath(relative).as_posix()
-        selected[reference] = archive.relative_to(root).as_posix()
-        notes.append(f"node {name} loads {reference} from the bundled {relative}")
-    return selected
+        notes.append(f"node {name} uses {reference} from the bundled archive {relative}")
 
 
 def _resolved_image(image: object, environment: Mapping[str, str]) -> str | None:
@@ -1007,95 +1185,6 @@ def _canonical_reference(reference: str) -> str:
     return value if ":" in tail else f"{value}:latest"
 
 
-def _load_images(into: Path, selected: Mapping[str, str], notes: list[str]) -> None:
-    """Load the selected archives now for references Docker does not already have.
-
-    Only archives a node was actually pointed at are loaded, so an unrelated
-    tarball shipped beside the lab never reaches the daemon.
-    """
-    if not selected:
-        return
-    if shutil.which("docker") is None:
-        notes.append("docker is unavailable; bundled images stay for deploy to load")
-        return
-    for reference, relative in sorted(selected.items()):
-        if _image_present(reference):
-            continue
-        archive = into / relative
-        loaded = subprocess.run(
-            ["docker", "image", "load", "--input", str(archive)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if loaded.returncode:
-            notes.append(f"could not load {relative}; deploy will retry")
-        else:
-            notes.append(f"loaded {reference} from the bundled {relative}")
-
-
-def _load_manifest_images(
-    into: Path, entries: list[dict[str, Any]], notes: list[str]
-) -> None:
-    """Load verified bundle artifacts, including bases without topology nodes."""
-    loaded: dict[str, tuple[str, ...]] = {}
-    for entry in entries:
-        relative = entry.get("archive")
-        if not relative:
-            continue
-        reference = entry["image"]
-        if relative not in loaded:
-            try:
-                result = subprocess.run(
-                    ["docker", "image", "load", "--input", str(into / relative)],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-            except (OSError, subprocess.CalledProcessError):
-                notes.append(f"could not load {relative}; deploy will retry")
-                continue
-            loaded[relative] = loaded_archive_references(result.stdout)
-        references = loaded[relative]
-        source = entry.get("source") or entry.get("image_id")
-        if source is None:
-            source = (
-                reference
-                if reference in references
-                else references[0]
-                if len(references) == 1
-                else None
-            )
-        if source is None:
-            notes.append(
-                f"could not select the saved image for {reference}; deploy will retry"
-            )
-            continue
-        if source != reference:
-            try:
-                subprocess.run(
-                    ["docker", "image", "tag", source, reference],
-                    check=True,
-                    capture_output=True,
-                )
-            except (OSError, subprocess.CalledProcessError):
-                notes.append(
-                    f"could not retag the saved image as {reference}; deploy will retry"
-                )
-                continue
-        notes.append(f"loaded {reference} from the bundled {relative}")
-
-
-def _image_present(reference: str) -> bool:
-    result = subprocess.run(
-        ["docker", "image", "inspect", reference],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return result.returncode == 0
-
-
 def _resolve_licenses(
     document: dict[str, Any],
     answers: Mapping[str, str],
@@ -1104,15 +1193,31 @@ def _resolve_licenses(
     prompt: bool,
     ask: Callable[[str], str | None] | None,
     environment: Mapping[str, str],
+    license_pools_registered: bool | None = None,
+    setup_license_pool: Callable[[], bool] | None = None,
 ) -> None:
     """Replace every frozen license marker with a recipient-owned selection.
 
     Values are never logged or recorded: only the node name is, exactly as
     engulf-clab-license-pool keeps pool paths out of its own diagnostics.
     """
+    pending = tuple(
+        node
+        for node in effective_nodes(document)
+        if node.data.get("license") == _LICENSE_PROMPT
+    )
+    if (
+        pending
+        and license_pools_registered is False
+        and prompt
+        and setup_license_pool is not None
+    ):
+        license_pools_registered = setup_license_pool()
+
     assigned = 0
+    automatic = 0
     nodes = _nodes(document)
-    for effective in effective_nodes(document):
+    for effective in pending:
         name = effective.name
         if effective.data.get("license") != _LICENSE_PROMPT:
             continue
@@ -1129,18 +1234,41 @@ def _resolve_licenses(
         if answer is None and _auto_license_requested(environment):
             answer = _AUTO_LICENSE
         if answer is None and prompt:
-            answer = (ask or _ask_license)(name)
+            if ask is None:
+                answer = _ask_license(
+                    name, license_pools_registered=license_pools_registered
+                )
+            else:
+                answer = ask(name)
         if answer is None:
             notes.append(
                 f"node {name} keeps its license prompt; deploy asks or reads {variable}"
             )
             continue
         node["license"] = _license_value(name, answer)
-        assigned += 1
+        if node["license"] == _AUTO_LICENSE:
+            automatic += 1
+        else:
+            assigned += 1
     if assigned:
         notes.append(
-            f"wrote {assigned} license selection(s) into the topology; "
-            "do not commit or re-share this lab directory"
+            f"saved {assigned} recipient license choice(s) in the topology; "
+            "keep this lab directory private"
+        )
+    if automatic and license_pools_registered is False:
+        notes.append(
+            "automatic license selection was requested, but no license pool is "
+            "registered; register one before deploying this lab"
+        )
+    elif automatic and license_pools_registered is True:
+        notes.append(
+            f"{automatic} node license(s) will be allocated from a registered "
+            "pool when the lab is deployed"
+        )
+    elif automatic:
+        notes.append(
+            "automatic license selection was requested; confirm a matching "
+            "registered pool exists before deploying this lab"
         )
 
 
@@ -1166,7 +1294,9 @@ def _license_value(node_name: str, answer: str) -> str:
     return str(path.resolve())
 
 
-def _ask_license(node_name: str) -> str | None:
+def _ask_license(
+    node_name: str, *, license_pools_registered: bool | None = None
+) -> str | None:
     """Ask an interactive recipient for one node's license file, pool, or variable."""
     if not sys.stdin.isatty():
         return None
@@ -1174,13 +1304,24 @@ def _ask_license(node_name: str) -> str | None:
         try:
             answer = input(
                 f"License for node {node_name} "
-                "(auto, file, pool directory, $VARIABLE, or empty to skip): "
+                + (
+                    "(file, pool directory, $VARIABLE, or empty to set later; "
+                    "no registered pool is available for auto): "
+                    if license_pools_registered is False
+                    else "(auto, file, pool directory, $VARIABLE, or empty to set later): "
+                )
             )
         except EOFError:
             return None
         value = answer.strip()
         if not value:
             return None
+        if value.casefold() == "auto" and license_pools_registered is False:
+            print(
+                'No license pool is registered, so "auto" cannot allocate a license. '
+                "Enter a file, pool directory, $VARIABLE, or leave it for deployment."
+            )
+            continue
         if (
             value.casefold() == "auto"
             or value.startswith("$")
@@ -1264,6 +1405,13 @@ def _log(logger: PluginLogger | None, message: str) -> None:
         print(f"defrost: {message}", file=sys.stderr)
     else:
         logger.info("%s", message)
+
+
+def _warn(logger: PluginLogger | None, message: str) -> None:
+    if logger is None:
+        print(f"defrost: WARNING: {message}", file=sys.stderr)
+    else:
+        logger.warning("%s", message)
 
 
 def lease(arguments: list[str], cwd: Path) -> str:

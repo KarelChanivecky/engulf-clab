@@ -87,6 +87,9 @@ cannot provide a completion script. They include wrapper commands, global and
 command-scoped flags, positional/literal values, and filesystem paths without loading
 the compiled topology schema. Completion-script output executes in the interactive
 shell, so eclab enables sourcing only for its trusted Containerlab executable.
+The persisted candidate catalog refreshes when installed plugin metadata or editable
+plugin Python sources change, so new schema flags do not require reinstalling the
+shell integration.
 
 ## Containerlab compatibility
 
@@ -220,8 +223,8 @@ the source lab:
 eclab freeze
 ```
 
-Extract it and run `./run-eclab.sh`. License values are redacted and prompt the
-recipient for their own file, pool, or environment variable at deployment time.
+Extract a lean archive and run `./run-eclab.sh`. License values are redacted;
+defrost prompts the recipient for their own file, pool, or environment variable.
 
 ```bash
 eclab defrost demo.tar.gz --eclab-output labs/demo
@@ -230,14 +233,21 @@ eclab defrost demo.tar.gz --eclab-output labs/demo
 `eclab defrost` is the receiving side: it expands one archive atomically,
 removes the freeze metadata, restores launcher and bundled tool permissions,
 checks lean compatibility or prepares a bundled runtime, points nodes at bundled Docker image archives carrying
-their exact image, and answers the redacted licenses from `--license`,
+their exact image, and answers the redacted licenses from `--eclab-license`,
 `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, or a prompt. The expanded lab holds
 real license selections, so do not commit or re-share it.
 Default freeze records compatibility without bundling a runtime or images.
-`--eclab-with-runtime` adds a wheelhouse and pinned tools. `--offline` also
-bundles the active eclab virtual environment, Containerlab, vrnetlab checkout,
-and required images. The offline archive still expects compatible Docker and
-host networking/QEMU facilities.
+`--eclab-with-runtime` writes a self-extracting `.run` package with `runtime/`,
+`lab.tgz`, and `defrost.sh`. Running the package builds the packaged eclab venv
+and runs normal defrost automatically. Defrost initializes recipient
+environment values, asks for license values, and writes the restored lab to
+`./<package-name>`. `--offline` also writes a
+self-extracting `.run` package with a defrost venv under `runtime/` and a
+`lab.tgz` containing the wheelhouse, Containerlab, vrnetlab checkout, and
+required images. Defrost attaches the venv to the expanded lab. The offline lab still expects
+compatible Docker and host networking/QEMU facilities. Offline image planning
+also captures plugin-generated service nodes and points the frozen topology at
+the image manifest consumed by the image-archive provider during deploy.
 Freeze detects the single recognized topology in the current directory; use
 `-t` / `--topology` to select one explicitly. Its default output is
 `<lab-directory-name>.tar.gz` in the lab directory; use `--output` for another

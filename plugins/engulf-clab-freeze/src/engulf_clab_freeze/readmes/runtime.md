@@ -1,40 +1,46 @@
 # Frozen $edition lab: $topology (runtime)
 
-This archive carries the complete $edition runtime the lab was frozen with:
-every Python package as a wheel, the producer's Containerlab executable, and
-its vrnetlab tree. Only Python is assumed on this host. Nothing is downloaded
-to build the runtime.
+The `--eclab-with-runtime` package is an executable `.run` containing
+`runtime/`, a normal `lab.tgz`, and `defrost.sh`. Running the package performs
+the whole workflow: it builds the pinned $edition environment from the included
+wheelhouse when needed, then runs ordinary defrost. Defrost runs
+`initialize-env.sh`, prompts for recipient license values, and places the
+runtime in the restored lab. The default output is `./<package-name>`.
+If no license pool is registered, defrost offers to create a pool directory
+and initialize it with the edition's `init-license-pool` command. The new pool
+starts empty; add entitled license files afterward. Read `FREEZE-README.md` in
+the restored lab for the lab-specific instructions to run it.
 
 ## Requirements
 
 - Linux on the same CPU architecture as the producer.
 - A Python version listed in `python-versions.freeze.txt`.
 - Docker, and whatever Containerlab needs on this host.
+- `make`, `qemu-img`, and `qemu-system-x86_64` if you need to build opted-in
+  vrnetlab images that the package does not supply.
 - Access to any images `images.freeze.json` leaves for you to supply.
 
 ## Start
 
-With $edition already installed:
-
 ```bash
-$edition defrost ARCHIVE.tar.gz
-cd <expanded directory>
+./demo-runtime.run
+cd demo-runtime
 ./$launcher                       # deploys $topology
 ```
 
-With only Python:
+The bundle does not need an installed eclab. It needs a Python version listed
+in `runtime/python-versions.freeze.txt` to build the venv. Defrost warns about
+missing host dependencies without blocking. Its actionable notes and dependency
+report appear after the runtime setup output, with warnings last.
+Repeat the report from `restored` with `./check-dependencies.sh`. The restored
+launcher checks the requested operation before it runs.
 
-```bash
-tar xzf ARCHIVE.tar.gz
-cd <archive directory>
-./initialize-env.sh               # when the lab needs private values
-./$launcher                       # deploys $topology
-```
-
-The first run creates `.eclab-venv`, installs the wheelhouse into it with
-`pip install --no-index`, and installs the bundled Containerlab and vrnetlab
-into it. Set `ECLAB_PYTHON` to choose the interpreter, for example
-`ECLAB_PYTHON=python3.12 ./$launcher`.
+The package's `defrost.sh` builds `.eclab-venv` with `pip install --no-index`
+from `runtime/wheelhouse/`, then defrost copies it with the bundled Containerlab
+and vrnetlab files into the restored lab. Set `ECLAB_PYTHON` to choose the
+interpreter, for example `ECLAB_PYTHON=python3.12 ./demo-runtime.run`.
+Pass `--eclab-no-runtime` to defrost if the lab should build its runtime on
+first launch instead of copying the prepared venv.
 
 If deploy reports that Containerlab requires root privileges, run
 `./$launcher sudoless` as your normal user. This uses `sudo` to grant access to
@@ -58,7 +64,9 @@ vrnetlab overrides. To rebuild the runtime, remove `.eclab-venv` and
 
 ## Files
 
-- `$topology` carries the freeze record under `x-engulf-clab-freeze`.
+- `freeze.json` records the freeze metadata separately from the Containerlab topology.
+- `$topology` remains ordinary Containerlab YAML.
+- `check-dependencies.sh` repeats the non-blocking host dependency report.
 - `requirements.freeze.txt` and `wheelhouse/` are the locked Python runtime.
 - `python-versions.freeze.txt` lists the Python versions the wheelhouse supports.
 - `tools/containerlab/` and `tools/vrnetlab/` are the producer's tools.

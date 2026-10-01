@@ -8,12 +8,14 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
+import pytest
 import yaml
-
 from engulf_clab_freeze.defrost import (
     DefrostError,
+    _ask_license,
+    _attach_offline_runtime,
     _environment_answers,
     _license_answers,
     defrost,
@@ -21,8 +23,51 @@ from engulf_clab_freeze.defrost import (
     lease,
     main,
 )
+from engulf_clab_freeze.host_requirements import _checker_script
 
 FREEZE_KEY = "x-engulf-clab-freeze"
+
+
+def test_offline_bundle_venv_is_attached_from_outer_runtime(tmp_path):
+    runtime = tmp_path / "runtime"
+    binaries = runtime / ".eclab-venv" / "bin"
+    binaries.mkdir(parents=True)
+    (binaries / "python").write_text("python", encoding="utf-8")
+    (binaries / "eclab").write_text("eclab", encoding="utf-8")
+    (tmp_path / "staging").mkdir()
+
+    _attach_offline_runtime(runtime, tmp_path / "staging", "eclab")
+
+    attached = tmp_path / "staging" / ".eclab-venv" / "bin"
+    assert (attached / "python").read_text(encoding="utf-8") == "python"
+    assert (attached / "eclab").read_text(encoding="utf-8") == "eclab"
+
+
+def test_offline_bundle_rejects_an_incomplete_outer_venv(tmp_path):
+    runtime = tmp_path / "runtime"
+    (runtime / ".eclab-venv" / "bin").mkdir(parents=True)
+    (runtime / ".eclab-venv" / "bin" / "python").write_text("python")
+    staging = tmp_path / "staging"
+    staging.mkdir()
+
+    with pytest.raises(DefrostError, match="bundled runtime is incomplete"):
+        _attach_offline_runtime(runtime, staging, "eclab")
+
+    assert not (staging / ".eclab-venv").exists()
+
+
+def test_license_prompt_explains_auto_requires_a_registered_pool(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        "engulf_clab_freeze.defrost.sys.stdin", MagicMock(isatty=lambda: True)
+    )
+    monkeypatch.setattr("builtins.input", Mock(side_effect=["auto", str(tmp_path)]))
+
+    answer = _ask_license("fgt", license_pools_registered=False)
+
+    assert answer == str(tmp_path)
+    assert "No license pool is registered" in capsys.readouterr().out
 
 
 def frozen_topology(
@@ -111,7 +156,6 @@ class DefrostCommandTestCase(unittest.TestCase):
                 environment_values={},
                 prepare_runtime=True,
                 select_images=True,
-                load_images=False,
                 initialize_env=True,
                 force=False,
                 application_name="eclab",
@@ -120,6 +164,8 @@ class DefrostCommandTestCase(unittest.TestCase):
                 contributors=ANY,
                 contributor_arguments=ANY,
                 user_state=None,
+                license_pools_registered=None,
+                setup_license_pool=None,
             )
 
     def test_main_forwards_every_recipient_option(self) -> None:
@@ -144,7 +190,6 @@ class DefrostCommandTestCase(unittest.TestCase):
                             "API_TOKEN=secret=value",
                             "--eclab-no-runtime",
                             "--eclab-no-images",
-                            "--eclab-load-images",
                             "--eclab-skip-env-init",
                         ],
                         cwd=base,
@@ -160,7 +205,6 @@ class DefrostCommandTestCase(unittest.TestCase):
                 environment_values={"API_TOKEN": "secret=value"},
                 prepare_runtime=False,
                 select_images=False,
-                load_images=True,
                 initialize_env=False,
                 force=True,
                 application_name="eclab",
@@ -169,6 +213,8 @@ class DefrostCommandTestCase(unittest.TestCase):
                 contributors=ANY,
                 contributor_arguments=ANY,
                 user_state=None,
+                license_pools_registered=None,
+                setup_license_pool=None,
             )
 
     def test_main_reports_failures_without_raising(self) -> None:
@@ -291,6 +337,55 @@ class DefrostTestCase(unittest.TestCase):
             self.assertEqual(record["topology"], "lab.clab.yml")
             self.assertEqual(record["freeze"]["licenses"], "prompt")
 
+    def test_defrost_reads_freeze_metadata_from_a_separate_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            metadata = {
+                "format": 1,
+                "application": "engulf-clab",
+                "packages": [],
+                "tools": {},
+                "licenses": "prompt",
+                "offline": False,
+            }
+            topology = yaml.safe_dump(
+                {"name": "demo", "topology": {"nodes": {}}}, sort_keys=False
+            )
+            record = json.dumps(
+                {
+                    "version": 1,
+                    "topology": "lab.clab.yml",
+                    "freeze": metadata,
+                }
+            )
+            archive = build_archive(
+                base / "separate.tar.gz",
+                "share",
+                {
+                    "lab.clab.yml": topology,
+                    "freeze.json": record,
+                    "run-eclab.sh": "#!/bin/sh\n",
+                },
+            )
+
+            self.assertTrue(
+                defrost(
+                    archive,
+                    base / "demo",
+                    prepare_runtime=False,
+                    prompt_licenses=False,
+                    initialize_env=False,
+                )
+            )
+            lab = base / "demo"
+            restored = yaml.safe_load((lab / "lab.clab.yml").read_text())
+            self.assertNotIn(FREEZE_KEY, restored)
+            self.assertFalse((lab / "freeze.json").exists())
+            self.assertEqual(
+                json.loads((lab / ".eclab-defrost.json").read_text())["freeze"],
+                metadata,
+            )
+
     def test_defrost_runs_the_env_initializer_before_publishing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -308,6 +403,237 @@ class DefrostTestCase(unittest.TestCase):
             )
 
             self.assertEqual((base / "demo/initializer-ran").read_text(), "ran")
+
+    def test_actionable_defrost_messages_follow_completion_and_dependencies_are_last(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            files = minimal_lab()
+            files["FREEZE-README.md"] = "Instructions to run this lab.\n"
+            files[".eclab-host-requirements.tsv"] = (
+                "deploy\thost-tool\tmake\tBuild opted-in vrnetlab images from source.\n"
+            )
+            files[".eclab-check-host-requirements.sh"] = _checker_script()
+            archive = build_archive(base / "share.tar.gz", "share", files)
+            empty_path = base / "empty-path"
+            empty_path.mkdir()
+            logger = MagicMock()
+
+            defrost(
+                archive,
+                base / "demo",
+                prompt_licenses=False,
+                prepare_runtime=False,
+                environment={"PATH": str(empty_path)},
+                logger=logger,
+            )
+
+        messages = [
+            (call[0], call[1][1])
+            for call in logger.mock_calls
+            if call[0] in {"info", "warning"}
+        ]
+        expanded = next(
+            index
+            for index, (level, message) in enumerate(messages)
+            if level == "info" and message.startswith("expanded ")
+        )
+        license_prompt = next(
+            index
+            for index, (level, message) in enumerate(messages)
+            if level == "info"
+            and message.startswith("node router keeps its license prompt")
+        )
+        readme = next(
+            index
+            for index, (level, message) in enumerate(messages)
+            if level == "info" and message.startswith("next: read ")
+        )
+        missing_make = next(
+            index
+            for index, (level, message) in enumerate(messages)
+            if level == "warning" and message.startswith("missing dependency: make")
+        )
+
+        assert expanded < license_prompt < readme < missing_make
+        assert missing_make == len(messages) - 1
+
+    def test_runtime_bundle_defrost_attaches_venv_then_runs_normal_recipient_setup(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            license_file = base / "recipient.lic"
+            license_file.write_text("recipient license\n", encoding="utf-8")
+            source = base / "lab-source"
+            runtime = base / "runtime"
+            source.mkdir()
+            (runtime / "wheelhouse").mkdir(parents=True)
+            (runtime / "tools/containerlab/bin").mkdir(parents=True)
+            (runtime / "tools/vrnetlab/common").mkdir(parents=True)
+            (runtime / ".eclab-venv/bin").mkdir(parents=True)
+            (source / "lab.clab.yml").write_text(
+                "topology:\n  nodes:\n    router:\n"
+                "      image: example/router:1\n"
+                "      license: __ECLAB_LICENSE_PROMPT__\n",
+                encoding="utf-8",
+            )
+            (source / "FREEZE-README.md").write_text(
+                "Instructions to run the restored lab.\n", encoding="utf-8"
+            )
+            (source / ".eclab-host-requirements.tsv").write_text(
+                "deploy\thost-tool\tmake\tBuild opted-in vrnetlab images from source.\n",
+                encoding="utf-8",
+            )
+            (source / ".eclab-check-host-requirements.sh").write_text(
+                _checker_script(), encoding="utf-8"
+            )
+            (source / "freeze.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "topology": "lab.clab.yml",
+                        "freeze": {
+                            "format": 3,
+                            "application": "engulf-clab",
+                            "mode": "runtime",
+                            "producer_edition": "eclab",
+                            "tools": {
+                                "containerlab": {"version": "1", "commit": "abc"},
+                                "vrnetlab": {"revision": "def"},
+                            },
+                            "runtime_packages": [],
+                            "env_initializer": "initialize-env.sh",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runtime / "requirements.freeze.txt").write_text(
+                "engulf-clab==0.1.0\n", encoding="utf-8"
+            )
+            (runtime / "python-versions.freeze.txt").write_text(
+                "3.12\n", encoding="utf-8"
+            )
+            (runtime / "wheelhouse/demo.whl").write_bytes(b"wheel")
+            (runtime / "tools/containerlab/bin/containerlab").write_text(
+                "#!/bin/sh\n", encoding="utf-8"
+            )
+            (runtime / "tools/vrnetlab/common/vrnetlab.py").write_text(
+                "# bundled\n", encoding="utf-8"
+            )
+            host_python = runtime / "python-runtime"
+            host_python.write_text("#!/bin/sh\n", encoding="utf-8")
+            (runtime / ".eclab-venv/bin/python").symlink_to(host_python)
+            eclab = runtime / ".eclab-venv/bin/eclab"
+            eclab.write_text(
+                "#!/old/runtime/bin/python\n# entrypoint\n", encoding="utf-8"
+            )
+            eclab.chmod(0o755)
+            (source / "run-eclab.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            initializer = source / "initialize-env.sh"
+            initializer.write_text(
+                "#!/bin/sh\n"
+                "touch initialize-env-ran\n"
+                f"printf 'ECLAB_LICENSE_ROUTER={license_file}\\n' > lab.env\n",
+                encoding="utf-8",
+            )
+            initializer.chmod(0o755)
+            for executable in (
+                runtime / "tools/containerlab/bin/containerlab",
+                host_python,
+            ):
+                executable.chmod(0o755)
+            archive = base / "lab.tgz"
+            with tarfile.open(archive, "w:gz") as tar:
+                tar.add(source, arcname="lab")
+
+            target = base / "restored"
+            empty_path = base / "empty-path"
+            empty_path.mkdir()
+            setup_license_pool = Mock(return_value=True)
+            logger = MagicMock()
+            with patch(
+                "engulf_clab_freeze.runtime.EclabRuntimeProvider.prepare_recipient"
+            ) as prepare_recipient:
+                defrost(
+                    archive,
+                    target,
+                    environment={
+                        "ECLAB_FREEZE_RUNTIME": str(runtime),
+                        "PATH": str(empty_path),
+                    },
+                    ask=lambda _node: self.fail("initializer license should win"),
+                    logger=logger,
+                    license_pools_registered=False,
+                    setup_license_pool=setup_license_pool,
+                )
+
+            prepare_recipient.assert_called_once()
+            setup_license_pool.assert_called_once_with()
+            logger.info.assert_any_call(
+                "%s",
+                f"next: read {target / 'FREEZE-README.md'} for instructions on how to run this lab",
+            )
+            messages = [
+                (call[0], call[1][1])
+                for call in logger.mock_calls
+                if call[0] in {"info", "warning"}
+            ]
+            readme_index = next(
+                index
+                for index, (level, message) in enumerate(messages)
+                if level == "info" and message.startswith("next: read ")
+            )
+            missing_make_index = next(
+                index
+                for index, (level, message) in enumerate(messages)
+                if level == "warning"
+                and message.startswith("missing dependency: make")
+            )
+            self.assertGreater(missing_make_index, readme_index)
+            self.assertEqual(missing_make_index, len(messages) - 1)
+            topology = yaml.safe_load(
+                (target / "lab.clab.yml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                topology["topology"]["nodes"]["router"]["license"],
+                str(license_file),
+            )
+            self.assertTrue((target / "initialize-env-ran").is_file())
+            self.assertTrue((target / "wheelhouse/demo.whl").is_file())
+            self.assertTrue((target / "tools/containerlab/bin/containerlab").is_file())
+            self.assertTrue((target / "tools/vrnetlab/common/vrnetlab.py").is_file())
+            self.assertEqual(
+                (target / ".eclab-venv/bin/python").read_text(encoding="utf-8"),
+                "#!/bin/sh\n",
+            )
+            self.assertFalse((target / ".eclab-venv/bin/python").is_symlink())
+            self.assertEqual(
+                (target / ".eclab-venv/bin/eclab")
+                .read_text(encoding="utf-8")
+                .splitlines()[0],
+                f"#!{target / '.eclab-venv/bin/python'}",
+            )
+
+            deferred = base / "deferred"
+            with patch(
+                "engulf_clab_freeze.runtime.EclabRuntimeProvider.prepare_recipient"
+            ) as deferred_prepare:
+                defrost(
+                    archive,
+                    deferred,
+                    prepare_runtime=False,
+                    prompt_licenses=False,
+                    initialize_env=False,
+                    environment={"ECLAB_FREEZE_RUNTIME": str(runtime)},
+                )
+            deferred_prepare.assert_not_called()
+            self.assertFalse((deferred / ".eclab-venv").exists())
+            self.assertTrue(
+                (deferred / "tools/containerlab/bin/containerlab").is_file()
+            )
 
     def test_defrost_quiets_the_legacy_empty_initializer_message(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -717,82 +1043,6 @@ class DefrostTestCase(unittest.TestCase):
                 nodes["router"]["env"]["ECLAB_IMAGE_ARCHIVE"], "images/chosen.tar"
             )
 
-    def test_load_images_only_loads_selected_archives_that_docker_lacks(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            staging = base / "staging" / "share"
-            staging.mkdir(parents=True)
-            (staging / "lab.clab.yml").write_text(
-                frozen_topology({"router": {"image": "example/router:1.0.0"}}),
-                encoding="utf-8",
-            )
-            (staging / "images").mkdir()
-            image_archive(staging / "images" / "router.tar", ["example/router:1.0.0"])
-            # An unrelated archive no node points at must never reach the daemon.
-            image_archive(staging / "images" / "unused.tar", ["example/unused:1"])
-            archive = base / "share.tar.gz"
-            with tarfile.open(archive, "w:gz") as tar:
-                tar.add(staging, arcname="share")
-
-            with (
-                patch(
-                    "engulf_clab_freeze.defrost.shutil.which", return_value="/docker"
-                ),
-                patch("engulf_clab_freeze.defrost._image_present", return_value=False),
-                patch("engulf_clab_freeze.defrost.subprocess.run") as run,
-            ):
-                run.return_value.returncode = 0
-                defrost(
-                    archive,
-                    base / "demo",
-                    load_images=True,
-                    prepare_runtime=False,
-                    environment={},
-                )
-
-            run.assert_called_once_with(
-                [
-                    "docker",
-                    "image",
-                    "load",
-                    "--input",
-                    str(base / "demo" / "images" / "router.tar"),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-    def test_load_images_defers_to_deploy_without_docker(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            files = minimal_lab()
-            files["tools/docker/images.txt"] = "example/router:1.0.0\n"
-            files["tools/docker/images.tar"] = "stream"
-            archive = build_archive(base / "share.tar.gz", "share", files)
-
-            with (
-                patch("engulf_clab_freeze.defrost.shutil.which", return_value=None),
-                patch("engulf_clab_freeze.defrost.subprocess.run") as run,
-            ):
-                defrost(
-                    archive,
-                    base / "demo",
-                    load_images=True,
-                    prepare_runtime=False,
-                    prompt_licenses=False,
-                    environment={},
-                )
-
-            run.assert_not_called()
-            record = json.loads(
-                (base / "demo" / ".eclab-defrost.json").read_text(encoding="utf-8")
-            )
-            self.assertIn(
-                "docker is unavailable; bundled images stay for deploy to load",
-                record["notes"],
-            )
-
     def test_defrost_verifies_and_repoints_a_bundled_offline_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -913,10 +1163,12 @@ class DefrostTestCase(unittest.TestCase):
         base = Path("/labs")
         self.assertEqual(lease(["share.tar.gz"], base), "eclab-defrost:/labs/share")
         self.assertEqual(
-            lease(["--eclab-output", "demo", "share.tar.gz"], base), "eclab-defrost:/labs/demo"
+            lease(["--eclab-output", "demo", "share.tar.gz"], base),
+            "eclab-defrost:/labs/demo",
         )
         self.assertEqual(
-            lease(["--eclab-output=demo", "share.tar.gz"], base), "eclab-defrost:/labs/demo"
+            lease(["--eclab-output=demo", "share.tar.gz"], base),
+            "eclab-defrost:/labs/demo",
         )
         # A flag value is never mistaken for the archive.
         self.assertEqual(

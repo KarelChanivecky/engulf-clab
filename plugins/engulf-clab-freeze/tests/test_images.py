@@ -982,35 +982,6 @@ def test_refreeze_reuses_recognized_manifest_and_archive(tmp_path, host):
     assert len(list(destination.glob("images/*.tar"))) == 1
 
 
-def test_defrost_load_images_restores_tags_and_deduplicates_loads(
-    tmp_path, host, monkeypatch
-):
-    topology, _ = lab(tmp_path, {"one": {"image": "one:1"}, "two": {"image": "two:1"}})
-    available(host, "one:1")
-    available(host, "two:1")
-    archive = tmp_path / "bundle.tar.gz"
-    freeze(topology, archive, environment={})
-    calls = []
-
-    def run(arguments, **kwargs):
-        calls.append(arguments)
-        return subprocess.CompletedProcess(
-            arguments, 0, "Loaded image ID: sha256:" + "a" * 64 + "\n", ""
-        )
-
-    monkeypatch.setattr("engulf_clab_freeze.defrost.subprocess.run", run)
-    defrost(
-        archive,
-        tmp_path / "restored",
-        prepare_runtime=False,
-        prompt_licenses=False,
-        initialize_env=False,
-        load_images=True,
-        environment={},
-    )
-    assert not any(arguments[:3] == ["docker", "image", "load"] for arguments in calls)
-
-
 def test_corrupt_manifest_archive_fails_before_defrost_publication(tmp_path, host):
     topology, _ = lab(tmp_path, {"router": {"image": "router:1"}})
     available(host, "router:1")
