@@ -20,10 +20,12 @@ topology:
 
 The fixed `ECLAB_VRNETLAB_TYPE` marker is portable across editions. A
 configured image source alone does not activate provisioning. Opted-in
-deployments require `docker`, `qemu-img`, and `qemu-system-x86_64` on `PATH`.
-This plugin only prepares a checkout. The active source provider selects or
-creates an input path, and the downstream builder validates the requested
-builder and performs the Docker/Make work.
+deployments require `docker`. When a vrnetlab image must be built from source,
+the host also needs `make`, `qemu-img`, and `qemu-system-x86_64`. Those build
+tools are unnecessary when the required images are already available or
+bundled. This plugin only prepares a checkout. The active source provider
+selects or creates an input path, and the downstream builder validates the
+requested builder and performs the Docker/Make work.
 
 ## Checkout selection
 

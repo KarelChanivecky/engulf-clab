@@ -34,7 +34,7 @@ from .node_kinds import NODE_KIND_PROVIDER_ID, NodeKindCatalog, NodeKindRecord, 
 from .source import BaseSchema
 
 FORMAT_VERSION = 2
-COMPILER_VERSION = "5"
+COMPILER_VERSION = "6"
 
 
 class SchemaCompilationError(RuntimeError):
@@ -295,6 +295,8 @@ def _provider_manifest(
                 "name": item.name,
                 "explanation": item.explanation,
                 "commands": list(item.commands),
+                "topology_features": list(item.topology_features),
+                "unless_artifacts": list(item.unless_artifacts),
             }
             for item in provider.requirements
         ],
@@ -447,6 +449,8 @@ def _plugin_agent_document(
                     "kind": item.kind.value,
                     "name": item.name,
                     "commands": list(item.commands),
+                    "topology_features": list(item.topology_features),
+                    "unless_artifacts": list(item.unless_artifacts),
                     "explanation": item.explanation,
                 }
             )

@@ -14,6 +14,8 @@ from engulf_clab_schema_api import (
     PluginOrdering,
     RecordedPluginSchema,
     ReferenceSnapshot,
+    RequirementKind,
+    RuntimeRequirement,
     SchemaAudience,
     SchemaContribution,
     SchemaDeclarationFailure,
@@ -155,6 +157,16 @@ def _provider() -> RecordedPluginSchema:
                 before=("engulf_clab.lab_writer",),
             ),
         ),
+        requirements=(
+            RuntimeRequirement(
+                RequirementKind.HOST_TOOL,
+                "go",
+                "Build the tool from source.",
+                ("deploy",),
+                ("source-build",),
+                ("bundled-binary",),
+            ),
+        ),
     )
 
 
@@ -171,6 +183,12 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
     assert manifest["pipeline"] == {"id": "eclab", "lineage": ["eclab"]}
     assert manifest["plugins"][0]["pipeline_id"] == "eclab"
     assert manifest["plugins"][0]["inherited"] is False
+    assert manifest["plugins"][0]["requirements"][0]["topology_features"] == [
+        "source-build"
+    ]
+    assert manifest["plugins"][0]["requirements"][0]["unless_artifacts"] == [
+        "bundled-binary"
+    ]
     assert manifest_flag["environment_default"] == "EXAMPLE_SOURCE"
     node = schema["definitions"]["eclab-explicit-node-config"]
     assert "^ECLAB_MODE_.+$" in node["properties"]["env"]["patternProperties"]
@@ -192,6 +210,8 @@ def test_compilation_is_deterministic_and_overlays_explicit_nodes() -> None:
         "sha256": plugin_schema.sha256,
     }
     capabilities = yaml.safe_load(plugin_schema.content)
+    assert capabilities["requirements"][0]["commands"] == ["deploy"]
+    assert capabilities["requirements"][0]["unless_artifacts"] == ["bundled-binary"]
     assert capabilities["plugin"]["id"] == "example.plugin"
     assert capabilities["plugin"]["pipeline_id"] == "eclab"
     assert capabilities["global_flags"]["--example-source"]["environment_default"] == (

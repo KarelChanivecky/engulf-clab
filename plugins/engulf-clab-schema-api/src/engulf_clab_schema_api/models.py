@@ -152,6 +152,7 @@ class SemanticAnnotation:
 
 class RequirementKind(StrEnum):
     HOST_TOOL = "host-tool"
+    HOST_LIBRARY = "host-library"
     PRIVILEGE = "privilege"
 
 
@@ -161,6 +162,8 @@ class RuntimeRequirement:
     name: str
     explanation: str
     commands: tuple[str, ...] = ()
+    topology_features: tuple[str, ...] = ()
+    unless_artifacts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

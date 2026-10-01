@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from engulf_clab import ContainerlabApp
+from engulf_clab_vrnetlab_build_api import VrnetlabSourceProvenanceSnapshot
 from engulf_executable_wrapper_api import CallOutcome, OutcomeKind
 
 from engulf_clab_ensure_vrnetlab import ENSURE_VRNETLAB_PLUGIN_ID
@@ -102,7 +103,10 @@ topology:
                 ) as ensure,
                 patch("engulf_clab_ensure_vrnetlab.plugin.require_vrnetlab_dependencies"),
                 patch("engulf_clab_ensure_vrnetlab.plugin.update_vrnetlab"),
-                patch("engulf_clab_vrnetlab_build.plugin.ensure_images") as build,
+                patch(
+                    "engulf_clab_vrnetlab_build.plugin.ensure_images",
+                    return_value=VrnetlabSourceProvenanceSnapshot(),
+                ) as build,
                 warnings.catch_warnings(record=True) as caught,
             ):
                 warnings.simplefilter("always")

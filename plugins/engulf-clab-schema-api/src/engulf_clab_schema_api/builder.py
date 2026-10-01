@@ -633,6 +633,8 @@ class PluginSchema:
         explanation: str,
         *,
         commands: tuple[str, ...] = (),
+        topology_features: tuple[str, ...] = (),
+        unless_artifacts: tuple[str, ...] = (),
     ) -> Self:
         if _TOOL.fullmatch(name) is None:
             raise ValueError("host tool must be one executable-style token")
@@ -641,6 +643,29 @@ class PluginSchema:
             name,
             explanation,
             commands=commands,
+            topology_features=topology_features,
+            unless_artifacts=unless_artifacts,
+        )
+
+    def require_host_library(
+        self,
+        name: str,
+        explanation: str,
+        *,
+        commands: tuple[str, ...] = (),
+        topology_features: tuple[str, ...] = (),
+        unless_artifacts: tuple[str, ...] = (),
+    ) -> Self:
+        """Declare a host shared library needed by selected operations."""
+        if _TOOL.fullmatch(name) is None:
+            raise ValueError("host library must be one library-name token")
+        return self._requirement(
+            RequirementKind.HOST_LIBRARY,
+            name,
+            explanation,
+            commands=commands,
+            topology_features=topology_features,
+            unless_artifacts=unless_artifacts,
         )
 
     def require_privilege(
@@ -657,6 +682,8 @@ class PluginSchema:
             privilege.value,
             explanation,
             commands=commands,
+            topology_features=(),
+            unless_artifacts=(),
         )
 
     def _requirement(
@@ -666,10 +693,28 @@ class PluginSchema:
         explanation: str,
         *,
         commands: tuple[str, ...],
+        topology_features: tuple[str, ...] = (),
+        unless_artifacts: tuple[str, ...] = (),
     ) -> Self:
         normalized_commands = _tokens(commands, label="commands", pattern=_COMMAND)
-        key = (kind, name, normalized_commands)
-        if any((item.kind, item.name, item.commands) == key for item in self._requirements):
+        normalized_features = _tokens(
+            topology_features, label="topology features", pattern=_TASK
+        )
+        normalized_artifacts = _tokens(
+            unless_artifacts, label="artifact conditions", pattern=_TASK
+        )
+        key = (kind, name, normalized_commands, normalized_features, normalized_artifacts)
+        if any(
+            (
+                item.kind,
+                item.name,
+                item.commands,
+                item.topology_features,
+                item.unless_artifacts,
+            )
+            == key
+            for item in self._requirements
+        ):
             raise ValueError(f"duplicate runtime requirement: {name}")
         self._requirements.append(
             RuntimeRequirement(
@@ -677,6 +722,8 @@ class PluginSchema:
                 name,
                 _prose(explanation, label="requirement explanation"),
                 normalized_commands,
+                normalized_features,
+                normalized_artifacts,
             )
         )
         return self
@@ -863,6 +910,8 @@ class PluginSchema:
             requirement.name,
             requirement.explanation,
             tuple(_expand(item, short_product) for item in requirement.commands),
+            requirement.topology_features,
+            requirement.unless_artifacts,
         )
 
     def _snapshot_references(self) -> tuple[ReferenceSnapshot, ...]:

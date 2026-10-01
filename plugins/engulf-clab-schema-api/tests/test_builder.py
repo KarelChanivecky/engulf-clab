@@ -71,7 +71,16 @@ def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
             path_base=PathBase.INVOCATION_DIRECTORY,
             examples=("~/.codex",),
         )
-        .require_host_tool("git", "Resolve the selected source revision.")
+        .require_host_tool(
+            "git",
+            "Resolve the selected source revision.",
+            commands=("deploy",),
+            topology_features=("vrnetlab-image-build",),
+            unless_artifacts=("vrnetlab-source",),
+        )
+        .require_host_library(
+            "libvirt.so.0", "Use the local virtualization library.", commands=("deploy",)
+        )
         .require_privilege(Privilege.NONE, "No elevated privilege is required.")
         .order(
             LifecycleStage.BEFORE_GOAL,
@@ -98,6 +107,9 @@ def test_builder_expands_commands_and_snapshots_packaged_reference() -> None:
     assert snapshot.annotations[0].commands == ("install-eclab",)
     assert snapshot.annotations[0].path_base is PathBase.INVOCATION_DIRECTORY
     assert snapshot.requirements[0].name == "git"
+    assert snapshot.requirements[0].topology_features == ("vrnetlab-image-build",)
+    assert snapshot.requirements[0].unless_artifacts == ("vrnetlab-source",)
+    assert snapshot.requirements[1].kind.value == "host-library"
     assert snapshot.ordering[0].before == ("engulf_clab.generator",)
     assert snapshot.routes[0].task == "install-runtime-data"
     assert snapshot.node_kinds[0].kind == "linux"
@@ -148,6 +160,19 @@ def test_command_scope_and_duplicates_are_validated() -> None:
         schema.add_cli_flag("--flag", "Enable it again.", command="run")
     with pytest.raises(ValueError, match="collide"):
         schema.add_cli_flag(("-f", "--flag"), "Collide through an alias.", command="run")
+
+
+def test_requirement_conditions_are_validated_and_distinguish_signatures() -> None:
+    schema = PluginSchema("example.plugin", package="example")
+    schema.add_command("deploy", "Deploy it.")
+    schema.require_host_tool(
+        "go", "Build from source.", commands=("deploy",), unless_artifacts=("binary",)
+    )
+    schema.require_host_tool("go", "Build from source.", commands=("deploy",))
+    with pytest.raises(ValueError, match="topology features"):
+        schema.require_host_tool("go", "Build from source.", topology_features=("Bad",))
+    with pytest.raises(ValueError, match="artifact conditions"):
+        schema.require_host_tool("go", "Build from source.", unless_artifacts=("two words",))
 
 
 def test_cli_flag_can_override_one_declared_runtime_variable() -> None:

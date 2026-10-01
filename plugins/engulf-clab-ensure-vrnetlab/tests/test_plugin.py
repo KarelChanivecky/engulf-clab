@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from engulf_api import (
     AfterGoalAPI,
+    ApplicationMetadata,
     BeforeGoalAPI,
     GoalResult,
     Invocation,
@@ -16,7 +17,11 @@ from engulf_api import (
     StateScope,
 )
 from engulf_clab_lab_parser import TopologySession, load_topology
-from engulf_clab_schema_api import SCHEMA_VRNETLAB_SOURCE_CONTEXT, VrnetlabSourceHint
+from engulf_clab_schema_api import (
+    SCHEMA_VRNETLAB_SOURCE_CONTEXT,
+    RequirementKind,
+    VrnetlabSourceHint,
+)
 from engulf_executable_wrapper_api import BeforeCallEvent, CallMode, PreparedCallEvent
 
 from engulf_clab_ensure_vrnetlab.contract import (
@@ -24,7 +29,7 @@ from engulf_clab_ensure_vrnetlab.contract import (
     VRNETLAB_REPOSITORY_LEASE,
 )
 from engulf_clab_ensure_vrnetlab.errors import EnsureVrnetlabError
-from engulf_clab_ensure_vrnetlab.plugin import EnsureVrnetlabPlugin
+from engulf_clab_ensure_vrnetlab.plugin import PLUGIN_SCHEMA, EnsureVrnetlabPlugin
 
 
 def write_topology(path: Path, *, opted_in: bool) -> None:
@@ -44,12 +49,33 @@ def invocation_api() -> Mock:
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    def test_make_is_required_only_for_vrnetlab_image_builds_without_supplied_images(
+        self,
+    ) -> None:
+        schema = PLUGIN_SCHEMA.snapshot(
+            ApplicationMetadata(
+                application_id="engulf-clab",
+                display_name="ECLAB",
+                vendor="ECLAB",
+                product="Engulf Containerlab",
+                short_product_name="eclab",
+                version="1.0",
+            )
+        )
+        requirement = next(
+            item
+            for item in schema.requirements
+            if item.kind is RequirementKind.HOST_TOOL and item.name == "make"
+        )
+
+        self.assertEqual(requirement.commands, ("deploy", "redeploy"))
+        self.assertEqual(requirement.topology_features, ("vrnetlab-image-build",))
+        self.assertEqual(requirement.unless_artifacts, ("vrnetlab-images",))
+
     def test_dependencies_are_declared_in_package_metadata(self) -> None:
         project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
         project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
-        group = project["entry-points"][
-            "engulf.plugins.v1.dependency.engulf_clab_ensure_vrnetlab"
-        ]
+        group = project["entry-points"]["engulf.plugins.v1.dependency.engulf_clab_ensure_vrnetlab"]
 
         self.assertEqual(
             group,

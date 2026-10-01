@@ -224,8 +224,11 @@ relative-path resolution; `privilege` and `host_tools` expose host needs;
 `shared_with` identifies another owning plugin; and `examples` supplies safe
 one-line values or snippets.
 
-`require_host_tool()` and `require_privilege()` describe plugin-level runtime
-requirements, optionally scoped to commands. `order()` records a lifecycle
+`require_host_tool()`, `require_host_library()`, and `require_privilege()` describe
+plugin-level runtime requirements. Host requirements may be scoped to commands,
+active topology feature tokens, and omitted when any named packaged artifact is
+present through `commands=`, `topology_features=`, and `unless_artifacts=`.
+`order()` records a lifecycle
 edge to other exact plugin IDs and requires at least one `after` or `before`
 value. `route()` maps a lowercase task token to a resource also packaged by
 `refer()`; an unresolved route makes snapshot creation fail.

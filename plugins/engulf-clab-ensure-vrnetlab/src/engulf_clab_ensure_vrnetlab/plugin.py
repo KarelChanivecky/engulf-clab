@@ -96,7 +96,9 @@ PLUGIN_SCHEMA = (
         values=ValueType.STRING,
         environment="VRNETLAB_VERSION",
     )
-    .annotate("VRNETLAB_DIR", commands=("deploy", "redeploy"), path_base=PathBase.INVOCATION_DIRECTORY)
+    .annotate(
+        "VRNETLAB_DIR", commands=("deploy", "redeploy"), path_base=PathBase.INVOCATION_DIRECTORY
+    )
     .annotate("VRNETLAB_REPO", commands=("deploy", "redeploy"))
     .annotate(
         "VRNETLAB_UPDATE",
@@ -125,18 +127,38 @@ PLUGIN_SCHEMA = (
         implies=("enable revision checking and clamp the checkout",),
     )
     .require_host_tool(
-        "git", "Managed vrnetlab checkout resolution uses Git.", commands=("deploy", "redeploy")
+        "git",
+        "Managed vrnetlab checkout resolution uses Git.",
+        commands=("deploy", "redeploy"),
+        topology_features=("vrnetlab-image-build",),
+        unless_artifacts=("vrnetlab-source",),
     )
     .require_host_tool(
-        "docker", "vrnetlab builders construct container images.", commands=("deploy", "redeploy")
+        "docker",
+        "vrnetlab builders construct container images.",
+        commands=("deploy", "redeploy"),
+        topology_features=("vrnetlab-image-build",),
     )
     .require_host_tool(
-        "qemu-img", "Image preparation validates and converts virtual disks.", commands=("deploy", "redeploy")
+        "make",
+        "Building vrnetlab appliance images from source runs make on the host.",
+        commands=("deploy", "redeploy"),
+        topology_features=("vrnetlab-image-build",),
+        unless_artifacts=("vrnetlab-images",),
+    )
+    .require_host_tool(
+        "qemu-img",
+        "Image preparation validates and converts virtual disks.",
+        commands=("deploy", "redeploy"),
+        topology_features=("vrnetlab-image-build",),
+        unless_artifacts=("vrnetlab-images",),
     )
     .require_host_tool(
         "qemu-system-x86_64",
         "vrnetlab image construction boots the virtual appliance.",
         commands=("deploy", "redeploy"),
+        topology_features=("vrnetlab-image-build",),
+        unless_artifacts=("vrnetlab-images",),
     )
     .require_privilege(
         Privilege.CONTAINER_RUNTIME,
@@ -170,9 +192,7 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
     context_writes = (
         frozenset({VRNETLAB_PATH_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
     )
-    context_reads = (
-        frozenset({TOPOLOGY_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
-    )
+    context_reads = frozenset({TOPOLOGY_CONTEXT, SCHEMA_VRNETLAB_SOURCE_CONTEXT}) | SCHEMA_CONTEXTS
 
     def before_goal(self, invocation: Invocation, api: BeforeGoalAPI) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
@@ -206,8 +226,8 @@ class EnsureVrnetlabPlugin(SchemaBackedPlugin):
             "  --eclab-vrnetlab-version REV  Clamp to a Git tag, commit, or revision\n"
             "  VRNETLAB_{DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
             "matching CLI options override them.\n"
-            "  Provisioning runs only for opted-in deploys or redeploys and requires Docker, qemu-img, "
-            "and qemu-system-x86_64."
+            "  Provisioning runs only for opted-in deploys or redeploys and needs Docker; "
+            "source-built images also need make, qemu-img, and qemu-system-x86_64."
         )
 
     def analyze_call(

@@ -169,9 +169,23 @@ PLUGIN_SCHEMA = (
         lifecycle=(LifecycleStage.BEFORE_GOAL, LifecycleStage.PREPARE_CALL),
         implies=("enable revision checking and clamp the checkout",),
     )
-    .require_host_tool("docker", "Containerlab execution requires an available container runtime.")
-    .require_host_tool("git", "Managed source checkout resolution uses Git.")
-    .require_host_tool("go", "Building a missing Containerlab binary from source requires Go.")
+    .require_host_tool(
+        "docker",
+        "Containerlab deployment requires an available container runtime.",
+        commands=("deploy", "redeploy"),
+    )
+    .require_host_tool(
+        "git",
+        "Managed source checkout resolution uses Git.",
+        commands=("deploy", "redeploy"),
+        unless_artifacts=("containerlab-binary",),
+    )
+    .require_host_tool(
+        "go",
+        "Building a missing Containerlab binary from source requires Go.",
+        commands=("deploy", "redeploy"),
+        unless_artifacts=("containerlab-binary",),
+    )
     .require_host_tool(
         "sudo",
         "The sudoless command changes binary ownership, mode, and two host group memberships.",
