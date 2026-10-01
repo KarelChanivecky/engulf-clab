@@ -66,7 +66,10 @@ Freeze-generated labs select `images.freeze.json` through
 `ECLAB_IMAGE_ARCHIVE_MANIFEST`. Its format-1 `images` list records explicit
 acquisition decisions; archive entries name the expected image, a contained
 relative archive path, and its SHA-256. Optional source references select a
-retag source. Paths are relative to the manifest, and missing artifacts,
+retag source. Offline freeze records the captured immutable ID as the source
+reference, so the provider retags that exact image even if the tar contains
+multiple tags. Older manifests that only record `image_id` receive the same
+handling. Paths are relative to the manifest, and missing artifacts,
 escaping paths, or checksum mismatches fail before provisioning. Registry,
 build, and external entries document decisions but do not add archive recipes.
 Lean entries may name an `archive_variable`; its value comes from the selecting

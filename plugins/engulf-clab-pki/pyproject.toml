@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-pki"
-version = "0.1.3"
+version = "0.1.4"
 description = "Lazy PKI generation and least-privilege mounts for engulf-clab"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,7 +17,7 @@ dependencies = [
     "engulf-clab-pki-api>=1.0,<3",
     "engulf-clab-lab-parser>=0.2.0,<1",
     "engulf-clab-lab-writer>=0.1.0,<1",
-    "engulf-clab-freeze-api>=1.0,<2",
+    "engulf-clab-freeze-api>=1.1,<2",
     "engulf-clab-freeze>=0.1.0,<1",
     "cryptography>=45",
     "PyYAML>=6.0",
@@ -31,6 +31,9 @@ dependencies = [
 
 [project.entry-points."engulf_clab.freeze.v1"]
 "engulf_clab.pki" = "engulf_clab_pki.freeze:contributor"
+
+[project.entry-points."engulf_clab.freeze.images.v1"]
+"engulf_clab.pki" = "engulf_clab_pki.freeze:image_sources"
 
 [project.entry-points."engulf.plugins.v1.dependency.engulf_clab_pki"]
 "engulf_clab.freeze" = "preprocess=after; postprocess=none"

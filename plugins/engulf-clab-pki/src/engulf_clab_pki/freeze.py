@@ -4,6 +4,7 @@ import argparse
 import base64
 import getpass
 import hashlib
+import importlib.resources
 import json
 import os
 import shutil
@@ -16,8 +17,18 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from engulf_clab_freeze_api import DefrostContext, FreezeContext, FreezeError
-from engulf_clab_lab_parser import TopologyError, effective_nodes, topology_declarations
+from engulf_clab_freeze_api import (
+    DefrostContext,
+    FreezeContext,
+    FreezeError,
+    ImageSource,
+)
+from engulf_clab_lab_parser import (
+    TopologyError,
+    effective_nodes,
+    load_topology,
+    topology_declarations,
+)
 
 from .catalog import load_catalog
 from .plugin import MANIFEST_ENVIRONMENT
@@ -214,6 +225,56 @@ class PkiFreezeContributor:
             (context.staging_root / bundle_name).unlink(missing_ok=True)
         _set_selector(document, "./pki.yaml")
         context.topology.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+
+def image_sources(
+    topology: Path,
+    document: dict[str, Any],
+    environment: Mapping[str, str],
+) -> tuple[ImageSource, ...]:
+    """Report images for PKI service nodes injected only during deploy preparation."""
+    del document
+    source_topology = load_topology(topology, environment)
+    selector = _selector(source_topology)
+    if selector is None:
+        return ()
+    manifest_path = Path(selector).expanduser()
+    if not manifest_path.is_absolute():
+        manifest_path = topology.parent / manifest_path
+    manifest_path = manifest_path.resolve()
+    catalog = load_catalog(manifest_path, required=True)
+    services = catalog.get("services", {})
+    if not services:
+        return ()
+
+    recipe_file = importlib.resources.files("engulf_clab_pki").joinpath(
+        "recipes/services.yaml"
+    )
+    recipes = yaml.safe_load(recipe_file.read_text(encoding="utf-8"))
+    if not isinstance(recipes, dict):
+        raise FreezeError("packaged PKI service recipes are invalid")
+    topology_nodes = {node.name for node in effective_nodes(source_topology)}
+    sources: list[ImageSource] = []
+    for service, spec in services.items():
+        node = spec.get("node")
+        if not isinstance(node, str) or not node:
+            raise FreezeError(f"PKI service {service!r} requires an explicit node name")
+        if node in topology_nodes:
+            raise FreezeError(f"PKI service node collides with topology node {node!r}")
+        kind = str(spec.get("type", service))
+        recipe = recipes.get(kind, {})
+        image = spec.get("image", recipe.get("image") if isinstance(recipe, dict) else None)
+        if not isinstance(image, str) or not image:
+            raise FreezeError(f"PKI service {service!r} requires an image")
+        sources.append(
+            ImageSource(
+                image=image,
+                node=node,
+                kind="registry",
+                source=image,
+            )
+        )
+    return tuple(sources)
 
 
 def _document(path: Path) -> dict[str, Any]:

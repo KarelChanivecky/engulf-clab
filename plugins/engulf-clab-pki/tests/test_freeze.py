@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import tarfile
 import tempfile
 import unittest
@@ -411,9 +412,11 @@ class FreezeTest(unittest.TestCase):
                 )
             with tarfile.open(archive, "r:gz") as handle:
                 frozen = yaml.safe_load(handle.extractfile("share/lab.clab.yml").read())
+                metadata = json.load(handle.extractfile("share/freeze.json"))["freeze"]
                 self.assertIn("share/pki.yaml", handle.getnames())
-            self.assertEqual(frozen["x-engulf-clab-freeze"]["format"], 3)
-            self.assertIn("engulf_clab.pki", frozen["x-engulf-clab-freeze"]["contributors"])
+            self.assertNotIn("x-engulf-clab-freeze", frozen)
+            self.assertEqual(metadata["format"], 3)
+            self.assertIn("engulf_clab.pki", metadata["contributors"])
             destination = root / "restored"
             defrost_args = argparse.Namespace(
                 pki_authority=None, no_pki_prompt=True, pki_passphrase_file=None

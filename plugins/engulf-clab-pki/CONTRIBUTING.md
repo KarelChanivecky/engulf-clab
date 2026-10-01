@@ -10,7 +10,9 @@ resolution, and cycle checks. `material.py` owns cryptographic generation and
 immutable generation directories. `views.py` owns least-privilege staging;
 `plugin.py` alone owns Engulf callbacks and topology mutation. `projections.py`
 owns translation from resolved material and views into `engulf-clab-pki-api`
-values. `freeze.py` is an optional freeze-API contributor and must not be
+values. `freeze.py` owns contributor and image-source declarations; image-source
+discovery reads the source manifest without generating PKI state or preparing
+deploy, and reports service nodes that the plugin injects later. It must not be
 imported by the freeze package.
 
 Resolve node requests, trust, mount targets, kinds, and inherited bind collisions

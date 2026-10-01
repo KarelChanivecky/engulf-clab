@@ -305,6 +305,11 @@ def freeze_images(
 
     for source in sources:
         register_source(source)
+        # Some plugins add fully formed nodes during deploy preparation. Their
+        # freeze source is the only inventory available to image planning, so a
+        # node-owned source absent from the authored topology is also a root.
+        if source.node is not None and source.node not in nodes:
+            roots.append(canonical_image_reference(source.image))
 
     # Image providers already expose pure, static Dockerfile recipes. Use those
     # recipes for images in the authored topology's build graph, while keeping
@@ -378,16 +383,26 @@ def freeze_images(
     variables: dict[str, str] = {}
 
     def owners(reference: str) -> list[str]:
-        return [
+        result = [
             name
             for name, node in nodes.items()
             if isinstance(node.data.get("image"), str)
             and canonical_image_reference(node.data["image"]) == reference
         ]
+        result.extend(
+            source.node
+            for source in by_image.get(reference, [])
+            if source.node is not None and source.node not in result
+        )
+        return result
 
     def disable(reference: str) -> None:
         for source in by_image.get(reference, []):
             if source.node is None:
+                continue
+            if source.node not in raw_nodes:
+                # The plugin will recreate this node at deploy time. Its
+                # acquisition controls live in the shared image manifest.
                 continue
             if source.build_only:
                 raw_nodes.pop(source.node, None)
@@ -625,7 +640,7 @@ def freeze_images(
             if target.exists():
                 raise FreezeError("exported image path collides with a lab file")
             # Save by immutable ID: a concurrently retagged image must not change
-            # the selected content. The archive provider retags its single image.
+            # the selected content. The archive provider retags this exact ID.
             result = _run(
                 ["docker", "image", "save", "--output", str(target), image_id],
                 timeout=None,
@@ -637,6 +652,7 @@ def freeze_images(
             action="archive",
             archive=relative,
             sha256=sha256(staging / relative),
+            source=image_id,
             image_id=image_id,
             platform="/".join(
                 str(local.get(key, "")) for key in ("Os", "Architecture", "Variant")
@@ -653,8 +669,13 @@ def freeze_images(
                     continue
                 node_environment = node.setdefault("env", {})
                 if isinstance(node_environment, dict):
-                    node_environment["ECLAB_IMAGE_ARCHIVE"] = relative
-                    node_environment["ECLAB_IMAGE_ARCHIVE_RELOAD"] = "true"
+                    node_environment.update(
+                        {
+                            "ECLAB_IMAGE_ARCHIVE": relative,
+                            "ECLAB_IMAGE_ARCHIVE_REF": image_id,
+                            "ECLAB_IMAGE_ARCHIVE_RELOAD": "true",
+                        }
+                    )
 
     def require_archive_tag(reference: str) -> None:
         if "@" in reference:

@@ -67,6 +67,11 @@ requesting node's view.
 Optional service declarations inject independent service nodes. The directory
 recipe uses the pinned public `osixia/openldap:1.5.0` image; the former
 `bitnami/openldap:latest` repository no longer publishes free Docker Hub tags.
+Offline freeze includes the images for these generated nodes in its image plan,
+even though they do not appear in the authored topology. Freeze requires their
+selected image contents to be available on the producer and captures them by
+immutable ID; a missing service image stops offline freeze instead of leaving a
+registry pull for deploy.
 
 ## Lifecycle, state, and security
 

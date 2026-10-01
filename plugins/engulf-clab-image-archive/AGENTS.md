@@ -53,6 +53,8 @@ across editions.
   loading on every deploy. Manifest recipes always reload to restore recorded content.
 - Validate image manifests through freeze-api before populating the provider;
   their dependency-only images participate in ordinary recursive resolution.
+  When a frozen archive entry has `image_id` but no explicit `source`, use the
+  validated immutable ID as its retag source so multiple saved tags are safe.
   Keep `freeze.py` discovery read-only and allow missing paths there, while
   deploy analysis continues to require usable files.
 - Never choose a member of a multi-image archive implicitly; require

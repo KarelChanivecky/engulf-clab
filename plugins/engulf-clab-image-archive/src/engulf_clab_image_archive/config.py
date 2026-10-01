@@ -32,6 +32,7 @@ ARCHIVE_SUFFIXES = (
 )
 
 _IMAGE_VARIABLE_SYNTAX = re.compile(r"\$(?:\$|\{?[A-Za-z_][A-Za-z0-9_]*)")
+_IMAGE_ID = re.compile(r"^sha256:[a-f0-9]{64}$")
 _TRUE_VALUES = frozenset(("1", "on", "true", "yes"))
 _FALSE_VALUES = frozenset(("0", "off", "false", "no"))
 
@@ -192,6 +193,13 @@ def _manifest_requests(path: Path, environment: Mapping[str, Any]) -> list[Archi
             )
         archive = _resolve_archive(value, topology_dir=path.parent, node_name="manifest")
         source = entry.get("source")
+        image_id = entry.get("image_id")
+        if source is None and image_id is not None:
+            if not isinstance(image_id, str) or _IMAGE_ID.fullmatch(image_id) is None:
+                raise ImageArchiveError(
+                    f"image manifest image_id must be a sha256 image ID: {entry['image']}"
+                )
+            source = image_id
         if source is not None:
             if not isinstance(source, str):
                 raise ImageArchiveError("image manifest source must be a string")

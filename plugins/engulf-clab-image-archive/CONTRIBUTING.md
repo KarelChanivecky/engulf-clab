@@ -30,8 +30,10 @@ the dispatcher that consumes this provider during deploy and single-source redep
 - Manifest parsing reuses freeze-api validation and never inspects image tar
   contents. Add manifest dependencies to the same provider map as node images,
   require explicit recipient variables for lean entries, and force manifest
-  reload so a stale local tag cannot replace frozen content. Keep discovery
-  package metadata and schema declarations synchronized.
+  reload so a stale local tag cannot replace frozen content. Use a validated
+  immutable `image_id` as the retag source when a captured entry has no explicit
+  source reference. Keep discovery package metadata and schema declarations
+  synchronized.
 
 - Keep the fixed `ECLAB` prefix in `config.LABEL_PREFIX`; never derive it from
   application metadata.
