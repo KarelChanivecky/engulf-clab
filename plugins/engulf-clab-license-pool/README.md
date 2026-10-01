@@ -11,5 +11,9 @@ It exposes pool-manager state and contracts; this package supplies the
 standard `LicensePoolSelector` implementation plus the Engulf leases, state
 store, topology editor, and lifecycle adapter.
 
+Pool-side metadata and typed variable declarations use the
+[`engulf-clab-license-pool-api`](../engulf-clab-license-pool-api/README.md);
+the shared command owns prompts, namespaced `.lic-pool` writes, and registration.
+
 - [Usage](USAGE.md) documents installation, configuration, lifecycle, security, and troubleshooting.
 - [Contributing](CONTRIBUTING.md) documents implementation invariants and focused validation.

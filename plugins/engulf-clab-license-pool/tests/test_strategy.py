@@ -35,6 +35,7 @@ from engulf_clab_license_pool.plugin import (
     _AutomaticRequest,
     _claim,
     _claim_all_with_created,
+    _collect_pool_metadata,
     _license_strategy,
     _parse_init_license_pool,
     _prompt_requests,
@@ -44,6 +45,12 @@ from engulf_clab_license_pool.plugin import (
     _requests,
     _warn_legacy_uuid,
     license_contract,
+)
+from engulf_clab_license_pool_api import (
+    LicensePoolMetadataContext,
+    LicensePoolVariable,
+    LicensePoolVariableType,
+    PoolMetadata,
 )
 from engulf_clab_schema_api import OptionKind, register_schema_arguments
 from engulf_executable_wrapper_api import (
@@ -335,6 +342,112 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
         short_product_name="eclab",
         version="1.0",
     )
+
+    def test_registration_collector_precedes_edition_policy_consumers(self) -> None:
+        # The fclab adapter consumes INIT_LICENSE_POOL_CONTEXT in before_goal
+        # at priority 70, so the shared collector must run first.
+        self.assertGreater(LicensePoolPlugin.priority, 70)
+
+    def test_metadata_resolution_precedence_and_optional_values(self) -> None:
+        class Contributor:
+            contributor_id = "example.edition"
+            metadata_variables = (
+                LicensePoolVariable(
+                    "cli_value", LicensePoolVariableType.STRING, "CLI value"
+                ),
+                LicensePoolVariable(
+                    "resolved_value",
+                    LicensePoolVariableType.STRING,
+                    "Resolver value",
+                ),
+                LicensePoolVariable(
+                    "stored_only",
+                    LicensePoolVariableType.INTEGER,
+                    "Stored value",
+                    default=1,
+                ),
+                LicensePoolVariable(
+                    "defaulted",
+                    LicensePoolVariableType.STRING,
+                    "Default value",
+                    default="fallback",
+                ),
+                LicensePoolVariable(
+                    "optional_value",
+                    LicensePoolVariableType.STRING,
+                    "Optional value",
+                    optional=True,
+                ),
+            )
+
+            def __init__(self) -> None:
+                self.resolver_values: dict[str, object] | None = None
+                self.collected_values: dict[str, object] | None = None
+
+            def resolve_variable_values(
+                self, context: LicensePoolMetadataContext
+            ) -> dict[str, object]:
+                self.resolver_values = dict(context.variable_values)
+                return {
+                    "cli_value": "resolver-loses-to-cli",
+                    "resolved_value": "resolver-wins-over-stored",
+                }
+
+            def collect_metadata(self, context: LicensePoolMetadataContext) -> None:
+                self.collected_values = dict(context.variable_values)
+
+        contributor = Contributor()
+        metadata = PoolMetadata(
+            exists=True,
+            legacy_flat=False,
+            contributors={
+                "example.edition": {
+                    "resolved_value": "stored",
+                    "stored_only": 7,
+                }
+            },
+            legacy={},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch(
+                "engulf_clab_license_pool.plugin.discover_metadata_contributors",
+                return_value=(contributor,),
+            ):
+                contributions = _collect_pool_metadata(
+                    pool=root,
+                    kind="example_node",
+                    arguments=(),
+                    environment={},
+                    cwd=root,
+                    metadata=metadata,
+                    kind_explicit=False,
+                    update=False,
+                    interactive=False,
+                    variable_overrides=(("cli_value", "CLI wins"),),
+                )
+
+        self.assertEqual(contributor.resolver_values, {"cli_value": "CLI wins"})
+        self.assertEqual(
+            contributor.collected_values,
+            {
+                "cli_value": "CLI wins",
+                "resolved_value": "resolver-wins-over-stored",
+                "stored_only": 7,
+                "defaulted": "fallback",
+            },
+        )
+        self.assertEqual(
+            contributions,
+            {
+                "example.edition": {
+                    "cli_value": "CLI wins",
+                    "resolved_value": "resolver-wins-over-stored",
+                    "stored_only": 7,
+                    "defaulted": "fallback",
+                }
+            },
+        )
 
     def test_schema_declares_init_command_and_auto_controls(self) -> None:
         options = PLUGIN_SCHEMA.snapshot(self._APPLICATION).options

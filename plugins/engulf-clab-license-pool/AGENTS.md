@@ -24,13 +24,27 @@ through the shared topology editor.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.
-- Keep `init-license-pool [PATH] [--kind KIND]` a user-state control command.
+- Keep `init-license-pool [PATH] [--eclab-kind KIND] [--eclab-update]` a
+  user-state control command.
   Canonical paths are unique and ordered; re-registration updates the kind in
-  place. Consume only the first positional path and the plugin-owned `--kind`;
-  ignore unclaimed extension arguments instead of rejecting them. Prune missing
+  place. Interactive calls prompt for kind when it is omitted; `--kind` remains
+  an alias. Discover metadata contributors from
+  `engulf_clab.license_pool.metadata.v1`, collect outside the registry lease,
+  then re-read and merge their namespaced metadata under the lease before
+  registration. A contributor reuses its existing namespace unless update
+  mode is set; declared missing variables are prompted by the collector and
+  saved in that namespace. Resolve declared values in this order:
+  `--eclab-licence-pool-var`, the optional contributor resolver, stored values
+  on ordinary init, prompts, then defaults. The generic CLI option sets values
+  without prompting and may repeat. Ignore unclaimed extension arguments
+  instead of rejecting them. Optional declared variables with no default may
+  be omitted, including in noninteractive calls. Prune missing
   registered directories during deploy-time discovery. Return `None` from
   `before_goal` after registration and preempt Containerlab through an
   `analyze_call()` contribution so every plugin can observe the command.
+  Keep the collector's `before_goal` priority above edition adapters that read
+  `INIT_LICENSE_POOL_CONTEXT` in their own `before_goal`; packaging lifecycle
+  edges do not order these callbacks.
 - Match registered pools against the effective node `kind`. Explicit
   `ECLAB_AUTO_LICENSE` always requests automatic allocation; an unresolved
   license `$VARIABLE` requests it unless effective node env sets

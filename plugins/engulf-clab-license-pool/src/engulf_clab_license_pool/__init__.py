@@ -8,20 +8,28 @@ from engulf_clab_license_pool_lib import (
     PoolState,
 )
 
-from .plugin import LICENSE_SELECTION_CONTEXT, LicensePoolPlugin, LicenseSelection
+from .plugin import (
+    INIT_LICENSE_POOL_CONTEXT,
+    LICENSE_SELECTION_CONTEXT,
+    InitLicensePoolResult,
+    LicensePoolPlugin,
+    LicenseSelection,
+)
 from .selector import LicensePoolSelector, selector
 
 plugin = LicensePoolPlugin()
 __all__ = [
+    "INIT_LICENSE_POOL_CONTEXT",
     "LICENSE_ALLOCATION_HANDOFF_CONTEXT",
     "LICENSE_SELECTION_CONTEXT",
     "AllocationRequest",
     "AllocationResult",
+    "InitLicensePoolResult",
     "LicenseAllocationHandoff",
     "LicensePoolError",
     "LicensePoolPlugin",
-    "LicenseSelection",
     "LicensePoolSelector",
+    "LicenseSelection",
     "LicenseStrategy",
     "PoolState",
     "plugin",

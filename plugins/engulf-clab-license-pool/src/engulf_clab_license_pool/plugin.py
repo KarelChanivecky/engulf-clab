@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +28,22 @@ from engulf_clab_lab_parser import (
     editor,
     effective_nodes,
     is_topology_mutation_command,
+)
+from engulf_clab_license_pool_api import (
+    NO_DEFAULT,
+    LicensePoolMetadataContext,
+    LicensePoolMetadataContributor,
+    LicensePoolMetadataError,
+    LicensePoolVariable,
+    LicensePoolVariableType,
+    PoolMetadata,
+    discover_metadata_contributors,
+    format_license_pool_variable_value,
+    load_pool_metadata,
+    metadata_variables_for,
+    parse_license_pool_variable_value,
+    validate_contribution,
+    validate_license_pool_variable_value,
 )
 from engulf_clab_license_pool_lib import (
     LICENSE_ALLOCATION_HANDOFF_CONTEXT,
@@ -66,6 +84,7 @@ _FILE = "license-pools.json"
 _STATE_VERSION = 3
 _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
 _INIT_LICENSE_POOL_EXIT_CONTEXT = "engulf_clab.license_pool.init_exit"
+INIT_LICENSE_POOL_CONTEXT = "engulf_clab.license_pool.init_registration"
 
 # Published for plugins outside this package -- typically an edition-specific
 # one that must reason about the license a node actually received, such as
@@ -118,6 +137,17 @@ _STRATEGY_VALUES = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class InitLicensePoolResult:
+    """The collector's result, published for edition-specific registration rules."""
+
+    exit_code: int
+    pool: Path | None = None
+    kind: str | None = None
+    registration_changed: bool = False
+    metadata_changed: bool = False
+
+
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.license_pool", package="engulf_clab_license_pool")
     .add_command(
@@ -134,10 +164,31 @@ PLUGIN_SCHEMA = (
     )
     .add_cli_flag(
         "--kind",
-        "Associate the pool with this Containerlab node kind.",
+        "Associate the pool with this Containerlab node kind (legacy spelling).",
         command=INIT_LICENSE_POOL_COMMAND,
         values=ValueType.STRING,
         default=DEFAULT_LICENSE_KIND,
+    )
+    .add_cli_flag(
+        "--eclab-kind",
+        "Select the pool's Containerlab node kind; interactive init asks when omitted.",
+        command=INIT_LICENSE_POOL_COMMAND,
+        values=ValueType.STRING,
+        default=DEFAULT_LICENSE_KIND,
+    )
+    .add_cli_flag(
+        "--eclab-update",
+        "Ask installed metadata contributors to update pool metadata they own.",
+        command=INIT_LICENSE_POOL_COMMAND,
+        values=ValueType.BOOLEAN,
+        default=False,
+    )
+    .add_cli_flag(
+        "--eclab-licence-pool-var",
+        "Set a declared pool metadata variable as name=value; repeat to set several.",
+        command=INIT_LICENSE_POOL_COMMAND,
+        values=ValueType.STRING,
+        repeatable=True,
     )
     .add_node_prop(
         "license",
@@ -207,7 +258,9 @@ PLUGIN_SCHEMA = (
             "the canonical pool path and node kind are stored in ordered user state",
             "normal Containerlab execution is preempted",
         ),
-        examples=("eclab init-license-pool ./licenses --kind fortinet_fortigate",),
+        examples=(
+            "eclab init-license-pool ./licenses --eclab-kind fortinet_fortigate",
+        ),
     )
     .annotate(
         "PATH",
@@ -218,6 +271,16 @@ PLUGIN_SCHEMA = (
         "--kind",
         commands=(INIT_LICENSE_POOL_COMMAND,),
         implies=("automatic allocation validates the effective node kind",),
+    )
+    .annotate(
+        "--eclab-kind",
+        commands=(INIT_LICENSE_POOL_COMMAND,),
+        implies=("automatic allocation validates the effective node kind",),
+    )
+    .annotate(
+        "--eclab-update",
+        commands=(INIT_LICENSE_POOL_COMMAND,),
+        implies=("each metadata contributor may prompt for fields it owns",),
     )
     .annotate(
         "license",
@@ -415,13 +478,16 @@ def license_contract(application: ApplicationMetadata) -> LicenseContract:
 class LicensePoolPlugin(SchemaBackedPlugin):
     plugin_id = "engulf_clab.license_pool"
     schema = PLUGIN_SCHEMA
-    priority = 60
+    # Edition adapters consume INIT_LICENSE_POOL_CONTEXT from before_goal;
+    # run the shared collector before those adapters (currently priority 70).
+    priority = 75
     context_reads = (
         frozenset(
             {
                 TOPOLOGY_CONTEXT,
                 _INVOCATION_ALLOCATION_CONTEXT,
                 _INIT_LICENSE_POOL_EXIT_CONTEXT,
+                INIT_LICENSE_POOL_CONTEXT,
                 LICENSE_SELECTION_CONTEXT,
                 LICENSE_ALLOCATION_HANDOFF_CONTEXT,
             }
@@ -433,6 +499,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             {
                 _INVOCATION_ALLOCATION_CONTEXT,
                 _INIT_LICENSE_POOL_EXIT_CONTEXT,
+                INIT_LICENSE_POOL_CONTEXT,
                 LICENSE_SELECTION_CONTEXT,
             }
         )
@@ -449,42 +516,101 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         ):
             return None
         application_name = api.application.short_product_name or api.application.product
+        pool: Path | None = None
+        kind: str | None = None
+        registration_changed = False
+        metadata_changed = False
+        interactive = sys.stdin.isatty()
         try:
-            pool, kind = _parse_init_license_pool(
+            options = _parse_init_license_pool_options(
                 invocation.arguments[1:], invocation.cwd
             )
+            if not options.kind_explicit and interactive:
+                options = _InitLicensePoolOptions(
+                    pool=options.pool,
+                    kind=_prompt_license_pool_kind(),
+                    kind_explicit=options.kind_explicit,
+                    update=options.update,
+                    variable_overrides=options.variable_overrides,
+                )
+            pool, kind = options.pool, options.kind
+            initial_metadata = load_pool_metadata(pool)
+            contributions = _collect_pool_metadata(
+                pool=pool,
+                kind=kind,
+                arguments=invocation.arguments[1:],
+                environment=invocation.environment,
+                cwd=invocation.cwd,
+                metadata=initial_metadata,
+                kind_explicit=options.kind_explicit,
+                update=options.update,
+                interactive=interactive,
+                variable_overrides=options.variable_overrides,
+            )
             with api.leases(("license-pool-registry",)):
+                current_metadata = load_pool_metadata(pool)
+                if contributions:
+                    merged_metadata = current_metadata.merged(contributions)
+                    metadata_changed = (
+                        merged_metadata.to_document() != current_metadata.to_document()
+                    )
+                    if metadata_changed:
+                        _write_pool_metadata(pool, merged_metadata)
                 manager = LicensePoolManager(api.state(StateScope.USER))
                 managed = run_pool_managers(
                     (manager,),
                     manager,
                     PoolManagerRequest(path=pool, kind=kind),
                 )
-                created = managed.changed
-        except (LicensePoolError, OSError, ValueError) as error:
+                registration_changed = managed.changed
+        except (
+            LicensePoolError,
+            LicensePoolMetadataError,
+            OSError,
+            ValueError,
+        ) as error:
             api.logger.error(
                 "%s %s: %s", application_name, INIT_LICENSE_POOL_COMMAND, error
             )
             exit_code = 2
+            result = InitLicensePoolResult(
+                exit_code=exit_code,
+                pool=pool,
+                kind=kind,
+                registration_changed=registration_changed,
+                metadata_changed=metadata_changed,
+            )
         else:
             api.logger.info(
                 "%s license pool for node kind=%r",
-                "registered" if created else "updated",
+                "registered" if registration_changed else "updated",
                 kind,
             )
             exit_code = 0
+            result = InitLicensePoolResult(
+                exit_code=exit_code,
+                pool=pool,
+                kind=kind,
+                registration_changed=registration_changed,
+                metadata_changed=metadata_changed,
+            )
         api.set_context(
             _INIT_LICENSE_POOL_EXIT_CONTEXT,
             exit_code,
             allow_unused=True,
         )
+        api.set_context(INIT_LICENSE_POOL_CONTEXT, result, allow_unused=True)
         return None
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering license-pool help")
         contract = license_contract(api.application)
         return (
-            f"  {INIT_LICENSE_POOL_COMMAND} [PATH] [--kind KIND]  Register an automatic license pool\n"
+            f"  {INIT_LICENSE_POOL_COMMAND} [PATH] [--kind KIND] [--eclab-kind KIND] [--eclab-update] [--eclab-licence-pool-var NAME=VALUE]  Register an automatic license pool\n"
+            "      Interactive init asks for the product kind and installed contributors' missing metadata.\n"
+            "      Existing metadata is reused; --eclab-update asks contributors to refresh it.\n"
+            "      Set typed metadata with --eclab-licence-pool-var NAME=VALUE; repeat as needed.\n"
+            "      Lists use ';' separators and ';;' for a literal semicolon.\n"
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
             "    license: <directory>        Allocate from that pool directory directly\n"
@@ -921,7 +1047,7 @@ def _prompt_requests(
             value = input(
                 f"License for {node_name} (auto, file, pool directory, or $VARIABLE): "
             ).strip()
-        if not value:
+        if not isinstance(value, str) or not value:
             raise LicensePoolError(
                 f"frozen license for {node_name} requires {key}, {contract.license_environment}, or an interactive terminal"
             )
@@ -954,20 +1080,49 @@ def _prompt_requests(
     return pools, direct, tuple(automatic)
 
 
-def _parse_init_license_pool(arguments: tuple[str, ...], cwd: Path) -> tuple[Path, str]:
+@dataclass(frozen=True, slots=True)
+class _InitLicensePoolOptions:
+    pool: Path
+    kind: str
+    kind_explicit: bool
+    update: bool
+    variable_overrides: tuple[tuple[str, str], ...] = ()
+
+
+def _parse_init_license_pool_options(
+    arguments: tuple[str, ...], cwd: Path
+) -> _InitLicensePoolOptions:
     path_value = "."
     kind = DEFAULT_LICENSE_KIND
+    kind_explicit = False
+    update = False
+    variable_overrides: list[tuple[str, str]] = []
     positional = False
     index = 0
     while index < len(arguments):
         argument = arguments[index]
-        if argument == "--kind":
+        if argument in {"--kind", "--eclab-kind"}:
             index += 1
             if index >= len(arguments):
-                raise LicensePoolError("--kind requires a value")
+                raise LicensePoolError(f"{argument} requires a value")
             kind = arguments[index]
-        elif argument.startswith("--kind="):
+            kind_explicit = True
+        elif argument.startswith(("--kind=", "--eclab-kind=")):
             kind = argument.partition("=")[2]
+            kind_explicit = True
+        elif argument == "--eclab-update":
+            update = True
+        elif argument == "--eclab-licence-pool-var":
+            index += 1
+            if index >= len(arguments):
+                raise LicensePoolError(f"{argument} requires NAME=VALUE")
+            variable_overrides.append(
+                _parse_metadata_variable_argument(arguments[index])
+            )
+        elif argument.startswith("--eclab-licence-pool-var="):
+            variable_overrides.append(
+                _parse_metadata_variable_argument(argument.partition("=")[2])
+            )
         elif not argument.startswith("-") and not positional:
             path_value = argument
             positional = True
@@ -982,7 +1137,321 @@ def _parse_init_license_pool(arguments: tuple[str, ...], cwd: Path) -> tuple[Pat
     pool = candidate.resolve()
     if not pool.is_dir():
         raise LicensePoolError("license pool path must be an existing directory")
-    return pool, kind
+    return _InitLicensePoolOptions(
+        pool, kind, kind_explicit, update, tuple(variable_overrides)
+    )
+
+
+def _parse_metadata_variable_argument(value: str) -> tuple[str, str]:
+    name, separator, variable_value = value.partition("=")
+    if not separator or not name:
+        raise LicensePoolError("--eclab-licence-pool-var requires NAME=VALUE")
+    return name, variable_value
+
+
+def _parse_init_license_pool(arguments: tuple[str, ...], cwd: Path) -> tuple[Path, str]:
+    """Compatibility wrapper for callers that need only path and kind."""
+    options = _parse_init_license_pool_options(arguments, cwd)
+    return options.pool, options.kind
+
+
+def _prompt_license_pool_kind() -> str:
+    try:
+        answer = input(
+            "Product / Containerlab node kind (for example fortinet_fortigate) "
+            f"[{DEFAULT_LICENSE_KIND}]: "
+        ).strip()
+    except EOFError as error:
+        raise LicensePoolMetadataError(
+            "init-license-pool cancelled before product selection"
+        ) from error
+    kind = answer or DEFAULT_LICENSE_KIND
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", kind) is None:
+        raise LicensePoolMetadataError(
+            "product kind must be a lowercase Containerlab kind token"
+        )
+    return kind
+
+
+def _collect_pool_metadata(
+    *,
+    pool: Path,
+    kind: str,
+    arguments: tuple[str, ...],
+    environment: Mapping[str, str],
+    cwd: Path,
+    metadata: PoolMetadata,
+    kind_explicit: bool,
+    update: bool,
+    interactive: bool,
+    variable_overrides: tuple[tuple[str, str], ...] = (),
+) -> dict[str, Mapping[str, Any]]:
+    contributions: dict[str, Mapping[str, Any]] = {}
+    contributors = discover_metadata_contributors()
+    declarations = {
+        contributor.contributor_id: metadata_variables_for(contributor)
+        for contributor in contributors
+    }
+    targets: dict[str, list[tuple[str, LicensePoolVariable]]] = {}
+    for contributor_id, variables in declarations.items():
+        for variable in variables:
+            target = (contributor_id, variable)
+            targets.setdefault(variable.name, []).append(target)
+            targets.setdefault(f"{contributor_id}.{variable.name}", []).append(target)
+
+    explicit_values: dict[tuple[str, str], Any] = {}
+    for selector_name, raw_value in variable_overrides:
+        matches = {
+            (contributor_id, variable.name): (contributor_id, variable)
+            for contributor_id, variable in targets.get(selector_name, ())
+        }
+        if not matches:
+            raise LicensePoolMetadataError(
+                f"unknown license-pool metadata variable {selector_name!r}"
+            )
+        if len(matches) > 1:
+            qualified = ", ".join(
+                sorted(
+                    f"{contributor_id}.{variable.name}"
+                    for contributor_id, variable in matches.values()
+                )
+            )
+            raise LicensePoolMetadataError(
+                f"license-pool variable {selector_name!r} is ambiguous; use one of: {qualified}"
+            )
+        target = next(iter(matches.values()))
+        key = (target[0], target[1].name)
+        if key in explicit_values:
+            raise LicensePoolMetadataError(
+                f"license-pool variable {selector_name!r} was supplied more than once"
+            )
+        explicit_values[key] = parse_license_pool_variable_value(target[1], raw_value)
+
+    for contributor in contributors:
+        contributor_id = contributor.contributor_id
+        existing = metadata.for_contributor(contributor_id)
+        own_variables = declarations[contributor_id]
+        cli_values = {
+            variable.name: explicit_values[(contributor_id, variable.name)]
+            for variable in own_variables
+            if (contributor_id, variable.name) in explicit_values
+        }
+        resolution_context = LicensePoolMetadataContext(
+            pool=pool,
+            kind=kind,
+            kind_explicit=kind_explicit,
+            arguments=arguments,
+            environment=MappingProxyType(dict(environment)),
+            cwd=cwd,
+            existing=existing,
+            legacy=MappingProxyType(dict(metadata.legacy)),
+            metadata_file_exists=metadata.exists,
+            update=update,
+            interactive=interactive,
+            variable_values=_readonly_variable_values(cli_values),
+        )
+        contributor_values = _resolve_contributor_variable_values(
+            contributor, own_variables, resolution_context
+        )
+        variable_values: dict[str, Any] = {}
+        for variable in own_variables:
+            current = existing.get(variable.name, NO_DEFAULT)
+            key = (contributor_id, variable.name)
+            if current is not NO_DEFAULT:
+                # Fail clearly when a declaration changes incompatibly with a
+                # value already stored in the shared manifest.
+                try:
+                    current = parse_license_pool_variable_value(
+                        variable,
+                        format_license_pool_variable_value(variable, current),
+                    )
+                except LicensePoolMetadataError:
+                    if key not in explicit_values and not update:
+                        raise
+                    current = NO_DEFAULT
+            if key in explicit_values:
+                value = explicit_values[key]
+            elif variable.name in contributor_values:
+                value = contributor_values[variable.name]
+            elif current is not NO_DEFAULT and not update:
+                value = current
+            elif interactive:
+                prompt_default = (
+                    current
+                    if update and current is not NO_DEFAULT
+                    else variable.default
+                )
+                value = _prompt_license_pool_variable(
+                    contributor_id, variable, prompt_default
+                )
+            elif variable.default is not NO_DEFAULT:
+                value = variable.default
+            elif variable.optional:
+                continue
+            else:
+                qualified = f"{contributor_id}.{variable.name}"
+                raise LicensePoolMetadataError(
+                    f"license-pool variable {qualified!r} needs a value; "
+                    "run init-license-pool interactively or supply "
+                    f"--eclab-licence-pool-var {qualified}=<value>"
+                )
+            if value is NO_DEFAULT:
+                continue
+            variable_values[variable.name] = value
+
+        context = LicensePoolMetadataContext(
+            pool=pool,
+            kind=kind,
+            kind_explicit=kind_explicit,
+            arguments=arguments,
+            environment=MappingProxyType(dict(environment)),
+            cwd=cwd,
+            existing=existing,
+            legacy=MappingProxyType(dict(metadata.legacy)),
+            metadata_file_exists=metadata.exists,
+            update=update,
+            interactive=interactive,
+            variable_values=_readonly_variable_values(variable_values),
+        )
+        contribution = validate_contribution(
+            contributor_id,
+            contributor.collect_metadata(context),
+        )
+        combined = dict(contribution or {})
+        combined.update(variable_values)
+        if combined:
+            validated = validate_contribution(contributor_id, combined)
+            if validated is not None:
+                contributions[contributor_id] = validated
+    return contributions
+
+
+def _readonly_variable_values(values: Mapping[str, Any]) -> Mapping[str, Any]:
+    return MappingProxyType(
+        {
+            name: tuple(value) if isinstance(value, list) else value
+            for name, value in values.items()
+        }
+    )
+
+
+def _resolve_contributor_variable_values(
+    contributor: LicensePoolMetadataContributor,
+    variables: tuple[LicensePoolVariable, ...],
+    context: LicensePoolMetadataContext,
+) -> Mapping[str, Any]:
+    resolver = getattr(contributor, "resolve_variable_values", None)
+    if resolver is None:
+        return MappingProxyType({})
+    if not callable(resolver):
+        raise LicensePoolMetadataError(
+            f"license-pool metadata contributor {contributor.contributor_id!r} "
+            "resolve_variable_values must be callable"
+        )
+    try:
+        supplied = resolver(context)
+    except LicensePoolMetadataError:
+        raise
+    except Exception as error:
+        raise LicensePoolMetadataError(
+            f"license-pool metadata contributor {contributor.contributor_id!r} "
+            "resolve_variable_values failed"
+        ) from error
+    if not isinstance(supplied, Mapping) or any(
+        not isinstance(name, str) for name in supplied
+    ):
+        raise LicensePoolMetadataError(
+            f"license-pool metadata contributor {contributor.contributor_id!r} "
+            "resolve_variable_values must return a string-keyed mapping"
+        )
+    declarations = {variable.name: variable for variable in variables}
+    unknown = set(supplied) - set(declarations)
+    if unknown:
+        raise LicensePoolMetadataError(
+            f"license-pool metadata contributor {contributor.contributor_id!r} "
+            f"resolved undeclared variables: {', '.join(sorted(unknown))}"
+        )
+    return MappingProxyType(
+        {
+            name: validate_license_pool_variable_value(declarations[name], value)
+            for name, value in supplied.items()
+        }
+    )
+
+
+def _prompt_license_pool_variable(
+    contributor_id: str,
+    variable: LicensePoolVariable,
+    default: Any,
+) -> Any:
+    qualified = f"{contributor_id}.{variable.name}"
+    description = f"{variable.description} [{qualified}]"
+    choices = (
+        f" Choices: {', '.join(variable.choices)}."
+        if variable.type
+        in {
+            LicensePoolVariableType.CHOICE,
+            LicensePoolVariableType.MULTI_CHOICE,
+        }
+        else ""
+    )
+    if variable.type is LicensePoolVariableType.STRING:
+        description += " Enter text."
+    elif variable.type is LicensePoolVariableType.STRING_LIST:
+        description += " Enter strings separated by ';'; use ';;' for a literal ';'."
+    elif variable.type is LicensePoolVariableType.CHOICE:
+        description += " Choose one value."
+    elif variable.type is LicensePoolVariableType.MULTI_CHOICE:
+        description += (
+            " Choose any values separated by ';'; use ';;' for a literal ';'."
+        )
+    elif variable.type is LicensePoolVariableType.BOOLEAN:
+        description += " Enter true or false."
+    elif variable.type is LicensePoolVariableType.INTEGER:
+        description += " Enter a whole number."
+    elif variable.type is LicensePoolVariableType.FLOAT:
+        description += " Enter a finite number."
+    default_text = (
+        f" [{format_license_pool_variable_value(variable, default)}]"
+        if default is not NO_DEFAULT
+        else ""
+    )
+    optional_text = (
+        " Leave blank to skip." if variable.optional and default is NO_DEFAULT else ""
+    )
+    prompt = f"{description}{choices}{optional_text}{default_text}: "
+    while True:
+        try:
+            answer = input(prompt)
+        except EOFError as error:
+            raise LicensePoolMetadataError(
+                f"no value supplied for license-pool variable {qualified!r}"
+            ) from error
+        if answer == "":
+            if default is not NO_DEFAULT:
+                answer = format_license_pool_variable_value(variable, default)
+            elif variable.optional:
+                return NO_DEFAULT
+        try:
+            return parse_license_pool_variable_value(variable, answer)
+        except LicensePoolMetadataError as error:
+            prompt = (
+                f"Invalid value for {qualified}: {error}. "
+                f"{description}{choices}{optional_text}{default_text}: "
+            )
+
+
+def _write_pool_metadata(pool: Path, metadata: PoolMetadata) -> None:
+    target = pool / ".lic-pool"
+    body = json.dumps(metadata.to_document(), indent=2, sort_keys=True) + "\n"
+    descriptor, temporary = tempfile.mkstemp(dir=pool, prefix=".lic-pool.")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 def _register_pool(state: Any, pool: Path, kind: str) -> bool:

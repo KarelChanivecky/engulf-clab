@@ -29,15 +29,28 @@ through the shared topology editor.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.
-- `init-license-pool [PATH] [--kind KIND]` canonicalizes an existing directory
-  into ordered user-state registration. One path has one effective kind;
-  re-registering it updates that kind without changing its position. Runtime
-  discovery removes registrations whose directories disappeared. Parse only
-  the first positional path and the plugin-owned `--kind`; tolerate all
-  unclaimed arguments so independently installed plugins can extend the command.
-  Registration records its exit status in invocation context and returns `None`
-  from `before_goal`; `analyze_call()` preempts Containerlab only after all
-  plugins have analyzed the command.
+- `init-license-pool [PATH] [--eclab-kind KIND] [--eclab-update]` canonicalizes
+  an existing directory into ordered user-state registration. Interactive
+  calls ask for a kind unless supplied; noninteractive calls retain the
+  `fortinet_fortigate` default. Discover metadata contributors through the
+  license-pool API, call them before taking the registry lease, then re-read,
+  merge, and atomically publish their deltas under that lease before
+  registration. Each contributor reuses existing declared variables unless
+  update mode is requested; the collector resolves declarations in this order:
+  explicit `--eclab-licence-pool-var`, contributor `resolve_variable_values`,
+  existing value on ordinary init, interactive answer, then declared default.
+  Pass only declared variable names and typed values from the contributor
+  resolver. Optional variables without a default can be omitted interactively
+  or noninteractively; other missing noninteractive values require an explicit
+  value or default. Preserve unclaimed extension arguments.
+  Keep `--kind` as a legacy alias and tolerate
+  unclaimed extension arguments. Publish the registration result in invocation
+  context so edition policy plugins can act after shared registration.
+  Registration records its exit status and returns `None` from `before_goal`;
+  `analyze_call()` preempts Containerlab only after all plugins have analyzed
+  the command. Keep this plugin's `before_goal` priority above any edition
+  adapter that reads the registration result in that phase; package lifecycle
+  dependency edges do not order `before_goal` callbacks.
 - Automatic requests are either the explicit `ECLAB_AUTO_LICENSE` marker or an
   unresolved license `$VARIABLE` without effective
   `ECLAB_DISABLE_AUTO_LICENSE=true`. Match only registrations for the node's

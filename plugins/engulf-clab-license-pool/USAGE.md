@@ -12,19 +12,55 @@ Install with `python -m pip install engulf-clab-license-pool`, or through
 Register an existing pool directory for one Containerlab node kind:
 
 ```bash
-eclab init-license-pool [PATH] [--kind KIND]
+eclab init-license-pool [PATH] [--eclab-kind KIND] [--eclab-update] \
+  [--eclab-licence-pool-var NAME=VALUE ...]
 ```
 
-`PATH` defaults to the invocation directory and `KIND` defaults to
-`fortinet_fortigate`. The command stores the canonical directory and kind in
-ordered user state; it does not copy, inspect, or log license contents.
+`PATH` defaults to the invocation directory. On an interactive terminal, the
+command asks for the product's Containerlab node kind unless
+`--eclab-kind KIND` is supplied. `--kind KIND` remains as a legacy alias. In a
+noninteractive invocation, an omitted kind keeps the historical
+`fortinet_fortigate` default. The command stores the canonical directory and
+kind in ordered user state; it does not copy, inspect, or log license contents.
 Re-registering the same path updates its kind in place. There may be multiple
 pools for a kind. An active claim remains stable; a new claim scans matching
 pools in registration order and uses the first one with an available license.
-The plugin consumes the first positional argument as `PATH` and its own
-`--kind` option. It ignores additional options and positional arguments so
-other plugins can extend the command without this plugin rejecting their
-inputs. A missing or invalid value for the plugin-owned `--kind` still fails.
+The collector discovers installed metadata contributors before registration.
+Their fields are stored in separate namespaces in the pool's `.lic-pool` file,
+and the collector writes contributions atomically before registering the path.
+Contributors can declare typed variables in the license-pool API; the collector
+prompts for missing values and reuses recorded ones on ordinary init.
+Contributors may implement `resolve_variable_values(context)` to return typed
+values from their own explicit flags or environment. Generic
+`--eclab-licence-pool-var` values take precedence over resolver values, which
+take precedence over stored values and prompts.
+`--eclab-update` prompts for existing values again. The repeated
+`--eclab-licence-pool-var NAME=VALUE` flag supplies or updates a declared value
+directly without update mode. A declared default appears in interactive
+prompts and is used automatically in noninteractive calls. A required missing
+noninteractive value without a default must be provided with the flag. A
+missing optional variable may be left blank or omitted when it has no default.
+On update, an existing value is shown as the prompt default and Enter keeps it.
+Old flat `.lic-pool` files remain readable and are preserved when a contributor
+adds namespaced data.
+
+The API supports `string`, `string-list`, `choice`, `multi-choice`, `boolean`,
+`integer`, and `float` variables. Choice declarations include their allowed
+values. String-list and multi-choice values split on `;`; `;;` represents a
+literal semicolon. Booleans accept `true` / `false`, `yes` / `no`, `y` / `n`,
+and `1` / `0`. A variable name may be unqualified when unique, or
+`contributor_id.variable` when multiple contributors use the same name.
+Declarations set `optional=True` to allow omission; when a default is also
+declared, the default is used if no value is supplied.
+Metadata contributors must not store secrets, license contents, or license
+paths. The separately published `engulf-clab-license-pool-api` package
+documents the extension contract.
+
+The plugin consumes the first positional argument as `PATH`, its own
+`--eclab-kind` / `--kind` options, and repeated `--eclab-licence-pool-var`
+values. It ignores other options and positional arguments so other plugins can
+extend the command without this plugin rejecting their inputs. A missing or
+invalid value for a plugin-owned option still fails.
 Containerlab itself is preempted only after every active plugin's `before_goal`
 and `analyze_call` callbacks have received the command, allowing other plugins
 to extend it. Wrapper preemption skips `prepare_call` because no external call
@@ -88,7 +124,8 @@ eclab deploy -t lab.clab.yml \
 
 | Input | Meaning |
 | --- | --- |
-| `eclab init-license-pool [PATH] [--kind KIND]` | Register or update an ordered automatic pool. |
+| `eclab init-license-pool [PATH] [--eclab-kind KIND] [--eclab-update]` | Register or update an ordered automatic pool and collect contributed metadata. |
+| `--eclab-licence-pool-var NAME=VALUE` | Set a declared metadata variable; repeat for more values. |
 | `license: ECLAB_AUTO_LICENSE` | Allocate from the first registered matching-kind pool with capacity. |
 | `license: $POOL_NAME` | Allocate from the directory named by that invocation variable. |
 | `license: <directory>` | Allocate from that directory, however the path was written. |
