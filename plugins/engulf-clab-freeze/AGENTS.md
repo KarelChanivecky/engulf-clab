@@ -22,6 +22,8 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   well. Running either package automatically executes `defrost.sh`; keep
   runtime artifacts out of the inner lab archive. The script builds the venv
   from the wheelhouse when needed and runs normal defrost.
+  The generated self-extractor accepts a leading positional output directory
+  and `--eclab-output DIRECTORY` before forwarding defrost options.
   Defrost attaches the runtime before publication, then runs the regular env
   initializer and license resolution. `--eclab-no-runtime` skips attaching the
   venv so the lab launcher builds it later.

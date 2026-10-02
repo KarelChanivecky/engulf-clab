@@ -67,9 +67,11 @@ build its included venv the first time. For example:
 ./demo-runtime/run-eclab.sh
 ```
 
-Use `--eclab-output DIRECTORY` immediately after the package name to choose a
-different lab output directory. Additional defrost options can follow, for
-example `./demo-runtime.run --eclab-output restored --eclab-license router=/pool`.
+Pass an output directory as the first argument to choose a different lab
+location, for example `./demo-runtime.run restored`. The named form
+`--eclab-output DIRECTORY` is also supported immediately after the package
+name, before any other defrost options. For example:
+`./demo-runtime.run --eclab-output restored --eclab-license router=/pool`.
 
 The `--eclab-with-runtime` package contains `runtime/` (the dependency lock,
 wheelhouse, Python version list, and pinned tools), `lab.tgz` (the frozen lab

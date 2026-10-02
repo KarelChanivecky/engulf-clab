@@ -28,10 +28,17 @@ Build work may parallelize across builder directories, but work sharing a
 directory remains serial. Acquire all image and builder leases in the callback
 thread before starting workers. Keep managed state reads and writes serialized,
 and restore temporary builder and Docker context artifacts on every exit path.
+Before deleting a previous image's backup tag, check for running containers
+based on it. If any are found, preserve the new tag, retain the backup, and warn
+with the backup reference and container names. If cleanup still fails, preserve
+the new tag and include Docker's error detail in a warning. Cleanup failure
+alone must not turn a successful image build into a rollback.
 After successful source-backed builds, publish a
 `VrnetlabSourceProvenanceSnapshot` with one record per selected node, source
 provider, and input fingerprint. Keep local paths out of this snapshot. The
 vrnetlab builder owns hydration and persistence of this registry; the Docker
 image-build adapter persists only Docker image provider resolution. Publish the
 vrnetlab snapshot with its API helper so it remains optional when no consumer is
-installed.
+installed. Log the resolved source path, requested image, source-provider ID,
+and `VRNETLAB_PROVIDER_ID` during preparation through the callback-bound logger;
+do not persist the local path.

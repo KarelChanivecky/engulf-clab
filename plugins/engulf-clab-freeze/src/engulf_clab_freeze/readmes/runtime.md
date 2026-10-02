@@ -28,6 +28,9 @@ cd demo-runtime
 ./$launcher                       # deploys $topology
 ```
 
+Pass an output directory as the `.run` command's first argument to extract
+elsewhere, for example `./demo-runtime.run restored`.
+
 The bundle does not need an installed eclab. It needs a Python version listed
 in `runtime/python-versions.freeze.txt` to build the venv. Defrost warns about
 missing host dependencies without blocking. Its actionable notes and dependency

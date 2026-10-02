@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import time
 import unittest
 from collections.abc import Iterator
@@ -12,7 +13,11 @@ from unittest.mock import MagicMock, Mock, call, patch
 from engulf_clab_vrnetlab_build_api import VrnetlabSourceProvenanceSnapshot
 
 from engulf_clab_vrnetlab_build.errors import VrnetlabError
-from engulf_clab_vrnetlab_build.images import build_native_image, ensure_images
+from engulf_clab_vrnetlab_build.images import (
+    _running_containers_using_image,
+    build_native_image,
+    ensure_images,
+)
 from engulf_clab_vrnetlab_build.requests import BuildRequest
 from engulf_clab_vrnetlab_build.state import BuildFingerprint, save_state
 
@@ -68,9 +73,7 @@ class EnsureImagesTest(unittest.TestCase):
                 (builder / "Makefile").touch()
                 source = root / f"{node}.qcow2"
                 source.write_bytes(node.encode())
-                requests.append(
-                    BuildRequest(node, f"vrnetlab/{node}:1", builder_type, source)
-                )
+                requests.append(BuildRequest(node, f"vrnetlab/{node}:1", builder_type, source))
 
             ensure_images(
                 requests,
@@ -128,9 +131,7 @@ class EnsureImagesTest(unittest.TestCase):
             for node in ("r1", "r2"):
                 source = root / f"{node}.qcow2"
                 source.write_bytes(node.encode())
-                requests.append(
-                    BuildRequest(node, f"vrnetlab/{node}:1", "vendor/router", source)
-                )
+                requests.append(BuildRequest(node, f"vrnetlab/{node}:1", "vendor/router", source))
 
             ensure_images(
                 requests,
@@ -267,6 +268,153 @@ class EnsureImagesTest(unittest.TestCase):
 
 
 class NativeBuildTest(unittest.TestCase):
+    @patch("engulf_clab_vrnetlab_build.images.subprocess.run")
+    def test_running_container_detection_uses_image_ancestor_filter(self, run: Mock) -> None:
+        run.return_value = subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout="fgt-lab (0123456789ab)\n",
+            stderr="",
+        )
+
+        containers = _running_containers_using_image("backup:tag")
+
+        self.assertEqual(containers, ("fgt-lab (0123456789ab)",))
+        run.assert_called_once_with(
+            [
+                "docker",
+                "container",
+                "ls",
+                "--filter",
+                "ancestor=backup:tag",
+                "--format",
+                "{{.Names}} ({{.ID}})",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    @patch("engulf_clab_vrnetlab_build.images.warning")
+    @patch(
+        "engulf_clab_vrnetlab_build.images._running_containers_using_image",
+        return_value=("fgt-lab (0123456789ab)",),
+    )
+    @patch("engulf_clab_vrnetlab_build.images._remove_image_tag")
+    @patch("engulf_clab_vrnetlab_build.images._restore_target_image")
+    @patch(
+        "engulf_clab_vrnetlab_build.images._native_image_tag_from_make",
+        return_value="vrnetlab/vr-fortios:fortios",
+    )
+    @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value="backup:tag")
+    @patch(
+        "engulf_clab_vrnetlab_build.images.docker_image_exists",
+        side_effect=(False, True),
+    )
+    @patch("engulf_clab_vrnetlab_build.images._run")
+    def test_running_container_keeps_old_tag_and_warns_without_rollback(
+        self,
+        run: Mock,
+        image_exists: Mock,
+        protect: Mock,
+        native_tag: Mock,
+        restore: Mock,
+        remove: Mock,
+        running: Mock,
+        warn: Mock,
+    ) -> None:
+        del image_exists, protect, native_tag
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            builder = root / "fortinet" / "fortigate"
+            builder.mkdir(parents=True)
+            source = root / "fortios.qcow2"
+            source.write_bytes(b"source")
+
+            build_native_image(source, builder, "vrnetlab/example.fgt:8.0")
+
+        running.assert_called_once_with("backup:tag")
+        remove.assert_not_called()
+        restore.assert_not_called()
+        self.assertEqual(
+            run.call_args_list,
+            [
+                call(["make"], cwd=builder),
+                call(
+                    [
+                        "docker",
+                        "tag",
+                        "vrnetlab/vr-fortios:fortios",
+                        "vrnetlab/example.fgt:8.0",
+                    ]
+                ),
+            ],
+        )
+        self.assertIn("fgt-lab", warn.call_args.args[0])
+        self.assertIn("backup:tag", warn.call_args.args[0])
+
+    @patch("engulf_clab_vrnetlab_build.images.warning")
+    @patch(
+        "engulf_clab_vrnetlab_build.images._running_containers_using_image",
+        return_value=(),
+    )
+    @patch(
+        "engulf_clab_vrnetlab_build.images._remove_image_tag",
+        side_effect=subprocess.CalledProcessError(
+            1, ["docker", "image", "rm", "backup:tag"], stderr="image is in use"
+        ),
+    )
+    @patch("engulf_clab_vrnetlab_build.images._restore_target_image")
+    @patch(
+        "engulf_clab_vrnetlab_build.images._native_image_tag_from_make",
+        return_value="vrnetlab/vr-fortios:fortios",
+    )
+    @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value="backup:tag")
+    @patch(
+        "engulf_clab_vrnetlab_build.images.docker_image_exists",
+        side_effect=(False, True),
+    )
+    @patch("engulf_clab_vrnetlab_build.images._run")
+    def test_backup_removal_failure_warns_and_keeps_new_image(
+        self,
+        run: Mock,
+        image_exists: Mock,
+        protect: Mock,
+        native_tag: Mock,
+        restore: Mock,
+        remove: Mock,
+        running: Mock,
+        warn: Mock,
+    ) -> None:
+        del image_exists, protect, native_tag
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            builder = root / "fortinet" / "fortigate"
+            builder.mkdir(parents=True)
+            source = root / "fortios.qcow2"
+            source.write_bytes(b"source")
+
+            build_native_image(source, builder, "vrnetlab/example.fgt:8.0")
+
+        running.assert_called_once_with("backup:tag")
+        remove.assert_called_once_with("backup:tag", check=True)
+        restore.assert_not_called()
+        self.assertIn("image is in use", warn.call_args.args[0])
+        self.assertEqual(
+            run.call_args_list,
+            [
+                call(["make"], cwd=builder),
+                call(
+                    [
+                        "docker",
+                        "tag",
+                        "vrnetlab/vr-fortios:fortios",
+                        "vrnetlab/example.fgt:8.0",
+                    ]
+                ),
+            ],
+        )
+
     @patch("engulf_clab_vrnetlab_build.images._protect_target_image", return_value=None)
     @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=True)
     @patch("engulf_clab_vrnetlab_build.images._run")

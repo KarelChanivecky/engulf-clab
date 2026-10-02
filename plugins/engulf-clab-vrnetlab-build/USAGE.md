@@ -20,6 +20,15 @@ work that targets one builder directory, protects existing requested Docker
 tags, restores builder qcow2 files, and fingerprints successful output in
 user-scoped Engulf state.
 
+When replacing an image tag, the builder checks whether running containers use
+the previous image before removing its temporary backup tag. If any do, it
+keeps the successfully built image under the requested tag, retains the old
+image under the printed backup tag, and warns with the container names. If
+Docker refuses backup cleanup for another reason, the builder also retains the
+backup and includes Docker's error detail in the warning. Stop or destroy any
+dependent containers before removing the backup with the suggested
+`docker image rm` command.
+
 Choose a lab-unique requested image tag. Docker tags are host-global and a
 shared mutable tag couples otherwise independent labs. Destroy does not remove
 built images or build fingerprints.
@@ -30,5 +39,9 @@ publish their paths and plugin IDs through the same API. The builder publishes
 per-node source-provider IDs, builder types, and qcow2 SHA-256 values in
 `VRNETLAB_SOURCE_PROVENANCE_CONTEXT`; it persists no source paths. The Docker
 image-build adapter separately records which Docker provider resolved each
-image. Dynamic `eclab --help` and the plugin list show which providers are
-installed for the selected edition.
+image. During preparation, an informational log records each source-backed
+node's requested Docker image, resolved source path, source-provider ID, and
+the Docker image provider ID (`org.engulf.docker.vrnetlab-build`). Nodes using
+an already-installed image without a source are logged as having no vrnetlab
+image provider selected. Dynamic `eclab --help` and the plugin list show which
+providers are installed for the selected edition.

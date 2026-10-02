@@ -18,7 +18,8 @@ from engulf_clab_vrnetlab_build_api import (
 )
 
 from .errors import VrnetlabError
-from .logging import info
+from .logging import info, warning
+from .provider import VRNETLAB_PROVIDER_ID
 from .requests import BuildRequest
 from .sources import file_sha256, prepared_qcow2
 from .state import BuildFingerprint, load_state, save_state
@@ -86,8 +87,11 @@ def _native_image_tag_from_make(builder: Path) -> str | None:
     for line in reversed(result.stdout.splitlines()):
         candidate = line.strip()
         repository, separator, tag = candidate.rpartition(":")
-        if separator and repository and tag and not any(
-            character.isspace() for character in candidate
+        if (
+            separator
+            and repository
+            and tag
+            and not any(character.isspace() for character in candidate)
         ):
             return candidate
     return None
@@ -97,9 +101,33 @@ def _remove_image_tag(image: str, *, check: bool) -> None:
     subprocess.run(
         ["docker", "image", "rm", image],
         check=check,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
     )
+
+
+def _running_containers_using_image(image: str) -> tuple[str, ...] | None:
+    """Best-effort list of running containers based on an image reference."""
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "container",
+                "ls",
+                "--filter",
+                f"ancestor={image}",
+                "--format",
+                "{{.Names}} ({{.ID}})",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode:
+        return None
+    return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
 
 
 def _protect_target_image(image: str) -> str | None:
@@ -204,8 +232,7 @@ def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
                     native_image = _native_image_tag_from_make(builder)
                     if native_image is None or not docker_image_exists(native_image):
                         raise VrnetlabError(
-                            "vrnetlab builder completed without creating required image "
-                            f"{image}"
+                            f"vrnetlab builder completed without creating required image {image}"
                         )
                     info(f"tagging native vrnetlab image {native_image} as {image}")
                     _run(["docker", "tag", native_image, image])
@@ -223,7 +250,37 @@ def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
                 raise
 
             if target_backup is not None:
-                _remove_image_tag(target_backup, check=True)
+                containers = _running_containers_using_image(target_backup)
+                if containers:
+                    warning(
+                        f"built {image} successfully; kept the previous image as "
+                        f"{target_backup} because running container(s) still use it: "
+                        f"{', '.join(containers)}. Stop or destroy those containers, "
+                        f"then remove the backup with 'docker image rm {target_backup}'."
+                    )
+                else:
+                    try:
+                        _remove_image_tag(target_backup, check=True)
+                    except subprocess.CalledProcessError as error:
+                        docker_detail = (
+                            error.stderr.strip()
+                            if isinstance(error.stderr, str) and error.stderr.strip()
+                            else None
+                        )
+                        if containers is None:
+                            reason = "Docker could not confirm whether containers still use it"
+                        else:
+                            reason = "Docker refused to remove the previous image tag"
+                        if docker_detail:
+                            reason += f": {docker_detail}"
+                        warning(
+                            f"built {image} successfully, but retained the previous "
+                            f"image as {target_backup}: {reason}. After the old image "
+                            f"is no longer needed, remove it with 'docker image rm "
+                            f"{target_backup}' (cleanup exited {error.returncode})."
+                        )
+                # The new requested tag is already in place. Backup cleanup must
+                # not roll that successful build back.
                 target_backup = None
         except (OSError, subprocess.SubprocessError, VrnetlabError) as error:
             operation_error = error
@@ -330,7 +387,10 @@ def ensure_images(
                 raise VrnetlabError(
                     f"image {image} is absent and no vrnetlab provider source resolved"
                 )
-            info(f"using existing image {image}; no source configured")
+            info(
+                f"using existing image {image}; no source configured and no "
+                "vrnetlab image provider selected"
+            )
 
     if not source_requests:
         return VrnetlabSourceProvenanceSnapshot()
@@ -367,6 +427,14 @@ def ensure_images(
                     )
                 continue
             prepared_by_image[request.image] = prepared
+
+        for request in source_requests:
+            info(
+                f"vrnetlab image selection for node {request.node_name}: "
+                f"{request.image} from {request.source} "
+                f"(source provider {request.source_provider_id or 'unspecified'}; "
+                f"image provider {VRNETLAB_PROVIDER_ID})"
+            )
 
         lease_names = tuple(
             sorted(

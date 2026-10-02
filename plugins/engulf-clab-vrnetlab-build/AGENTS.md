@@ -16,9 +16,17 @@ topology session.
   `ECLAB_VRNETLAB_TYPE`; exact-node source paths may use distinct types.
 - Preserve safe qcow2 staging, tag restoration, state fingerprinting, leases,
   per-builder serialization, and invocation-map cleanup.
+- Before removing an old image's temporary backup tag, check for running
+  containers based on it. If any exist, preserve the new requested tag, retain
+  the backup, and warn with its name and the containers. If cleanup still fails,
+  preserve the new tag and include Docker's error detail in a warning. Do not
+  roll back a successful build only because backup cleanup is blocked.
 - Carry source-provider IDs and staged qcow2 fingerprints into the separate
   `VRNETLAB_SOURCE_PROVENANCE_CONTEXT`, keyed by topology node; never put source
   attribution into Docker image provider provenance.
+- Log each source-backed node's requested image, resolved source path, source
+  provider ID, and Docker image provider ID through callback-bound logging;
+  never persist the local path.
 - Hydrate this registry on every call and persist successful deploy/redeploy
   snapshots in workspace state without local source paths. Publish through the
   API helper so the context remains optional when no consumer is installed.

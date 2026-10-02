@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import stat
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
@@ -15,6 +16,7 @@ from engulf_api import (
     InvocationAPI,
     PluginLogger,
     StateScope,
+    StateStore,
 )
 from engulf_clab_lab_parser import (
     TOPOLOGY_CONTEXT,
@@ -65,7 +67,13 @@ from .allocation import (
     topology_request,
 )
 from .errors import HostCheckError, ProbeUnavailableError
-from .host import HostInventory, inspect_host, probe_candidate
+from .host import (
+    HostInventory,
+    ObservedNetwork,
+    inspect_host,
+    probe_candidate,
+    remove_empty_containerlab_network,
+)
 from .registry import (
     RESERVED_STATUSES,
     Allocation,
@@ -76,6 +84,7 @@ from .registry import (
     record_pending,
     release_all,
     release_lab,
+    release_orphaned_allocations,
     rollback_attempt,
 )
 
@@ -256,7 +265,6 @@ class StickyIPPlugin(SchemaBackedPlugin):
             disabled, _family = _mode(event.wrapper_args, event.environment)
             if disabled:
                 return None
-            parse_config(event.environment)
             if command == "redeploy" and _has_flag(event.wrapper_args[1:], "-a", "--all"):
                 raise StickyIPError(
                     "sticky IP requires one source topology for redeploy; run each lab separately "
@@ -298,27 +306,33 @@ class StickyIPPlugin(SchemaBackedPlugin):
         disabled, family = _mode(event.wrapper_args, event.environment)
         if disabled:
             return
-        config = parse_config(event.environment)
-        session = api.require_context(TOPOLOGY_CONTEXT)
-        if not isinstance(session, TopologySession):
-            raise StickyIPError("invalid shared topology session")
-        document = session.materialize()
-        request = topology_request(document, family)
-        if not request.nodes:
-            return
-        workspace = api.state(StateScope.WORKSPACE).root.resolve()
-        key = lab_key(workspace, request.name)
-        _validate_name_override(event.wrapper_args[1:], request.name)
-        destructive = command == "redeploy" or _has_flag(
-            event.wrapper_args[1:], "-c", "--reconfigure"
-        )
-        keep_network = _has_flag(event.wrapper_args[1:], "--keep-mgmt-net")
         attempt: Attempt | None = None
         user_state = api.state(StateScope.USER)
         with api.lease(_LEASE):
             try:
                 registry = read_locked(user_state)
                 inventory = inspect_host()
+                registry, inventory = _cleanup_orphaned_claims(
+                    user_state,
+                    registry,
+                    inventory,
+                    logger=api.logger,
+                )
+                config = parse_config(event.environment)
+                session = api.require_context(TOPOLOGY_CONTEXT)
+                if not isinstance(session, TopologySession):
+                    raise StickyIPError("invalid shared topology session")
+                document = session.materialize()
+                request = topology_request(document, family)
+                if not request.nodes:
+                    return
+                workspace = api.state(StateScope.WORKSPACE).root.resolve()
+                key = lab_key(workspace, request.name)
+                _validate_name_override(event.wrapper_args[1:], request.name)
+                destructive = command == "redeploy" or _has_flag(
+                    event.wrapper_args[1:], "-c", "--reconfigure"
+                )
+                keep_network = _has_flag(event.wrapper_args[1:], "--keep-mgmt-net")
                 plan = _allocation_plan(
                     registry,
                     config,
@@ -808,15 +822,155 @@ def _validate_state_conflicts(registry: Registry, key: str, candidate: Network) 
 
 
 def _validate_network_claim(registry: Registry, key: str, network_name: str) -> None:
+    claims = tuple(
+        item
+        for item in registry.allocations
+        if item.lab_key != key
+        and item.network_name == network_name
+        and item.status in RESERVED_STATUSES
+    )
+    if claims:
+        owners = "; ".join(
+            f"{item.lab_name!r} (workspace={item.workspace!r}, status={item.status}, "
+            f"subnet={item.subnet})"
+            for item in claims
+        )
+        raise StickyIPError(
+            f"management network {network_name!r} is reserved by another lab identity: {owners}"
+        )
+
+
+def _cleanup_orphaned_claims(
+    state: StateStore,
+    registry: Registry,
+    inventory: HostInventory,
+    *,
+    logger: PluginLogger,
+) -> tuple[Registry, HostInventory]:
+    """Release claims for removed workspaces only when Docker confirms no lab remains."""
+    pending_keys = {
+        item.lab_key for item in registry.allocations if item.status == "pending"
+    }
+    groups: dict[str, list[Allocation]] = {}
     for item in registry.allocations:
-        if (
-            item.lab_key != key
-            and item.network_name == network_name
-            and item.status in RESERVED_STATUSES
-        ):
-            raise StickyIPError(
-                f"management network {network_name!r} is reserved by active lab {item.lab_name!r}"
+        if item.status in {"active", "uncertain"}:
+            groups.setdefault(item.lab_key, []).append(item)
+
+    allocation_ids: set[str] = set()
+    networks_to_remove: dict[str, ObservedNetwork] = {}
+    cleaned: list[tuple[str, str, tuple[ObservedNetwork, ...]]] = []
+    for key, claims in groups.items():
+        if key in pending_keys:
+            continue
+        workspaces = {item.workspace for item in claims}
+        lab_names = {item.lab_name for item in claims}
+        if len(workspaces) != 1 or len(lab_names) != 1:
+            logger.warning(
+                "Keeping sticky IP claims for identity %s because its records disagree "
+                "on workspace or lab name",
+                key,
             )
+            continue
+        workspace_text = next(iter(workspaces))
+        workspace = Path(workspace_text)
+        if not _workspace_missing(workspace, logger):
+            continue
+        lab_name = next(iter(lab_names))
+        if inventory.has_lab_containers(lab_name, workspace):
+            logger.warning(
+                "Keeping sticky IP claim for lab %r in missing workspace %r because "
+                "Docker still has Containerlab containers with matching or unknown ownership",
+                lab_name,
+                workspace_text,
+            )
+            continue
+
+        claim_ids = {item.allocation_id for item in claims}
+        network_names = {item.network_name for item in claims}
+        candidate_networks: dict[str, ObservedNetwork] = {}
+        blocker: str | None = None
+        for network_name in network_names:
+            if any(
+                item.lab_key != key
+                and item.network_name == network_name
+                and item.status in RESERVED_STATUSES
+                for item in registry.allocations
+            ):
+                blocker = f"network {network_name!r} is also claimed by another lab"
+                break
+            matches = [item for item in inventory.networks if item.name == network_name]
+            if not matches:
+                continue
+            if len(matches) != 1:
+                blocker = f"Docker reports multiple networks named {network_name!r}"
+                break
+            network = matches[0]
+            expected_subnets = {
+                ipaddress.ip_network(item.subnet, strict=True)
+                for item in claims
+                if item.network_name == network_name
+            }
+            if "containerlab" not in network.labels:
+                blocker = (
+                    f"Docker network {network_name!r} is not labelled as a "
+                    "Containerlab network"
+                )
+                break
+            if network.attached_containers or network.endpoints:
+                blocker = f"Docker network {network_name!r} still has attached containers"
+                break
+            if not expected_subnets.issubset(set(network.subnets)):
+                blocker = f"Docker network {network_name!r} no longer matches its recorded subnet"
+                break
+            candidate_networks[network.network_id] = network
+
+        if blocker is not None:
+            logger.warning(
+                "Keeping sticky IP claim for lab %r in missing workspace %r: %s",
+                lab_name,
+                workspace_text,
+                blocker,
+            )
+            continue
+        allocation_ids.update(claim_ids)
+        networks_to_remove.update(candidate_networks)
+        removed = tuple(
+            sorted(candidate_networks.values(), key=lambda item: item.name)
+        )
+        cleaned.append((lab_name, workspace_text, removed))
+
+    if not allocation_ids:
+        return registry, inventory
+
+    for network in networks_to_remove.values():
+        remove_empty_containerlab_network(network)
+    registry = release_orphaned_allocations(state, registry, allocation_ids)
+    for lab_name, workspace, removed_networks in cleaned:
+        logger.info(
+            "Released stale sticky IP claims for lab %r in missing workspace %r; "
+            "removed empty networks: %s",
+            lab_name,
+            workspace,
+            ", ".join(network.name for network in removed_networks) or "none",
+        )
+    if networks_to_remove:
+        inventory = inspect_host()
+    return registry, inventory
+
+
+def _workspace_missing(workspace: Path, logger: PluginLogger) -> bool:
+    try:
+        mode = workspace.stat().st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError as error:
+        logger.warning(
+            "Could not check sticky IP owner workspace %r; preserving its claim: %s",
+            str(workspace),
+            error,
+        )
+        return False
+    return not stat.S_ISDIR(mode)
 
 
 def _allowed_managed_subnet(subnet: Network, config: Config, family: Family) -> bool:

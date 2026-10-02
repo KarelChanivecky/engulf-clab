@@ -14,9 +14,9 @@ pool directory and initialize it through the edition's `init-license-pool`
 command. The pool starts empty, so add entitled license files before using
 automatic allocation. Afterward, defrost points to the restored lab's
 `FREEZE-README.md` for run instructions. The restored lab is written to
-`./<package-name>`; pass
-`--eclab-output DIRECTORY` after the package name to choose another output
-directory.
+`./<package-name>`; pass an output directory as the first argument, such as
+`./package.run restored`, or use `--eclab-output DIRECTORY` after the package
+name to choose another output directory.
 Defrost attaches the runtime to the restored lab. `--eclab-offline` also writes
 a self-extracting `.run` package with the active Python environment and required
 images, and running it automatically defrosts the lab too.

@@ -26,7 +26,9 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   archive. Offline packages are self-extracting `.run` files too. Running the
   package extracts to a temporary directory and invokes `defrost.sh`, which
   builds the bundled venv from its wheelhouse when needed and runs normal
-  defrost. The defrost path owns `initialize-env.sh`, license prompts, runtime attachment,
+  defrost. The self-extractor accepts a leading positional output directory and
+  the `--eclab-output` spelling before forwarding defrost options. The defrost
+  path owns `initialize-env.sh`, license prompts, runtime attachment,
   and the non-blocking dependency report. The restored launcher blocks only
   operations whose declared host tools or libraries are missing.
 - Keep license-pool discovery on the public `engulf-clab-license-pool-lib`

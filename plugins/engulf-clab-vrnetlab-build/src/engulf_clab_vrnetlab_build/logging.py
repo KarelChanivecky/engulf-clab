@@ -24,3 +24,8 @@ def use_logger(logger: PluginLogger) -> Iterator[None]:
 def info(message: str) -> None:
     if logger := _logger.get():
         logger.info(message)
+
+
+def warning(message: str) -> None:
+    if logger := _logger.get():
+        logger.warning(message)

@@ -620,6 +620,9 @@ For a runtime bundle, run the self-extracting package to defrost the lab:
 ./demo-runtime/run-eclab.sh        # deploys the restored lab
 ```
 
+Pass an alternate output directory as the `.run` command's first argument,
+such as `./demo-runtime.run restored`.
+
 The package builds the edition venv from its local wheelhouse, then uses normal
 defrost to initialize environment values, prompt for licenses, and expand
 `lab.tgz`. The defrosted lab contains its runtime and a repeatable

@@ -5,7 +5,7 @@ import json
 import subprocess
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,8 @@ class ObservedNetwork:
     gateways: tuple[Address, ...]
     endpoints: dict[Address, Owner | None]
     bridge: str | None
+    labels: dict[str, str] = field(default_factory=dict)
+    attached_containers: tuple[str, ...] = ()
 
     def belongs_to(self, name: str, workspace: Path, owned_names: set[str]) -> bool:
         if self.name not in owned_names and not self.endpoints:
@@ -51,6 +53,21 @@ class ObservedRoute:
 class HostInventory:
     networks: tuple[ObservedNetwork, ...]
     routes: tuple[ObservedRoute, ...]
+    containerlab_owners: tuple[Owner | None, ...] = ()
+
+    def has_lab_containers(self, name: str, workspace: Path) -> bool:
+        resolved_workspace = workspace.resolve()
+        return any(
+            owner is None
+            or (
+                owner.lab_name == name
+                and (
+                    owner.topology_directory is None
+                    or owner.topology_directory == resolved_workspace
+                )
+            )
+            for owner in self.containerlab_owners
+        )
 
     def blocked_networks(
         self,
@@ -140,17 +157,29 @@ def inspect_host() -> HostInventory:
         if not isinstance(payload, list):
             raise HostCheckError("docker network inspect returned invalid JSON")
         raw_networks = [item for item in payload if isinstance(item, dict)]
-    container_ids = sorted(
-        {
-            identifier
-            for network in raw_networks
-            for identifier in _container_ids(network)
-        }
-    )
+    endpoint_container_ids = {
+        identifier
+        for network in raw_networks
+        for identifier in _container_ids(network)
+    }
+    containerlab_ids = _run(
+        (
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--quiet",
+            "--no-trunc",
+            "--filter",
+            "label=containerlab",
+        )
+    ).split()
+    container_ids = sorted(endpoint_container_ids | set(containerlab_ids))
     owners = _container_owners(container_ids)
     networks = tuple(_network(item, owners) for item in raw_networks)
     routes = (*_routes(4), *_routes(6))
-    return HostInventory(networks, routes)
+    containerlab_owners = tuple(owners.get(identifier) for identifier in containerlab_ids)
+    return HostInventory(networks, routes, containerlab_owners)
 
 
 def _container_ids(network: dict[str, Any]) -> tuple[str, ...]:
@@ -236,6 +265,16 @@ def _network(item: dict[str, Any], owners: dict[str, Owner | None]) -> ObservedN
             bridge = value
     if bridge is None and identifier:
         bridge = f"br-{identifier[:12]}"
+    raw_labels = item.get("Labels")
+    labels = (
+        {
+            key: value
+            for key, value in raw_labels.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }
+        if isinstance(raw_labels, dict)
+        else {}
+    )
     return ObservedNetwork(
         identifier,
         name,
@@ -243,7 +282,22 @@ def _network(item: dict[str, Any], owners: dict[str, Owner | None]) -> ObservedN
         tuple(gateways),
         endpoints,
         bridge,
+        labels,
+        _container_ids(item),
     )
+
+
+def remove_empty_containerlab_network(network: ObservedNetwork) -> None:
+    """Remove one verified empty Containerlab network by immutable ID."""
+    if "containerlab" not in network.labels:
+        raise HostCheckError(
+            f"Docker network {network.name!r} is not labelled as a Containerlab network"
+        )
+    if network.attached_containers or network.endpoints:
+        raise HostCheckError(
+            f"Docker network {network.name!r} still has attached containers"
+        )
+    _run(("docker", "network", "rm", network.network_id))
 
 
 def _routes(version: int) -> tuple[ObservedRoute, ...]:

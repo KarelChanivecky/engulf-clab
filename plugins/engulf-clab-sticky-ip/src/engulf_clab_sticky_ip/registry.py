@@ -206,6 +206,40 @@ def release_lab(state: StateStore, key: str) -> None:
     _release(state, key=key)
 
 
+def release_orphaned_allocations(
+    state: StateStore,
+    expected: Registry,
+    allocation_ids: set[str],
+) -> Registry:
+    """Mark verified orphan claims inactive without releasing pending attempts."""
+    if not allocation_ids:
+        return expected
+    with state.transaction() as locked:
+        current = load_registry(locked)
+        if current.revision != expected.revision:
+            raise StickyIPError("sticky IP state changed during orphan cleanup; retry")
+        changed = False
+        allocations: list[Allocation] = []
+        for item in current.allocations:
+            if (
+                item.allocation_id in allocation_ids
+                and item.status in {"active", "uncertain"}
+            ):
+                allocations.append(replace(item, status="inactive", attempt_id=None))
+                changed = True
+            else:
+                allocations.append(item)
+        if not changed:
+            return current
+        updated = replace(
+            current,
+            revision=current.revision + 1,
+            allocations=tuple(allocations),
+        )
+        save_registry(locked, updated)
+        return updated
+
+
 def release_all(state: StateStore) -> None:
     _release(state, key=None)
 

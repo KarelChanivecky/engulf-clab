@@ -34,7 +34,16 @@ Mock sockets, polling, and time in probe tests; never mutate host networking.
 Preparation has two rollback paths. The inner `except BaseException` removes
 this callback's pending claim while its lease is current. `prepare_failed()`
 reacquires the lease after callback deactivation. Both restore inactive history
-evicted by this attempt and leave older active claims untouched.
+evicted by this attempt and leave unrelated active claims untouched.
+
+Before allocation planning, reconcile active or uncertain claims whose recorded
+workspace is no longer a directory. Keep pending claims and any claim with a
+matching or unidentifiable Containerlab container. Remove a leftover management
+network only when its Containerlab label, empty endpoint list, and recorded
+subnet all match and no other reserved claim names it. Release registry rows
+after network cleanup succeeds, then refresh host inventory. This preflight
+must run before allocation checks so a later unrelated allocation error does
+not leave dead workspaces consuming shared state.
 
 After a wrapped process starts, a failed or interrupted deployment is uncertain
 and remains reserved. A successful deployment promotes the pending claim and

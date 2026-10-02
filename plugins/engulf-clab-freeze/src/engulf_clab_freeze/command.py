@@ -626,32 +626,45 @@ def _write_self_extracting_archive(
     prefix = f"""#!/bin/sh
 set -eu
 usage() {{
-    echo "Usage: $0 [--eclab-output DIRECTORY] [DEFROST_OPTIONS...]" >&2
+    echo "Usage: $0 [OUTPUT_DIRECTORY" \
+        "| --eclab-output DIRECTORY] [DEFROST_OPTIONS...]" >&2
 }}
 output=
+output_set=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --eclab-output)
             [ "$#" -ge 2 ] || {{ usage; exit 2; }}
             [ -n "$2" ] || {{ usage; exit 2; }}
+            [ "$output_set" -eq 0 ] || {{ usage; exit 2; }}
             output=$2
+            output_set=1
             shift 2
             ;;
         --eclab-output=*)
             output=${{1#*=}}
             [ -n "$output" ] || {{ usage; exit 2; }}
+            [ "$output_set" -eq 0 ] || {{ usage; exit 2; }}
+            output_set=1
             shift
             ;;
         --)
             shift
             break
             ;;
-        *)
+        -*)
             break
+            ;;
+        *)
+            [ -n "$1" ] || {{ usage; exit 2; }}
+            [ "$output_set" -eq 0 ] || {{ usage; exit 2; }}
+            output=$1
+            output_set=1
+            shift
             ;;
     esac
 done
-if [ -z "$output" ]; then
+if [ "$output_set" -eq 0 ]; then
     output=./{shlex.quote(default_output)}
 fi
 case "$output" in
@@ -763,7 +776,9 @@ after defrost without blocking it; rerun the report from the restored lab with
 `./check-dependencies.sh`. Pass normal defrost options to the `.run` command
 when needed, for example `./demo-runtime.run --eclab-license router=/pool`.
 Use `--eclab-output DIRECTORY` immediately after the package name to choose a
-different lab output directory, before any other defrost options.
+different lab output directory, before any other defrost options. You can also
+pass the output directory as the first argument, for example
+`./demo-runtime.run restored`.
 
 The selected topology is `{topology}`. The restored lab's launcher is
 `{launcher_name}`.
@@ -780,7 +795,8 @@ the lab with its bundled tools and image archives.
 Running the `.run` package invokes `defrost.sh` to expand the lab and resolve
 its environment and license values. Defrost publishes the restored lab with
 the bundled eclab environment, Containerlab, vrnetlab checkout, and image
-archives. The selected topology is
+archives. Pass the output directory as the first argument, or use
+`--eclab-output DIRECTORY`. The selected topology is
 `{topology}`; the restored launcher is `{launcher_name}`.
 
 Deploy still requires host Docker and the kernel, device, or networking

@@ -241,7 +241,8 @@ Default freeze records compatibility without bundling a runtime or images.
 `lab.tgz`, and `defrost.sh`. Running the package builds the packaged eclab venv
 and runs normal defrost automatically. Defrost initializes recipient
 environment values, asks for license values, and writes the restored lab to
-`./<package-name>`. `--offline` also writes a
+`./<package-name>`; pass a directory as the `.run` command's first argument
+to choose another location. `--offline` also writes a
 self-extracting `.run` package with a defrost venv under `runtime/` and a
 `lab.tgz` containing the wheelhouse, Containerlab, vrnetlab checkout, and
 required images. Defrost attaches the venv to the expanded lab. The offline lab still expects

@@ -113,6 +113,16 @@ all claims, while `--keep-mgmt-net` keeps them reserved. If a failed deployment
 left an uncertain claim, run a successful destroy for that topology before
 expecting the block to recycle.
 
+At the start of sticky deploy and redeploy preparation, eclab also reconciles
+orphaned user-state claims before allocation checks. It releases active or
+uncertain claims whose recorded workspace is no longer a directory only when
+Docker reports no Containerlab containers for that identity and no containers
+with unidentifiable ownership. If the claim's management network remains,
+eclab removes it only when it is an empty Containerlab network with the
+recorded subnet and no other reserved claim uses its name. Pending claims and
+resources with uncertain ownership stay reserved; eclab logs why it kept them.
+This cleanup still runs if a later allocation check fails.
+
 Docker and `ip` must be available through the service-controlled PATH. The Linux
 probe strategy uses UDP error-queue support for the selected address family.
 Missing kernel support makes this verification unavailable and skips it with
