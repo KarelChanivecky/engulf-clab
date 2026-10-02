@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from engulf_clab_schema_api import ContainerlabSourceKind
 
 from engulf_clab_ensure_containerlab.containerlab import (
+    UPSTREAM_CONTAINERLAB_REPO,
     build_version_flags,
     containerlab_source_hint,
     enable_sudoless,
@@ -230,6 +231,48 @@ class BuildVersionFlagsTest(unittest.TestCase):
 
         self.assertIn("cmd.Version=v0.74.3-30-gabc1234", flags[0])
         self.assertIn("cmd.commit=abc1234", flags[0])
+
+    def test_default_version_is_stamped_when_no_tag_is_reachable(self) -> None:
+        with TemporaryDirectory() as directory:
+            checkout = self._checkout(directory)
+            git_output = Mock(side_effect=(None, None, None, "abc1234"))
+
+            with patch(
+                "engulf_clab_ensure_containerlab.containerlab._git_output",
+                git_output,
+            ):
+                flags = build_version_flags(checkout)
+
+        self.assertEqual(
+            [call.args[1:] for call in git_output.call_args_list],
+            [
+                ("describe", "--tags", "--dirty"),
+                ("fetch", "--tags", UPSTREAM_CONTAINERLAB_REPO),
+                ("describe", "--tags", "--dirty"),
+                ("rev-parse", "--short", "HEAD"),
+            ],
+        )
+        self.assertIn("cmd.Version=0.0.0", flags[0])
+        self.assertIn("cmd.commit=abc1234", flags[0])
+
+    def test_uses_upstream_tag_after_fetch_when_fork_has_no_tags(self) -> None:
+        with TemporaryDirectory() as directory:
+            checkout = self._checkout(directory)
+            git_output = Mock(
+                side_effect=(None, None, "v0.74.3-30-gabc1234", "abc1234")
+            )
+
+            with patch(
+                "engulf_clab_ensure_containerlab.containerlab._git_output",
+                git_output,
+            ):
+                flags = build_version_flags(checkout)
+
+        self.assertIn("cmd.Version=v0.74.3-30-gabc1234", flags[0])
+        self.assertEqual(
+            git_output.call_args_list[1].args[1:],
+            ("fetch", "--tags", UPSTREAM_CONTAINERLAB_REPO),
+        )
 
     def test_a_checkout_without_go_mod_is_built_unstamped(self) -> None:
         """Provenance is best effort: never fail a build to stamp a version."""

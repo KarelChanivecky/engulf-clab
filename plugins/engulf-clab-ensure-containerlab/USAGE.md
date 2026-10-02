@@ -37,8 +37,12 @@ fall through to later sources rather than being executed.
 A valid checkout contains `go.mod`. An executable `bin/containerlab` or
 top-level `containerlab` is reused; otherwise the plugin requires Go and runs
 `go build -o <checkout>/bin/containerlab .` from the checkout root, without a
-shell. A changed
-Git revision forces a rebuild.
+shell. The binary uses the nearest reachable Git tag as its version and records
+the commit separately. If no tag is reachable for the canonical Containerlab
+module, the builder makes a best-effort fetch of tags from upstream and retries.
+If no tag is available or the fetch fails, it uses Containerlab's default
+version `0.0.0` rather than treating a commit hash as a version. A changed Git
+revision forces a rebuild.
 
 Managed clones are staged before publication and shared across workspaces.
 Update/version controls apply to clean configured Git checkouts as well as the

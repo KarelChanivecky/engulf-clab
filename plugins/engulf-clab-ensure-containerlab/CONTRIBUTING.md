@@ -30,10 +30,12 @@ diagnostics and must restore the process `PATH` after each call.
   environments so CLI precedence reaches source discovery and preparation.
 - Stamp version provenance into the managed build. Read the module path from
   `go.mod` rather than hardcoding it, and pass `-ldflags` setting `cmd.Version`
-  (from `git describe --tags`), `cmd.commit`, and `cmd.date`. A plain `go build`
-  leaves the binary reporting 0.0.0 / none / unknown, which hides how far a fork
-  has drifted from upstream and makes it unidentifiable in a bug report.
-  Provenance is best effort: never fail a build because git is unavailable.
+  from `git describe --tags --dirty`, plus `cmd.commit` and `cmd.date`. Do not
+  pass `--always`: without a reachable tag it returns a bare commit hash, which
+  Containerlab cannot parse as a version. For the canonical module, best-effort
+  fetch tags from upstream and retry; if no tag is available, stamp the source
+  default `0.0.0` and keep the hash in `cmd.commit`. Provenance is best effort:
+  never fail a build because git or the network is unavailable.
 - Apply only to calls whose wrapped binary is exactly `containerlab`. The
   read-only source selection published during `before_goal()` may inspect
   configured paths, `PATH`, and existing managed state. Keep provisioning, Git

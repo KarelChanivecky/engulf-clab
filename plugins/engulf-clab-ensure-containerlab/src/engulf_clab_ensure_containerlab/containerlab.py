@@ -28,6 +28,9 @@ from .logging import info, warning
 DEFAULT_CONTAINERLAB_REPO = (
     "https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support"
 )
+UPSTREAM_CONTAINERLAB_REPO = "https://github.com/srl-labs/containerlab.git"
+DEFAULT_CONTAINERLAB_VERSION = "0.0.0"
+_CANONICAL_CONTAINERLAB_MODULE = "github.com/srl-labs/containerlab"
 
 _CHECKOUT_CONFIG = CheckoutConfig(
     label="Containerlab",
@@ -256,14 +259,22 @@ def build_version_flags(checkout: Path) -> tuple[str, ...]:
     module = _module_path(checkout)
     if module is None:
         return ()
-    # `git describe` names the nearest tag and the distance from it, so a fork
-    # that is 30 commits past v0.74.3 says so instead of claiming 0.0.0.
-    version = _git_output(checkout, "describe", "--tags", "--always", "--dirty")
+    # `git describe` names the nearest tag and the distance from it. Without a
+    # reachable tag it fails; do not use `--always`, which substitutes a bare
+    # commit hash that Containerlab cannot parse as a version.
+    version = _git_output(checkout, "describe", "--tags", "--dirty")
+    if version is None and module == _CANONICAL_CONTAINERLAB_MODULE:
+        _git_output(checkout, "fetch", "--tags", UPSTREAM_CONTAINERLAB_REPO)
+        version = _git_output(checkout, "describe", "--tags", "--dirty")
     commit = _git_output(checkout, "rev-parse", "--short", "HEAD")
     date = (
         datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat()
     )
-    stamps = {"Version": version, "commit": commit, "date": date}
+    stamps = {
+        "Version": version or DEFAULT_CONTAINERLAB_VERSION,
+        "commit": commit,
+        "date": date,
+    }
     flags = " ".join(
         f"-X '{module}/cmd.{name}={value}'"
         for name, value in stamps.items()
