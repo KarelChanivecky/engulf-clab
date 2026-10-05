@@ -30,7 +30,7 @@ from engulf_clab import (
     binary_path,
 )
 from engulf_clab import app as app_module
-from engulf_clab.cli import main
+from engulf_clab.cli import _restore_sudo_outputs, main
 from engulf_clab.workspace import workspace_root
 
 
@@ -43,11 +43,11 @@ class PackageMetadataTest(unittest.TestCase):
 
         self.assertIn("engulf>=0.1,<1", metadata["project"]["dependencies"])
         self.assertIn(
-            "engulf-executable-wrapper>=0.1.2,<1",
+            "engulf-executable-wrapper>=0.2,<1",
             metadata["project"]["dependencies"],
         )
         self.assertIn(
-            "engulf-executable-wrapper-api>=1.0.1,<2",
+            "engulf-executable-wrapper-api>=1.1,<2",
             metadata["project"]["dependencies"],
         )
 
@@ -147,6 +147,73 @@ class BinaryPathTest(unittest.TestCase):
                 patch.object(app_module.sys, "executable", str(venv_bin / "python")),
             ):
                 self.assertEqual(binary_path(), "containerlab")
+
+
+class SudoArtifactRestorationTest(unittest.TestCase):
+    def test_cli_restores_artifacts_after_the_goal(self) -> None:
+        application = MagicMock()
+        application.goal = object()
+        application.run.return_value = 12
+        manager = MagicMock()
+        manager.__enter__.return_value = application
+        manager.__exit__.return_value = False
+
+        with (
+            patch(
+                "engulf_clab.cli.CONTAINERLAB_APPLICATION",
+                SimpleNamespace(create=MagicMock(return_value=manager)),
+            ),
+            patch("engulf_clab.cli._restore_sudo_outputs") as restore,
+            patch("engulf_clab.cli.sys.argv", ["eclab", "deploy"]),
+        ):
+            self.assertEqual(main(), 12)
+
+        restore.assert_called_once_with(("deploy",))
+
+    def test_restores_user_state_completion_and_selected_workspace(self) -> None:
+        home = Path("/home/alice")
+        workspace = Path("/labs/demo")
+        completion = home / ".cache" / "engulf-clab" / "completion.json"
+        environment = {
+            "SUDO_UID": "1001",
+            "SUDO_GID": "1002",
+            "HOME": str(home),
+        }
+
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch("engulf_clab.cli.os.geteuid", return_value=0),
+            patch("pwd.getpwuid", return_value=SimpleNamespace(pw_dir=str(home), pw_gid=1002)),
+            patch("engulf_clab.cli.workspace_root", return_value=workspace),
+            patch("engulf_clab.cli.completion_artifact_path", return_value=completion),
+            patch("engulf_clab.cli.restore_sudo_ownership") as restore,
+        ):
+            _restore_sudo_outputs(("deploy", "-t", "lab.clab.yml"))
+
+        self.assertEqual(
+            [entry.args[0] for entry in restore.call_args_list],
+            [
+                home / ".local" / "state" / "engulf-clab",
+                workspace,
+                completion,
+            ],
+        )
+
+    def test_help_does_not_traverse_the_workspace(self) -> None:
+        home = Path("/home/alice")
+        environment = {"SUDO_UID": "1001", "SUDO_GID": "1002", "HOME": str(home)}
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch("engulf_clab.cli.os.geteuid", return_value=0),
+            patch("pwd.getpwuid", return_value=SimpleNamespace(pw_dir=str(home), pw_gid=1002)),
+            patch("engulf_clab.cli.completion_artifact_path", return_value=home / "cache"),
+            patch("engulf_clab.cli.restore_sudo_ownership") as restore,
+            patch("engulf_clab.cli.workspace_root") as workspace_root_resolver,
+        ):
+            _restore_sudo_outputs(("deploy", "--help"))
+
+        self.assertEqual(restore.call_count, 2)
+        workspace_root_resolver.assert_not_called()
 
 
 class ContainerlabAppTest(unittest.TestCase):

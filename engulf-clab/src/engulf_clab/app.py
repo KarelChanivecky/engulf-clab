@@ -7,20 +7,23 @@ import importlib.metadata
 import json
 import os
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, Self, cast
 from urllib.parse import unquote, urlparse
 
 from engulf import (
     Application,
     ApplicationDefinition,
     LoggingConfig,
+    LogLevelOverrides,
     PluginPolicy,
     StateHomeResolver,
     WorkspaceRootResolver,
 )
+from engulf_api import GoalResult, Invocation
 from engulf_executable_wrapper import (
     CompiledCompletion,
     CompletionArtifactStore,
@@ -34,6 +37,11 @@ from engulf_executable_wrapper_api import (
     CompletionProvider,
 )
 
+from .ownership import (
+    ArtifactPathResolver,
+    restore_sudo_application_artifacts,
+    warn_sudo_ownership_failures,
+)
 from .workspace import workspace_root
 
 APPLICATION_ID = "engulf-clab"
@@ -76,6 +84,26 @@ def completion_artifact_path(
     if not cache.is_absolute():
         raise ValueError("XDG_CACHE_HOME must be an absolute path")
     return cache / APPLICATION_ID / "completion.json"
+
+
+def _completion_artifact_paths(
+    application_id: str,
+    invocation: Invocation,
+) -> tuple[Path, ...]:
+    """Resolve this edition's persisted completion catalog for cleanup."""
+    try:
+        cache_home = invocation.environment.get("XDG_CACHE_HOME")
+        if cache_home is None:
+            home = invocation.environment.get("HOME")
+            if not home:
+                return ()
+            cache_home = str(Path(home).expanduser() / ".cache")
+        cache = Path(cache_home).expanduser()
+        if not cache.is_absolute():
+            return ()
+        return (cache / application_id / "completion.json",)
+    except (AttributeError, TypeError, ValueError):
+        return ()
 
 
 def completion_installed_metadata() -> dict[str, object]:
@@ -288,25 +316,59 @@ def _containerlab_goal() -> ExecutableWrapperGoal:
     return ExecutableWrapperGoal(binary_path(), source_completion=True)
 
 
-# This definition is deliberately import-safe: editions can depend on this package
-# and derive their own launcher without constructing an application or discovering
-# plugins during import.  Editions retain ``APPLICATION_ID``, so they share the
-# official plugin declaration group and persisted workspace state.
-CONTAINERLAB_APPLICATION = ApplicationDefinition[CallOutcome](
-    application_id=APPLICATION_ID,
-    display_name=DISPLAY_NAME,
-    goal_factory=_containerlab_goal,
-    vendor=VENDOR,
-    product=PRODUCT,
-    short_product_name=SHORT_PRODUCT_NAME,
-    version=VERSION,
-    logging_config=_DEFAULT_LOGGING_CONFIG,
-    plugin_policy=PluginPolicy.declared(),
-    workspace_root_resolver=workspace_root,
-)
+class _ManagedContainerlabApplication(Application[CallOutcome]):
+    """Application that restores sudo-created files when an invocation ends."""
+
+    def configure_sudo_artifact_cleanup(
+        self,
+        *,
+        workspace_root_resolver: WorkspaceRootResolver | None,
+        state_home_resolver: StateHomeResolver | None,
+        artifact_path_resolver: ArtifactPathResolver | None,
+    ) -> None:
+        self._sudo_workspace_root_resolver = workspace_root_resolver
+        self._sudo_state_home_resolver = state_home_resolver
+        self._sudo_artifact_path_resolver = artifact_path_resolver
+        self._sudo_cleanup_arguments = tuple(sys.argv[1:])
+        self._sudo_cleanup_done = False
+
+    def invoke(
+        self,
+        argv: Sequence[str] | None = None,
+        *,
+        log_overrides: LogLevelOverrides | None = None,
+    ) -> GoalResult[CallOutcome]:
+        arguments = tuple(sys.argv[1:] if argv is None else argv)
+        self._sudo_cleanup_arguments = arguments
+        self._sudo_cleanup_done = False
+        try:
+            return super().invoke(arguments, log_overrides=log_overrides)
+        finally:
+            self._restore_invocation_artifacts(arguments)
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            if not self._sudo_cleanup_done:
+                self._restore_invocation_artifacts(self._sudo_cleanup_arguments)
+
+    def _restore_invocation_artifacts(self, arguments: tuple[str, ...]) -> None:
+        self._sudo_cleanup_done = True
+        failures = restore_sudo_application_artifacts(
+            self.application_id,
+            arguments,
+            workspace_root_resolver=self._sudo_workspace_root_resolver,
+            state_home_resolver=self._sudo_state_home_resolver,
+            artifact_path_resolver=self._sudo_artifact_path_resolver,
+        )
+        warn_sudo_ownership_failures(
+            failures,
+            application_id=self.application_id,
+        )
 
 
-class ContainerlabApp(Application[CallOutcome]):
+class ContainerlabApp(_ManagedContainerlabApplication):
     """An extensible Engulf application with Containerlab defaults.
 
     Subclasses can override this constructor, pass different Engulf options, or add
@@ -362,6 +424,11 @@ class ContainerlabApp(Application[CallOutcome]):
             workspace_root_resolver=workspace_root_resolver,
             state_home_resolver=state_home_resolver,
         )
+        self.configure_sudo_artifact_cleanup(
+            workspace_root_resolver=workspace_root_resolver,
+            state_home_resolver=state_home_resolver,
+            artifact_path_resolver=_completion_artifact_paths,
+        )
 
     @property
     def binary(self) -> str:
@@ -369,3 +436,116 @@ class ContainerlabApp(Application[CallOutcome]):
         goal = self.goal
         assert isinstance(goal, ExecutableWrapperGoal)
         return goal.executable
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ContainerlabApplicationDefinition(ApplicationDefinition[CallOutcome]):
+    """Edition definition whose applications restore sudo-owned artifacts."""
+
+    artifact_path_resolver: ArtifactPathResolver | None = _completion_artifact_paths
+
+    def __post_init__(self) -> None:
+        ApplicationDefinition.__post_init__(self)
+        if self.artifact_path_resolver is not None and not callable(
+            self.artifact_path_resolver
+        ):
+            raise TypeError("artifact_path_resolver must be callable or None")
+
+    def edition(
+        self,
+        *,
+        display_name: str,
+        vendor: str | None = None,
+        product: str | None = None,
+        short_product_name: str | None = None,
+        version: str | None = None,
+        include_plugins: Iterable[str] = (),
+        require_plugins: Iterable[str] = (),
+    ) -> Self:
+        """Return an edition definition that retains the managed application factory."""
+        return cast(
+            Self,
+            ApplicationDefinition.edition(
+                self,
+                display_name=display_name,
+                vendor=vendor,
+                product=product,
+                short_product_name=short_product_name,
+                version=version,
+                include_plugins=include_plugins,
+                require_plugins=require_plugins,
+            ),
+        )
+
+    def with_artifact_path_resolver(
+        self,
+        resolver: ArtifactPathResolver | None,
+    ) -> Self:
+        """Return this definition with additional edition-owned artifact roots."""
+        if resolver is not None and not callable(resolver):
+            raise TypeError("artifact_path_resolver must be callable or None")
+        if resolver is None:
+            return replace(self, artifact_path_resolver=None)
+
+        current = self.artifact_path_resolver
+
+        def combined(
+            application_id: str,
+            invocation: Invocation,
+        ) -> tuple[str | os.PathLike[str], ...]:
+            existing = () if current is None else tuple(current(application_id, invocation))
+            return (*existing, *tuple(resolver(application_id, invocation)))
+
+        return replace(self, artifact_path_resolver=combined)
+
+    def create(
+        self,
+        *,
+        plugin_dir: str | os.PathLike[str] | None = None,
+        discover_installed: bool = True,
+    ) -> Application[CallOutcome]:
+        """Create a managed application while preserving the definition contract."""
+        application = _ManagedContainerlabApplication(
+            self.application_id,
+            self.goal_factory(),
+            display_name=self.display_name,
+            vendor=self.vendor,
+            product=self.product,
+            short_product_name=self.short_product_name,
+            version=self.version,
+            plugin_policy=self.plugin_policy,
+            required_plugin_ids=self.required_plugin_ids,
+            plugin_declaration_application_ids=(
+                self.plugin_declaration_application_ids
+            ),
+            logging_config=self.logging_config,
+            plugin_dir=plugin_dir,
+            discover_installed=discover_installed,
+            workspace_root_resolver=self.workspace_root_resolver,
+            state_home_resolver=self.state_home_resolver,
+            diagnostic_isolation_config=self.diagnostic_isolation_config,
+        )
+        application.configure_sudo_artifact_cleanup(
+            workspace_root_resolver=self.workspace_root_resolver,
+            state_home_resolver=self.state_home_resolver,
+            artifact_path_resolver=self.artifact_path_resolver,
+        )
+        return application
+
+
+# This definition is deliberately import-safe: editions can derive their own
+# identity and plugin set without constructing an application or discovering
+# plugins. Its overridden ``create()`` gives every derived edition the shared
+# sudo-artifact lifecycle automatically.
+CONTAINERLAB_APPLICATION = ContainerlabApplicationDefinition(
+    application_id=APPLICATION_ID,
+    display_name=DISPLAY_NAME,
+    goal_factory=_containerlab_goal,
+    vendor=VENDOR,
+    product=PRODUCT,
+    short_product_name=SHORT_PRODUCT_NAME,
+    version=VERSION,
+    logging_config=_DEFAULT_LOGGING_CONFIG,
+    plugin_policy=PluginPolicy.declared(),
+    workspace_root_resolver=workspace_root,
+)

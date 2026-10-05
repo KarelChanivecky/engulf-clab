@@ -10,7 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from engulf import FRAMEWORK_ERROR_EXIT, GoalPrivilegeError, PluginPolicy
+from engulf import (
+    FRAMEWORK_ERROR_EXIT,
+    Application,
+    GoalPrivilegeError,
+    PluginPolicy,
+)
+from engulf_api import Invocation
 from engulf_executable_wrapper import ExecutableWrapperGoal
 from engulf_executable_wrapper.completion import (
     completion_context_for_request,
@@ -21,9 +27,16 @@ from .app import (
     CONTAINERLAB_APPLICATION,
     ContainerlabApp,
     binary_path,
+    completion_artifact_path,
     load_completion_artifact,
     publish_completion_artifact,
 )
+from .ownership import (
+    restore_sudo_application_artifacts,
+    restore_sudo_ownership,
+    warn_sudo_ownership_failures,
+)
+from .workspace import workspace_root
 
 
 def main() -> int:
@@ -34,26 +47,66 @@ def main() -> int:
     stderr and exit with the framework error code instead of a traceback.
     """
     arguments = tuple(sys.argv[1:])
-    if len(arguments) == 2 and arguments[0] == "--eclab-freeze-compatible":
-        return _compatible(Path(arguments[1]))
-    if os.environ.get("ENGULF_INTERNAL_PROTOCOL") == "1":
-        return _internal_completion(arguments)
+    application: Application[Any] | None = None
     try:
-        with CONTAINERLAB_APPLICATION.create() as application:
-            if isinstance(application.goal, ExecutableWrapperGoal):
-                publish_completion_artifact(application)
-            if _plugin_list_requested(arguments) and not _has_plugin_list_diagnostic(
-                application
-            ):
-                # The diagnostic is an optional Engulf distribution.  Keep the
-                # documented flag useful for a plain eclab installation rather
-                # than forwarding it to Containerlab as an unknown flag.
-                print(_fallback_plugin_list(application), end="")
-                return 0
-            return application.run()
-    except GoalPrivilegeError as error:
-        print(f"eclab: {error}", file=sys.stderr)
-        return FRAMEWORK_ERROR_EXIT
+        if len(arguments) == 2 and arguments[0] == "--eclab-freeze-compatible":
+            return _compatible(Path(arguments[1]))
+        if os.environ.get("ENGULF_INTERNAL_PROTOCOL") == "1":
+            return _internal_completion(arguments)
+        try:
+            with CONTAINERLAB_APPLICATION.create() as application:
+                if isinstance(application.goal, ExecutableWrapperGoal):
+                    publish_completion_artifact(application)
+                if _plugin_list_requested(arguments) and not _has_plugin_list_diagnostic(
+                    application
+                ):
+                    # The diagnostic is an optional Engulf distribution.  Keep the
+                    # documented flag useful for a plain eclab installation rather
+                    # than forwarding it to Containerlab as an unknown flag.
+                    print(_fallback_plugin_list(application), end="")
+                    return 0
+                return application.run()
+        except GoalPrivilegeError as error:
+            print(f"eclab: {error}", file=sys.stderr)
+            return FRAMEWORK_ERROR_EXIT
+    finally:
+        if (
+            not (
+                len(arguments) == 2
+                and arguments[0] == "--eclab-freeze-compatible"
+            )
+            and
+            os.environ.get("ENGULF_INTERNAL_PROTOCOL") != "1"
+            and getattr(application, "_sudo_cleanup_done", False) is not True
+        ):
+            _restore_sudo_outputs(arguments)
+
+
+def _restore_sudo_outputs(arguments: tuple[str, ...]) -> None:
+    """Restore this invocation's workspace, state, and completion artifacts."""
+    failures = restore_sudo_application_artifacts(
+        CONTAINERLAB_APPLICATION.application_id,
+        arguments,
+        workspace_root_resolver=workspace_root,
+        state_home_resolver=CONTAINERLAB_APPLICATION.state_home_resolver,
+        artifact_path_resolver=_completion_artifact_paths,
+        restore_path=restore_sudo_ownership,
+    )
+    warn_sudo_ownership_failures(
+        failures,
+        application_id=CONTAINERLAB_APPLICATION.application_id,
+    )
+
+
+def _completion_artifact_paths(
+    application_id: str,
+    invocation: Invocation,
+) -> tuple[Path, ...]:
+    del application_id
+    try:
+        return (completion_artifact_path(invocation.environment),)
+    except ValueError:
+        return ()
 
 
 def _internal_completion(arguments: tuple[str, ...]) -> int:

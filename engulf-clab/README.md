@@ -59,6 +59,15 @@ environment, or configuration override; adding an
 `engulf.privilege_opt_in.v1.goal.v1` entry point would require a deliberate
 contract change to the shared goal, not to this wrapper.
 
+The standard eclab launcher refuses elevated startup, so this cleanup does not
+enable running eclab as root. As a compatibility measure for launchers that do
+reach an elevated invocation, `ContainerlabApp` restores root-owned workspace,
+state, and completion artifacts when an invocation ends or the application
+closes. Definitions derived with `CONTAINERLAB_APPLICATION.edition()` receive
+the same managed application automatically. Editions with additional output
+locations can attach an artifact-path resolver; plugins writing outside the
+workspace and managed state roots should restore those destinations themselves.
+
 ## Shell completion
 
 Install schema-backed wrapper completion through eclab. The generated wrapper
@@ -263,6 +272,14 @@ providing a different command name and selected plugin set. The command name
 does not determine topology label/environment keys: those are a fixed
 `ECLAB_*` prefix, the same across every edition, never derived from product
 metadata.
+
+The shared definition's `create()` returns an application that restores
+sudo-created files after each invocation and when it closes. This applies to
+editions returned by `.edition()` as well as direct `ContainerlabApp` users. An
+edition that writes generated artifacts outside its workspace, managed state,
+or completion store can register those paths with
+`with_artifact_path_resolver()`. The resolver receives the application ID and
+the immutable invocation and returns the artifact roots to restore.
 
 `short_product_name` is not used for those portable topology keys. It names
 topology-local state and the runtime schema pipeline. A launcher that only

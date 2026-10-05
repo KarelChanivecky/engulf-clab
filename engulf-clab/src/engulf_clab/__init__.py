@@ -9,8 +9,10 @@ from .app import (
     VENDOR,
     VERSION,
     ContainerlabApp,
+    ContainerlabApplicationDefinition,
     binary_path,
 )
+from .ownership import ArtifactPathResolver, restore_sudo_application_artifacts
 
 __all__ = [
     "APPLICATION_ID",
@@ -20,6 +22,9 @@ __all__ = [
     "PRODUCT",
     "VENDOR",
     "VERSION",
+    "ArtifactPathResolver",
     "ContainerlabApp",
+    "ContainerlabApplicationDefinition",
     "binary_path",
+    "restore_sudo_application_artifacts",
 ]
