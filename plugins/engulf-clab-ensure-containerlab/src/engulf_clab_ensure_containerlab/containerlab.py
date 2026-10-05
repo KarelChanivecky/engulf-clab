@@ -25,9 +25,7 @@ from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKin
 from .errors import EnsureContainerlabError
 from .logging import info, warning
 
-DEFAULT_CONTAINERLAB_REPO = (
-    "https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support"
-)
+DEFAULT_CONTAINERLAB_REPO = "https://github.com/srl-labs/containerlab/tree/master"
 UPSTREAM_CONTAINERLAB_REPO = "https://github.com/srl-labs/containerlab.git"
 DEFAULT_CONTAINERLAB_VERSION = "0.0.0"
 _CANONICAL_CONTAINERLAB_MODULE = "github.com/srl-labs/containerlab"

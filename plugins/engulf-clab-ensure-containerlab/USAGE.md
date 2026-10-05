@@ -23,7 +23,7 @@ Sources are tried in this order:
 | --- | --- | --- |
 | `--eclab-containerlab-bin PATH` | `CONTAINERLAB_BIN` | Explicit executable; never updated or rebuilt. |
 | `--eclab-containerlab-dir DIR` | `CONTAINERLAB_DIR` | Existing source checkout. |
-| `--eclab-containerlab-repo URL` | `CONTAINERLAB_REPO` | Managed clone source; defaults to `https://github.com/KarelChanivecky/containerlab/tree/ft_fgt_license_support`. GitHub `/tree/<branch>` URLs select that branch. |
+| `--eclab-containerlab-repo URL` | `CONTAINERLAB_REPO` | Managed clone source; defaults to `https://github.com/srl-labs/containerlab/tree/master` (cloned from `https://github.com/srl-labs/containerlab.git` at `master`). GitHub `/tree/<branch>` URLs select that branch. |
 | `--eclab-containerlab-update` | `CONTAINERLAB_UPDATE` | Opt into an update check, at most daily per checkout/request. |
 | `--eclab-containerlab-version REV` | `CONTAINERLAB_VERSION` | Pin a tag, commit, or revision and enable checking. |
 

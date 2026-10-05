@@ -273,7 +273,7 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
             "  --eclab-containerlab-bin PATH     Use an executable binary\n"
             "  --eclab-containerlab-dir DIR      Use or build a source checkout\n"
             "  --eclab-containerlab-repo URL     Override clone source (default: "
-            "KarelChanivecky/containerlab ft_fgt_license_support)\n"
+            "https://github.com/srl-labs/containerlab/tree/master)\n"
             "  --eclab-containerlab-update       Check a Git checkout for updates (daily)\n"
             "  --eclab-containerlab-version REV  Clamp to a Git tag, commit, or revision\n"
             "  CONTAINERLAB_{BIN,DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
