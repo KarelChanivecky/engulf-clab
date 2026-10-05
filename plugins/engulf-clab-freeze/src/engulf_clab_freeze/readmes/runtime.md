@@ -5,7 +5,9 @@ The `--eclab-with-runtime` package is an executable `.run` containing
 the whole workflow: it builds the pinned $edition environment from the included
 wheelhouse when needed, then runs ordinary defrost. Defrost runs
 `initialize-env.sh`, prompts for recipient license values, and places the
-runtime in the restored lab. The default output is `./<package-name>`.
+runtime in the restored lab. Interactive defrost also asks whether to configure
+the bundled Containerlab for sudo-less use. The default output is
+`./<package-name>`.
 If no license pool is registered, defrost offers to create a pool directory
 and initialize it with the edition's `init-license-pool` command. The new pool
 starts empty; add entitled license files afterward. Read `FREEZE-README.md` in
@@ -52,6 +54,9 @@ new group memberships, then deploy again. Rebuilding `.eclab-venv` replaces
 the binary, so repeat this setup afterward.
 
 $licenses
+
+Supply entitled vrnetlab VM images at deploy time with
+`--eclab-vrnetlab-image NODE=PATH` when the topology needs them.
 
 ## Operate
 

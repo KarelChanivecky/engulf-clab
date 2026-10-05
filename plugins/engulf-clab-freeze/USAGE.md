@@ -1,11 +1,12 @@
 # Freeze and defrost labs
 
-Install `engulf-clab-freeze` with the producing edition. The eclab edition
-provides the first runtime provider. Freeze selects the single recognized
-topology in the positional lab directory, which defaults to `.`. Use `-t` to
-select a topology file explicitly; it cannot be combined with a positional
-directory. Containerlab YAML is
-the base language; see the upstream
+Install `engulf-clab-freeze` with the producing edition. It installs the
+license-pool plugin so defrost can inspect pools registered in that plugin's
+state namespace. The eclab edition provides the first runtime provider. Freeze
+selects the single recognized topology in the positional lab directory, which
+defaults to `.`. Use `-t` to select a topology file explicitly; it cannot be
+combined with a positional directory. Containerlab YAML is the base language;
+see the upstream
 [`clab.schema.json`](https://github.com/srl-labs/containerlab/blob/main/schemas/clab.schema.json).
 Plugin controls are conventions layered onto valid Containerlab fields.
 
@@ -28,6 +29,10 @@ destinations must end in `.run`. Freeze stages and publishes atomically. An
 existing regular output prompts for overwrite interactively; symlinks are
 refused. A workspace lease prevents concurrent freezes. Offline mode also
 leases managed tool repositories.
+
+When freeze or defrost is run through `sudo`, its generated archive, expanded
+lab tree, and freeze bookkeeping state are returned to the invoking user's
+ownership so that user can update or run the output afterward.
 
 ## Modes
 
@@ -72,6 +77,13 @@ location, for example `./demo-runtime.run restored`. The named form
 `--eclab-output DIRECTORY` is also supported immediately after the package
 name, before any other defrost options. For example:
 `./demo-runtime.run --eclab-output restored --eclab-license router=/pool`.
+
+Interactive runtime defrost asks whether to configure the bundled Containerlab
+for sudo-less use. This grants the account root-equivalent Containerlab and
+Docker access. Answer yes to run the existing `sudoless` setup for the restored
+venv; answer no to leave it unchanged. The command uses `sudo` for the
+Containerlab ownership and group changes. Noninteractive defrost skips this
+offer; run `./run-eclab.sh sudoless` later as the lab owner if needed.
 
 The `--eclab-with-runtime` package contains `runtime/` (the dependency lock,
 wheelhouse, Python version list, and pinned tools), `lab.tgz` (the frozen lab
@@ -123,7 +135,11 @@ root image, VM source, or actual missing recipe input in non-offline modes may
 become an `${ECLAB_FREEZE_...}` variable; `initialize-env.sh` asks the recipient
 for it. When a VM source already uses a single variable such as
 `${FCLAB_DEMO_IMAGE:-}`, lean freeze keeps that expression and prompts for its
-original name. Offline mode captures Docker images by immutable ID and checksums
+original name. A vrnetlab VM input is supplied with
+`--eclab-vrnetlab-image NODE=PATH` at deploy time; lean freeze does not create a
+replacement image-path variable. Existing build-context paths such as `.` stay
+literal when their directory is included, even if freeze exclusions omit files
+from the context. Offline mode captures Docker images by immutable ID and checksums
 each export. Authored node archives are selected through `ECLAB_IMAGE_ARCHIVE`;
 dependency-only and plugin-generated service images are recorded in
 `images.freeze.json`. The topology selects that manifest with
@@ -208,8 +224,11 @@ to the topology's sibling `.env` file with mode `0600`.
 License answers resolve from `--eclab-license NODE=VALUE` (or a bare value for all
 nodes), `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, auto license, then an
 interactive prompt. Answers may be `auto`, an existing file or pool directory,
-or a `$VARIABLE` for deploy. License answers are neither frozen nor written
-to the defrost record.
+or a `$VARIABLE` for deploy. `auto` is retained as a request for the active
+license provider to allocate at deploy; a defrost preflight that cannot see a
+pool does not reject that request. Deployment reports whether a matching pool
+is actually available. License answers are neither frozen nor written to the
+defrost record.
 
 Defrost requires one archive root and a topology with supported metadata. It
 rejects escaping members, invalid image checksums, and missing contributors.

@@ -38,6 +38,14 @@ for pool in manager.registered_pools():
     ...
 ```
 
+The owning license-pool plugin can also publish an invocation-scoped
+`LicensePoolAvailability` value through `LICENSE_POOL_AVAILABILITY_CONTEXT`.
+It contains only `registered: bool | None`: `True` means at least one pool was
+found, `False` means the registry was read successfully and is empty, and
+`None` means availability could not be checked. This lets consumers such as
+Defrost make a setup offer without exposing pool paths or reading another
+plugin's private state namespace.
+
 An alternate allocation plugin can publish
 `LicenseAllocationHandoff(provider_id=...)` in
 `LICENSE_ALLOCATION_HANDOFF_CONTEXT`. The standard adapter then skips its

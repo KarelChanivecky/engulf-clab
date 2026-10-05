@@ -47,14 +47,17 @@ from engulf_clab_license_pool_api import (
 )
 from engulf_clab_license_pool_lib import (
     LICENSE_ALLOCATION_HANDOFF_CONTEXT,
+    LICENSE_POOL_AVAILABILITY_CONTEXT,
     AllocationRequest,
     LicenseAllocationHandoff,
+    LicensePoolAvailability,
     LicensePoolError,
     LicensePoolManager,
     LicenseStrategy,
     PoolManagerRequest,
     PoolState,
     coerce_strategy,
+    publish_license_pool_availability,
     run_pool_managers,
 )
 from engulf_clab_schema_api import (
@@ -501,6 +504,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 _INIT_LICENSE_POOL_EXIT_CONTEXT,
                 INIT_LICENSE_POOL_CONTEXT,
                 LICENSE_SELECTION_CONTEXT,
+                LICENSE_POOL_AVAILABILITY_CONTEXT,
             }
         )
         | SCHEMA_CONTEXTS
@@ -510,6 +514,20 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         self, invocation: Invocation, api: BeforeGoalAPI
     ) -> GoalResult[object] | None:
         record_plugin_schema(api, PLUGIN_SCHEMA)
+        if invocation.arguments[:1] == ("defrost",):
+            try:
+                with api.lease("license-pool-registry"):
+                    registered = bool(
+                        LicensePoolManager(api.state(StateScope.USER)).registered_pools()
+                    )
+            except (LicensePoolError, OSError, ValueError) as error:
+                api.logger.warning(
+                    "could not check registered license pools: %s", error
+                )
+                availability = LicensePoolAvailability(None)
+            else:
+                availability = LicensePoolAvailability(registered)
+            publish_license_pool_availability(api, availability)
         if (
             not invocation.arguments
             or invocation.arguments[0] != INIT_LICENSE_POOL_COMMAND

@@ -32,6 +32,9 @@ Defrost records every package or tool that differs from the frozen record in
 `FREEZE-WARNINGS.txt`. The lab still runs; review those differences before
 trusting a reproduction.
 
+Supply entitled vrnetlab VM images at deploy time with
+`--eclab-vrnetlab-image NODE=PATH` when the topology needs them.
+
 $licenses
 
 ## Operate

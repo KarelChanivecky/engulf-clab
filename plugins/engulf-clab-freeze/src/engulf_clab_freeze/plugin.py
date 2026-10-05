@@ -13,7 +13,11 @@ from engulf_api import (
     PluginLogger,
     StateScope,
 )
-from engulf_clab_license_pool_lib import LicensePoolError, LicensePoolManager
+from engulf_clab_license_pool_lib import (
+    LICENSE_POOL_AVAILABILITY_CONTEXT,
+    LicensePoolAvailability,
+    license_pool_availability,
+)
 from engulf_clab_schema_api import (
     SCHEMA_CONTEXTS,
     SCHEMA_SOURCE_CONTEXT,
@@ -289,6 +293,7 @@ class FreezePlugin(SchemaBackedPlugin):
             SCHEMA_VRNETLAB_SOURCE_CONTEXT,
             DOCKER_IMAGE_PROVENANCE_CONTEXT,
             VRNETLAB_SOURCE_PROVENANCE_CONTEXT,
+            LICENSE_POOL_AVAILABILITY_CONTEXT,
         }
     )
     context_writes = SCHEMA_CONTEXTS
@@ -352,15 +357,12 @@ class FreezePlugin(SchemaBackedPlugin):
         # two differently-branded editions writing one destination must block.
         with api.leases((defrost_lease(arguments, invocation.cwd),)):
             user_state = api.state(StateScope.USER)
-            try:
-                pools_registered = bool(
-                    LicensePoolManager(user_state).registered_pools()
-                )
-            except (LicensePoolError, OSError, ValueError) as error:
-                api.logger.warning(
-                    "could not check registered license pools: %s", error
-                )
-                pools_registered = None
+            availability = license_pool_availability(api)
+            pools_registered = (
+                availability.registered
+                if isinstance(availability, LicensePoolAvailability)
+                else None
+            )
             exit_code = run_defrost_command(
                 arguments,
                 program=f"{application_name} defrost",

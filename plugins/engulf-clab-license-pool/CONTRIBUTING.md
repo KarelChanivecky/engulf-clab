@@ -51,6 +51,10 @@ through the shared topology editor.
   the command. Keep this plugin's `before_goal` priority above any edition
   adapter that reads the registration result in that phase; package lifecycle
   dependency edges do not order `before_goal` callbacks.
+- For `defrost`, inspect registered pools in this plugin's own user state under
+  the registry lease, then publish only `LicensePoolAvailability(registered)`
+  through `LICENSE_POOL_AVAILABILITY_CONTEXT`. Never put pool paths in that
+  shared context; consumers have separate plugin-scoped state.
 - Automatic requests are either the explicit `ECLAB_AUTO_LICENSE` marker or an
   unresolved license `$VARIABLE` without effective
   `ECLAB_DISABLE_AUTO_LICENSE=true`. Match only registrations for the node's

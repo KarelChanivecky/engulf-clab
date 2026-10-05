@@ -12,6 +12,9 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
+from engulf_clab_freeze.command import _write_environment_initializer, freeze, main
+from engulf_clab_freeze.defrost import DefrostError, defrost
+from engulf_clab_freeze.images import MANIFEST, freeze_images, registry_identity
 from engulf_clab_freeze_api import FreezeError, ImageInput, ImageSource
 from engulf_clab_freeze_api.manifest import read_image_manifest
 from engulf_clab_image_archive.config import build_requests_from_topology
@@ -28,10 +31,6 @@ from engulf_docker_image_api import (
     RegisteredImageProvider,
 )
 from engulf_docker_image_core import resolve_image_graph
-
-from engulf_clab_freeze.command import _write_environment_initializer, freeze, main
-from engulf_clab_freeze.defrost import DefrostError, defrost
-from engulf_clab_freeze.images import MANIFEST, freeze_images, registry_identity
 
 
 def saved_image(path: Path, tags=(), image_id="a" * 64):
@@ -273,10 +272,38 @@ def test_missing_input_after_exclusions_captures_output(tmp_path, host):
     with tarfile.open(archive) as saved:
         document = yaml.safe_load(saved.extractfile("bundle/lab.clab.yml"))
         assert (
-            "${ECLAB_FREEZE_"
-            in document["topology"]["nodes"]["app"]["env"]["ECLAB_DOCKER_CTX"]
+            document["topology"]["nodes"]["app"]["env"]["ECLAB_DOCKER_CTX"]
+            == "app"
         )
         assert "bundle/app/secret.txt" not in saved.getnames()
+
+
+def test_dot_build_context_survives_freeze_exclusions(tmp_path, host):
+    topology, document = lab(
+        tmp_path,
+        {
+            "app": {
+                "image": "app:1",
+                "env": {
+                    "ECLAB_DOCKERFILE": "Dockerfile",
+                    "ECLAB_DOCKER_CTX": ".",
+                },
+            }
+        },
+    )
+    (topology.parent / "Dockerfile").write_text(
+        "FROM debian:12\nCOPY secret.txt /input\n"
+    )
+    (topology.parent / "secret.txt").write_text("input")
+    (topology.parent / ".eclab-freezeignore").write_text("secret.txt\n")
+    available(host, "app:1")
+    archive = tmp_path / "bundle.tar.gz"
+    freeze(topology, archive, environment={})
+
+    with tarfile.open(archive) as saved:
+        document = yaml.safe_load(saved.extractfile("bundle/lab.clab.yml"))
+        assert document["topology"]["nodes"]["app"]["env"]["ECLAB_DOCKER_CTX"] == "."
+        assert "bundle/secret.txt" not in saved.getnames()
 
 
 def test_unknown_missing_image_becomes_recipient_input(tmp_path, host):
@@ -307,23 +334,31 @@ def test_lean_replaces_inputs_with_variables_without_exporting(tmp_path, host, k
         saved_image(tmp_path / "input.tar", ("router:1",))
         env = {"ECLAB_IMAGE_ARCHIVE": str(tmp_path / "input.tar")}
     elif kind == "vrnetlab":
-        env = {
-            "ECLAB_VRNETLAB_TYPE": "vendor/router",
-            "ECLAB_VRNETLAB_IMG_PATH": str(tmp_path / "missing.qcow2"),
-        }
+        env = {"ECLAB_VRNETLAB_TYPE": "vendor/router"}
     topology, document = lab(
         tmp_path,
         {"router": {"image": "router:1", "env": env}, "public": {"image": "debian:12"}},
     )
     _, document, staging = plan(tmp_path, topology, document, lean=True)
     serialized = yaml.safe_dump(document)
-    assert "${ECLAB_FREEZE_" in serialized
-    assert str(tmp_path) not in serialized
+    if kind == "vrnetlab":
+        assert "ECLAB_FREEZE_VRNETLAB" not in serialized
+        assert "ECLAB_VRNETLAB_IMG_PATH" not in serialized
+        assert document["topology"]["nodes"]["router"]["env"][
+            "ECLAB_VRNETLAB_TYPE"
+        ] == "vendor/router"
+    else:
+        assert "${ECLAB_FREEZE_" in serialized
+        assert str(tmp_path) not in serialized
     assert host[2] == []
     assert document["topology"]["nodes"]["public"]["image"] == "debian:12"
     assert not (staging / "images").exists()
     _write_environment_initializer(staging / topology.name, staging)
-    assert "ECLAB_FREEZE_ROUTER" in (staging / "initialize-env.sh").read_text()
+    initializer = (staging / "initialize-env.sh").read_text()
+    if kind == "vrnetlab":
+        assert "ECLAB_FREEZE_VRNETLAB" not in initializer
+    else:
+        assert "ECLAB_FREEZE_ROUTER" in initializer
 
 
 @pytest.mark.parametrize(

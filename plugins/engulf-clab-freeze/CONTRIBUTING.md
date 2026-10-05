@@ -32,11 +32,14 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   and the non-blocking dependency report. The restored launcher blocks only
   operations whose declared host tools or libraries are missing.
 - Keep license-pool discovery on the public `engulf-clab-license-pool-lib`
-  manager. When a defrosted topology has redacted license prompts but no pool
-  is registered, offer the edition's `init-license-pool` command and preserve
-  the caller's working directory for relative pool paths. Direct `auto` answers
-  still require a registered pool; never describe the marker as an assigned
-  license.
+  availability context. The license-pool owner reads its plugin-scoped registry
+  and publishes a path-free tri-state signal before freeze's `before_goal`.
+  When a defrosted topology has redacted license prompts and the registry is
+  confirmed empty, offer the edition's `init-license-pool` command and preserve
+  the caller's working directory for relative pool paths. A negative or unknown
+  preflight is advisory: accept an explicit `auto` answer and leave final pool
+  validation to the active license provider at deploy. Never describe the marker
+  as an assigned license.
 - Resolve host requirements from callback-collected `RuntimeRequirement` records.
   Use the schema API's command, topology-feature, and `unless_artifacts`
   conditions; do not duplicate plugin dependency declarations in freeze code.
@@ -53,6 +56,11 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   only a lease on its destination, computed by `defrost.lease` without argparse
   side effects. Image-build and vrnetlab-build separately hydrate their saved
   provenance before either control command runs; defrost reads no freeze state.
+- If freeze or defrost runs through sudo, return only its generated archive,
+  output tree, and freeze-plugin state directory to `SUDO_UID` ownership. After
+  successful sudo-less setup, keep the bundled Containerlab binary root-owned
+  so its SUID configuration remains valid; do not follow symlinks while walking
+  generated output.
 - Keep defrost the exact reverse of freeze and never a general archive
   extractor. Read `freeze.json` beside the topology for new archives, accept
   legacy `x-engulf-clab-freeze` metadata, reject members escaping the single

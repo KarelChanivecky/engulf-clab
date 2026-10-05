@@ -5,7 +5,7 @@ import subprocess
 import tarfile
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
@@ -16,6 +16,7 @@ from engulf_clab_freeze.command import (
 )
 from engulf_clab_freeze.defrost import (
     DefrostError,
+    _offer_runtime_sudoless,
     _verify_format_three_runtime,
     defrost,
 )
@@ -41,6 +42,137 @@ def _lab(tmp_path):
     topology = root / "lab.clab.yml"
     topology.write_text("topology: {nodes: {}}\n", encoding="utf-8")
     return topology
+
+
+def test_runtime_defrost_offers_sudoless_for_the_bundled_containerlab(tmp_path):
+    venv = tmp_path / ".eclab-venv" / "bin"
+    venv.mkdir(parents=True)
+    edition = venv / "eclab"
+    edition.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary = venv / "containerlab"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    notes = []
+    completed = subprocess.CompletedProcess([], 0)
+
+    with (
+        patch("engulf_clab_freeze.defrost.sys.stdin", Mock(isatty=lambda: True)),
+        patch("builtins.input", return_value="yes"),
+        patch(
+            "engulf_clab_freeze.defrost.subprocess.run", return_value=completed
+        ) as run,
+    ):
+        configured = _offer_runtime_sudoless(
+            tmp_path, "eclab", {"PATH": "/usr/bin"}, notes
+        )
+
+    assert configured is True
+    assert run.call_args.args[0] == [str(edition), "sudoless"]
+    assert run.call_args.kwargs["env"]["CONTAINERLAB_BIN"] == str(binary)
+    assert run.call_args.kwargs["cwd"] == tmp_path
+    assert not notes
+
+
+def test_sudo_defrost_runs_sudoless_as_the_invoking_user(tmp_path):
+    venv = tmp_path / ".eclab-venv" / "bin"
+    venv.mkdir(parents=True)
+    edition = venv / "eclab"
+    edition.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary = venv / "containerlab"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    notes = []
+    completed = subprocess.CompletedProcess([], 0)
+    user = Mock(pw_name="alice", pw_dir="/home/alice")
+
+    with (
+        patch("engulf_clab_freeze.defrost.sys.stdin", Mock(isatty=lambda: True)),
+        patch("builtins.input", return_value="yes"),
+        patch("engulf_clab_freeze.defrost.os.geteuid", return_value=0),
+        patch("pwd.getpwuid", return_value=user),
+        patch("engulf_clab_freeze.defrost.restore_sudo_ownership") as restore,
+        patch(
+            "engulf_clab_freeze.defrost.subprocess.run", return_value=completed
+        ) as run,
+    ):
+        configured = _offer_runtime_sudoless(
+            tmp_path,
+            "eclab",
+            {"PATH": "/usr/bin", "SUDO_UID": "1000"},
+            notes,
+        )
+
+    assert configured is True
+    restore.assert_called_once_with(tmp_path)
+    command = run.call_args.args[0]
+    assert command[:4] == ["sudo", "-u", "alice", "--"]
+    assert f"CONTAINERLAB_BIN={binary}" in command
+    assert command[-2:] == [str(edition), "sudoless"]
+    assert run.call_args.kwargs["env"]["HOME"] == "/home/alice"
+    assert not notes
+
+
+def test_runtime_defrost_offers_sudoless_without_an_attached_venv(tmp_path):
+    source = tmp_path / "archive-root"
+    source.mkdir()
+    (source / "lab.clab.yml").write_text("topology: {nodes: {}}\n", encoding="utf-8")
+    (source / "freeze.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "topology": "lab.clab.yml",
+                "freeze": {
+                    "format": 3,
+                    "application": "engulf-clab",
+                    "mode": "runtime",
+                    "producer_edition": "eclab",
+                    "tools": {},
+                    "runtime_packages": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "requirements.freeze.txt").write_text("engulf-clab==1\n", encoding="utf-8")
+    (source / "python-versions.freeze.txt").write_text("3.12\n", encoding="utf-8")
+    (source / "wheelhouse").mkdir()
+    (source / "wheelhouse/demo.whl").write_bytes(b"wheel")
+    containerlab = source / "tools/containerlab/bin/containerlab"
+    containerlab.parent.mkdir(parents=True)
+    containerlab.write_text("#!/bin/sh\n", encoding="utf-8")
+    vrnetlab = source / "tools/vrnetlab/common/vrnetlab.py"
+    vrnetlab.parent.mkdir(parents=True)
+    vrnetlab.write_text("# bundled\n", encoding="utf-8")
+    archive = tmp_path / "runtime-lab.tgz"
+    with tarfile.open(archive, "w:gz") as saved:
+        saved.add(source, arcname="lab")
+    target = tmp_path / "restored"
+
+    def create_virtual_environment(venv, *_args, **_kwargs):
+        binary_directory = venv / "bin"
+        binary_directory.mkdir(parents=True)
+        (binary_directory / "eclab").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    with (
+        patch(
+            "engulf_clab_freeze.defrost._create_virtual_environment",
+            side_effect=create_virtual_environment,
+        ) as create_venv,
+        patch("engulf_clab_freeze.defrost._runtime_python", return_value="python3"),
+        patch("engulf_clab_freeze.runtime.EclabRuntimeProvider.prepare_recipient"),
+        patch(
+            "engulf_clab_freeze.defrost._offer_runtime_sudoless", return_value=False
+        ) as offer,
+    ):
+        assert defrost(
+            archive,
+            target,
+            prompt_licenses=False,
+            initialize_env=False,
+            environment={"PATH": "/usr/bin"},
+        )
+
+    create_venv.assert_called_once()
+    offer.assert_called_once()
+    assert offer.call_args.args[:2] == (target, "eclab")
 
 
 def test_lean_archive_layout_and_launcher(tmp_path):

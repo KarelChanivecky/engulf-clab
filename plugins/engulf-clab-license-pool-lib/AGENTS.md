@@ -9,3 +9,7 @@ Keep the serialized entry fields (`allocations`, `history`, `clamped`,
 `round_robin_index`, `last_used`, and `usage_sequence`) stable. Pool discovery
 and manager mutation belong behind `PoolManager`; selection strategy belongs to
 the concrete `PoolSelector` implementation in the product plugin.
+
+`LicensePoolAvailability` is a path-free tri-state invocation contract. The
+owning plugin reads its own registry and publishes the signal; consumers must
+not assume another plugin's state namespace is visible.

@@ -11,7 +11,9 @@ package automatically builds the pinned venv from its bundled wheelhouse when
 needed and defrosts the lab, including environment initialization and recipient
 license prompts. If no license pool is registered, defrost offers to create a
 pool directory and initialize it through the edition's `init-license-pool`
-command. The pool starts empty, so add entitled license files before using
+command. Freeze installs the license-pool plugin and orders it before defrost's
+pool check, which reads the registry from the owning plugin's state namespace.
+The pool starts empty, so add entitled license files before using
 automatic allocation. Afterward, defrost points to the restored lab's
 `FREEZE-README.md` for run instructions. The restored lab is written to
 `./<package-name>`; pass an output directory as the first argument, such as

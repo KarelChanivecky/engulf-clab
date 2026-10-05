@@ -56,18 +56,17 @@ def test_offline_bundle_rejects_an_incomplete_outer_venv(tmp_path):
     assert not (staging / ".eclab-venv").exists()
 
 
-def test_license_prompt_explains_auto_requires_a_registered_pool(
-    tmp_path, monkeypatch, capsys
-):
+def test_license_prompt_accepts_auto_when_pool_preflight_is_negative(monkeypatch):
     monkeypatch.setattr(
         "engulf_clab_freeze.defrost.sys.stdin", MagicMock(isatty=lambda: True)
     )
-    monkeypatch.setattr("builtins.input", Mock(side_effect=["auto", str(tmp_path)]))
+    input_mock = Mock(return_value="auto")
+    monkeypatch.setattr("builtins.input", input_mock)
 
     answer = _ask_license("fgt", license_pools_registered=False)
 
-    assert answer == str(tmp_path)
-    assert "No license pool is registered" in capsys.readouterr().out
+    assert answer == "auto"
+    assert "defrost did not confirm a registered pool" in input_mock.call_args.args[0]
 
 
 def frozen_topology(

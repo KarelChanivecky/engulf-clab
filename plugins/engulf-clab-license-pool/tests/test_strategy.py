@@ -52,6 +52,10 @@ from engulf_clab_license_pool_api import (
     LicensePoolVariableType,
     PoolMetadata,
 )
+from engulf_clab_license_pool_lib import (
+    LICENSE_POOL_AVAILABILITY_CONTEXT,
+    LicensePoolAvailability,
+)
 from engulf_clab_schema_api import OptionKind, register_schema_arguments
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
@@ -347,6 +351,37 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
         # The fclab adapter consumes INIT_LICENSE_POOL_CONTEXT in before_goal
         # at priority 70, so the shared collector must run first.
         self.assertGreater(LicensePoolPlugin.priority, 70)
+
+    def test_defrost_publishes_pool_availability_from_owning_state(self) -> None:
+        state = MemoryState()
+        contexts: dict[str, object] = {}
+        api = Mock(spec=BeforeGoalAPI)
+        api.application = self._APPLICATION
+        api.state.return_value = state
+        api.lease.return_value = nullcontext()
+        api.get_context.return_value = None
+        api.set_context.side_effect = lambda key, value, **_kwargs: contexts.__setitem__(
+            key, value
+        )
+
+        with patch(
+            "engulf_clab_license_pool.plugin.LicensePoolManager"
+        ) as pool_manager:
+            pool_manager.return_value.registered_pools.return_value = (SimpleNamespace(),)
+            result = LicensePoolPlugin().before_goal(
+                Invocation(("defrost", "share.tar.gz"), Path("/labs"), {}), api
+            )
+
+        self.assertIsNone(result)
+        pool_manager.assert_called_once_with(state)
+        self.assertEqual(
+            contexts[LICENSE_POOL_AVAILABILITY_CONTEXT], LicensePoolAvailability(True)
+        )
+        api.set_context.assert_any_call(
+            LICENSE_POOL_AVAILABILITY_CONTEXT,
+            LicensePoolAvailability(True),
+            allow_unused=True,
+        )
 
     def test_metadata_resolution_precedence_and_optional_values(self) -> None:
         class Contributor:

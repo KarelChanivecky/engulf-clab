@@ -48,6 +48,7 @@ from engulf_clab_schema_api import RuntimeRequirement
 
 from .host_requirements import write_host_requirements
 from .images import freeze_images
+from .ownership import restore_sudo_ownership
 from .state import FreezeStateError, track_archive, tracked_archives
 
 # Fixed across every edition; must match license-pool's LicenseContract
@@ -468,6 +469,10 @@ def freeze(
             temporary_archive.chmod(0o755)
         track_archive(workspace, source_root, archive)
         temporary_archive.replace(archive)
+        restore_sudo_ownership(archive)
+        workspace_directory = getattr(workspace, "directory", None)
+        if isinstance(workspace_directory, Path):
+            restore_sudo_ownership(workspace_directory)
     return True
 
 

@@ -55,14 +55,20 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   an optional feature package. Defrost accepts formats 1, 2, and 3.
 - Replace a destination only when it carries this plugin's defrost record. The
   record keeps the removed freeze provenance beside the lab, never inside it.
+- Return sudo-generated archives, expanded trees, and freeze-plugin state to
+  `SUDO_UID`; retain the root-owned bundled Containerlab binary only after a
+  successful sudo-less setup. Ownership restoration must not follow symlinks.
 - Resolve licenses from `--eclab-license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
   `ECLAB_LICENSE`, then `--eclab-auto-license`, then an interactive prompt;
   accept `auto` as a registered-pool request and leave an unanswered marker
   for deploy. Never log, record, or embed a license value in an error message;
   name only the node, exactly as license-pool does.
-- On defrost, query registered pools through `engulf-clab-license-pool-lib`.
-  If frozen license prompts exist and no pool is registered, offer the existing
-  edition `init-license-pool` workflow before asking for per-node sources.
+- On defrost, consume the path-free `LicensePoolAvailability` invocation
+  context from `engulf-clab-license-pool-lib`; the license-pool plugin reads
+  its own state before freeze's `before_goal`. If frozen license prompts exist
+  and the registry is confirmed empty, offer the edition `init-license-pool`
+  workflow before asking for per-node sources. Do not inspect freeze-scoped
+  state to discover registered pools.
   Keep relative pool paths anchored to the caller's directory even though a
   self-extractor runs defrost from its temporary staging directory. After
   publication, point the recipient at the lab's `FREEZE-README.md`.

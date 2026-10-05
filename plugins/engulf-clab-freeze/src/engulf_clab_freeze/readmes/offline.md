@@ -32,6 +32,9 @@ service nodes generated from the frozen PKI catalog.
 
 $licenses
 
+Supply entitled vrnetlab VM images at deploy time with
+`--eclab-vrnetlab-image NODE=PATH` when the topology needs them.
+
 ## Operate
 
 Arguments replace the default deploy, for example:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import MagicMock, call, patch
 
 import tomllib
 from engulf_api import (
@@ -18,6 +18,10 @@ from engulf_clab_freeze.plugin import (
     PLUGIN_SCHEMA,
     FreezePlugin,
     _offer_license_pool_setup,
+)
+from engulf_clab_license_pool_lib import (
+    LICENSE_POOL_AVAILABILITY_CONTEXT,
+    LicensePoolAvailability,
 )
 from engulf_clab_schema_api import (
     SCHEMA_SOURCE_CONTEXT,
@@ -73,6 +77,7 @@ class FreezePluginTest(unittest.TestCase):
             group,
             {
                 "engulf_clab.schema": "preprocess=after; postprocess=none",
+                "engulf_clab.license_pool": "preprocess=before; postprocess=none",
                 "engulf_clab.image_build": "preprocess=before; postprocess=none",
                 "engulf_clab.vrnetlab_build": "preprocess=before; postprocess=none",
             },
@@ -81,9 +86,13 @@ class FreezePluginTest(unittest.TestCase):
         self.assertIn(DOCKER_IMAGE_PROVENANCE_CONTEXT, FreezePlugin.context_reads)
         self.assertIn(VRNETLAB_SOURCE_PROVENANCE_CONTEXT, FreezePlugin.context_reads)
         self.assertIn(
-            "engulf-clab-license-pool-lib>=0.1.0,<3",
+            LICENSE_POOL_AVAILABILITY_CONTEXT, FreezePlugin.context_reads
+        )
+        self.assertIn(
+            "engulf-clab-license-pool-lib>=0.2,<3",
             project["dependencies"],
         )
+        self.assertIn("engulf-clab-license-pool>=0.2,<1", project["dependencies"])
 
     def test_freeze_runs_before_the_wrapped_goal_and_returns_its_exit_code(
         self,
@@ -187,23 +196,18 @@ class FreezePluginTest(unittest.TestCase):
             ("defrost", "share.tar.gz", "--eclab-output", "demo"), Path("/labs"), {}
         )
 
-        with (
-            patch(
-                "engulf_clab_freeze.plugin.run_defrost_command", return_value=7
-            ) as command,
-            patch("engulf_clab_freeze.plugin.LicensePoolManager") as pool_manager,
-        ):
-            pool_manager.return_value.registered_pools.return_value = ()
+        with patch(
+            "engulf_clab_freeze.plugin.run_defrost_command", return_value=7
+        ) as command:
             result = FreezePlugin().before_goal(invocation, api)
 
         self.assertIsNotNone(result)
         assert result is not None
         self.assertIs(result.status, GoalResultStatus.COMPLETED)
         self.assertEqual(result.exit_code, 7)
-        # Format-2 contributors may resolve recipient user-scoped bindings, but
-        # defrost still reads no workspace state.
+        # Defrost uses its own state only for recipient setup. Pool availability
+        # comes from the owning plugin's invocation context.
         api.state.assert_called_once_with(StateScope.USER)
-        pool_manager.assert_called_once_with(api.state.return_value)
         api.leases.assert_called_once_with(("eclab-defrost:/labs/demo",))
         command.assert_called_once_with(
             ["share.tar.gz", "--eclab-output", "demo"],
@@ -213,15 +217,37 @@ class FreezePluginTest(unittest.TestCase):
             environment=invocation.environment,
             cwd=invocation.cwd,
             user_state=api.state.return_value.directory,
-            license_pools_registered=False,
-            setup_license_pool=ANY,
+            license_pools_registered=None,
+            setup_license_pool=None,
         )
         api.get_context.assert_has_calls(
             [
                 call(SCHEMA_SOURCE_CONTEXT),
                 call(SCHEMA_VRNETLAB_SOURCE_CONTEXT),
+                call(LICENSE_POOL_AVAILABILITY_CONTEXT, None),
             ]
         )
+
+    def test_defrost_uses_license_pool_availability_from_context(self) -> None:
+        api = MagicMock(spec=BeforeGoalAPI)
+        api.application = MagicMock(spec=ApplicationMetadata)
+        api.application.short_product_name = "fclab"
+        api.get_context.side_effect = lambda key, default=None: (
+            LicensePoolAvailability(True)
+            if key == LICENSE_POOL_AVAILABILITY_CONTEXT
+            else default
+        )
+        api.leases.return_value.__enter__.return_value = None
+        invocation = Invocation(("defrost", "share.tar.gz"), Path("/labs"), {})
+
+        with patch(
+            "engulf_clab_freeze.plugin.run_defrost_command", return_value=0
+        ) as command:
+            FreezePlugin().before_goal(invocation, api)
+
+        command.assert_called_once()
+        self.assertIs(command.call_args.kwargs["license_pools_registered"], True)
+        self.assertIsNone(command.call_args.kwargs["setup_license_pool"])
 
     def test_pool_setup_creates_path_then_initializes_pool_from_inside(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

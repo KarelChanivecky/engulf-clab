@@ -5,6 +5,11 @@ persisted registration/state mechanics. The product plugin owns the concrete
 selector, leases, topology mutation, copying, callbacks, and diagnostics. Do
 not add framework imports or hidden I/O to this package.
 
+Keep `LicensePoolAvailability` as a path-free, tri-state signal. The owning
+license-pool plugin reads its own registry and publishes that value during
+`before_goal`; consumers must use the invocation context instead of assuming
+that plugin-scoped state is shared.
+
 Validate with:
 
 ```bash

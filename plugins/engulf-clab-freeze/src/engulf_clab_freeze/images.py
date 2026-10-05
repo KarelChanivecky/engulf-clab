@@ -136,6 +136,11 @@ def _archive_source(
         ) from error
     if not isinstance(entries, list) or not entries:
         raise FreezeError(f"empty saved-image archive for {reference}")
+    selected_id = (
+        selected.removeprefix("sha256:")
+        if selected is not None and re.fullmatch(r"sha256:[a-f0-9]{64}", selected)
+        else None
+    )
     wanted = canonical_image_reference(selected or reference)
     matches = []
     for entry in entries:
@@ -144,7 +149,11 @@ def _archive_source(
         tags = entry.get("RepoTags") or []
         if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
             raise FreezeError(f"invalid saved-image tags for {reference}")
-        if wanted in {canonical_image_reference(tag) for tag in tags}:
+        config = entry.get("Config")
+        config_id = Path(config).stem if isinstance(config, str) else None
+        if wanted in {canonical_image_reference(tag) for tag in tags} or (
+            selected_id is not None and config_id == selected_id
+        ):
             matches.append(entry)
     if not matches and selected is None and len(entries) == 1:
         matches = entries
@@ -418,6 +427,25 @@ def freeze_images(
         path = _staged_input(item, source_root, staging)
         return path.relative_to(staging).as_posix() if path is not None else None
 
+    def staged_control(item: ImageInput) -> str | None:
+        """Preserve an existing copied directory control even if contents were excluded.
+
+        A build context such as `.` remains a meaningful recipient location when
+        freeze exclusions omit one of its files. Prompting for a replacement
+        directory loses the author's explicit path and asks for a value even
+        though that directory is already present in the expanded lab.
+        """
+        available = relative_input(item)
+        if available is not None:
+            return available
+        path = item.path
+        if path is None or not path.is_relative_to(source_root):
+            return None
+        copied = staging / path.relative_to(source_root)
+        if path.is_dir() and copied.is_dir():
+            return path.relative_to(source_root).as_posix() or "."
+        return None
+
     def plan(reference: str) -> None:
         reference = canonical_image_reference(reference)
         if reference in visiting:
@@ -472,7 +500,7 @@ def freeze_images(
                 action="external", reason="recipient supplies acquisition inputs"
             )
             for item in source.inputs:
-                staged_input = relative_input(item)
+                staged_input = staged_control(item)
                 if staged_input is not None and (
                     not item.artifact or source.kind == "archive"
                 ):

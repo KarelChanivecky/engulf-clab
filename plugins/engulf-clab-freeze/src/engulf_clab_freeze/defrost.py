@@ -47,6 +47,7 @@ from .command import (
     _state_prefix,
 )
 from .host_requirements import _checker_script
+from .ownership import restore_sudo_ownership
 
 # Keys the recipient's plugins read back. They use the fixed `ECLAB` prefix for
 # exactly the reason freeze writes it: engulf-clab-license-pool and
@@ -261,6 +262,7 @@ def defrost(
     replacing = _check_destination(into, record_name, force=force)
     notes: list[str] = []
     attached_runtime_venv = False
+    sudoless_enabled = False
     with tempfile.TemporaryDirectory(prefix=".eclab-defrost-", dir=into.parent) as work:
         temporary_root = Path(work)
         root = _extract(archive, temporary_root / "staging")
@@ -440,11 +442,23 @@ def defrost(
             )
             if attached_runtime_venv:
                 _relocate_virtual_environment(into / ".eclab-venv")
+            if mode == "runtime":
+                sudoless_enabled = _offer_runtime_sudoless(
+                    into, edition, current_environment, notes
+                )
     elif prepare_runtime:
         _prepare_runtime(into, notes, offline=offline)
     _write_record(
         into / record_name, archive, topology_path.relative_to(root), metadata, notes
     )
+    preserved = (
+        (into / ".eclab-venv" / "bin" / "containerlab",)
+        if sudoless_enabled
+        else ()
+    )
+    restore_sudo_ownership(into, preserve=preserved)
+    if user_state is not None:
+        restore_sudo_ownership(user_state)
     _log(logger, f"expanded {archive.name} into {into}")
     for note in notes:
         _log(logger, note)
@@ -508,6 +522,91 @@ def _report_host_dependencies(
             _warn(logger, message.removeprefix("WARNING: "))
     if result.returncode:
         _log(logger, f"host dependency report exited with status {result.returncode}")
+
+
+def _offer_runtime_sudoless(
+    root: Path,
+    edition: str,
+    environment: Mapping[str, str],
+    notes: list[str],
+) -> bool:
+    """Offer the recipient the existing sudo-based setup for bundled Containerlab."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(
+            "Set up bundled Containerlab for sudo-less use (grants root-equivalent "
+            "Containerlab and Docker access)? [y/N]: "
+        )
+    except EOFError:
+        return False
+    if answer.strip().casefold() not in {"y", "yes"}:
+        return False
+
+    venv = root / ".eclab-venv"
+    executable = venv / "bin" / edition
+    binary = venv / "bin" / "containerlab"
+    if not executable.is_file() or not binary.is_file():
+        notes.append("could not configure sudo-less access: bundled runtime is incomplete")
+        return False
+    child_environment = dict(environment)
+    child_environment["CONTAINERLAB_BIN"] = str(binary)
+    child_environment["PATH"] = str(venv / "bin") + os.pathsep + child_environment.get(
+        "PATH", ""
+    )
+    command = [str(executable), "sudoless"]
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        try:
+            import pwd
+
+            invoking_uid = int(environment["SUDO_UID"])
+            if invoking_uid <= 0:
+                raise ValueError("SUDO_UID must identify an unprivileged user")
+            recipient = pwd.getpwuid(invoking_uid)
+        except (ImportError, KeyError, ValueError) as error:
+            notes.append(f"could not identify the sudo invoker for sudo-less setup: {error}")
+            return False
+        # Make the extracted venv accessible before switching to the invoking
+        # user. The second ownership pass below preserves the SUID binary.
+        try:
+            restore_sudo_ownership(root)
+        except OSError as error:
+            notes.append(f"could not prepare runtime ownership for sudo-less setup: {error}")
+            return False
+        command = [
+            "sudo",
+            "-u",
+            recipient.pw_name,
+            "--",
+            "env",
+            f"HOME={recipient.pw_dir}",
+            f"PATH={child_environment['PATH']}",
+            f"CONTAINERLAB_BIN={binary}",
+            str(executable),
+            "sudoless",
+        ]
+        child_environment = {
+            "PATH": child_environment["PATH"],
+            "HOME": recipient.pw_dir,
+            "CONTAINERLAB_BIN": str(binary),
+        }
+    try:
+        result = subprocess.run(
+            command,
+            cwd=root,
+            env=child_environment,
+            check=False,
+        )
+    except OSError as error:
+        notes.append(f"could not start sudo-less setup: {error}")
+        return False
+    if result.returncode:
+        notes.append(
+            f"sudo-less setup exited with status {result.returncode}; "
+            "the bundled Containerlab remains available without it"
+        )
+        return False
+    return True
 
 
 def _resolve(base: Path, value: str) -> Path:
@@ -1257,8 +1356,9 @@ def _resolve_licenses(
         )
     if automatic and license_pools_registered is False:
         notes.append(
-            "automatic license selection was requested, but no license pool is "
-            "registered; register one before deploying this lab"
+            "automatic license selection was requested; defrost did not confirm a "
+            "registered pool, so the active license provider will verify availability "
+            "when the lab is deployed"
         )
     elif automatic and license_pools_registered is True:
         notes.append(
@@ -1297,7 +1397,7 @@ def _license_value(node_name: str, answer: str) -> str:
 def _ask_license(
     node_name: str, *, license_pools_registered: bool | None = None
 ) -> str | None:
-    """Ask an interactive recipient for one node's license file, pool, or variable."""
+    """Ask for one node's license input; pool availability is advisory here."""
     if not sys.stdin.isatty():
         return None
     while True:
@@ -1305,8 +1405,8 @@ def _ask_license(
             answer = input(
                 f"License for node {node_name} "
                 + (
-                    "(file, pool directory, $VARIABLE, or empty to set later; "
-                    "no registered pool is available for auto): "
+                    "(auto, file, pool directory, $VARIABLE, or empty to set later; "
+                    "defrost did not confirm a registered pool): "
                     if license_pools_registered is False
                     else "(auto, file, pool directory, $VARIABLE, or empty to set later): "
                 )
@@ -1316,12 +1416,6 @@ def _ask_license(
         value = answer.strip()
         if not value:
             return None
-        if value.casefold() == "auto" and license_pools_registered is False:
-            print(
-                'No license pool is registered, so "auto" cannot allocate a license. '
-                "Enter a file, pool directory, $VARIABLE, or leave it for deployment."
-            )
-            continue
         if (
             value.casefold() == "auto"
             or value.startswith("$")

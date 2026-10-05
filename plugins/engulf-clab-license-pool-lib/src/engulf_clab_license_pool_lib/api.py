@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from .allocation import (
     AllocationRequest,
@@ -12,6 +12,34 @@ from .allocation import (
     PoolState,
     RegisteredPool,
 )
+
+LICENSE_POOL_AVAILABILITY_CONTEXT = "engulf_clab.license_pool.availability"
+
+
+@dataclass(frozen=True, slots=True)
+class LicensePoolAvailability:
+    """Read-only registration status published from the owning namespace."""
+
+    registered: bool | None
+
+    def __post_init__(self) -> None:
+        if self.registered is not None and type(self.registered) is not bool:
+            raise TypeError("registered must be a bool or None")
+
+
+def publish_license_pool_availability(api: Any, value: LicensePoolAvailability) -> None:
+    """Publish pool availability without exposing registered paths."""
+    if not isinstance(value, LicensePoolAvailability):
+        raise TypeError("value must be a LicensePoolAvailability")
+    api.set_context(LICENSE_POOL_AVAILABILITY_CONTEXT, value, allow_unused=True)
+
+
+def license_pool_availability(api: Any) -> LicensePoolAvailability | None:
+    """Read registration status published by the license-pool plugin."""
+    value = api.get_context(LICENSE_POOL_AVAILABILITY_CONTEXT, None)
+    if value is not None and not isinstance(value, LicensePoolAvailability):
+        raise TypeError("invalid license-pool availability context")
+    return value
 
 
 @dataclass(frozen=True, slots=True)

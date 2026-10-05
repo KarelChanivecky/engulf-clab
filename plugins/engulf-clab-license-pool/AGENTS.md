@@ -45,6 +45,9 @@ through the shared topology editor.
   Keep the collector's `before_goal` priority above edition adapters that read
   `INIT_LICENSE_POOL_CONTEXT` in their own `before_goal`; packaging lifecycle
   edges do not order these callbacks.
+- On `defrost`, publish path-free pool availability after reading this plugin's
+  user-scoped registry under its lease. Consumers must use the shared
+  invocation context because plugin-scoped state is private.
 - Match registered pools against the effective node `kind`. Explicit
   `ECLAB_AUTO_LICENSE` always requests automatic allocation; an unresolved
   license `$VARIABLE` requests it unless effective node env sets
