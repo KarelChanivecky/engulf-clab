@@ -27,12 +27,15 @@ topology session.
 - Carry source-provider IDs and staged qcow2 fingerprints into the separate
   `VRNETLAB_SOURCE_PROVENANCE_CONTEXT`, keyed by topology node; never put source
   attribution into Docker image provider provenance.
+- Persist and report a source path only when its provider explicitly opts in
+  with the source API's `persist_source_path=True`; the static image provider
+  opts in for its stable local input paths.
 - Log each source-backed node's requested image, resolved source path, source
   provider ID, and Docker image provider ID through callback-bound logging;
-  never persist the local path.
+  do not persist paths from providers that have not opted in.
 - Hydrate this registry on every call and persist successful deploy/redeploy
-  snapshots in workspace state without local source paths. Publish through the
-  API helper so the context remains optional when no consumer is installed.
+  snapshots in workspace state. Publish through the API helper so the context
+  remains optional when no consumer is installed.
 - Keep reads of `ECLAB_VRNETLAB_TYPE` internal to selecting the vrnetlab
   builder directory; user-facing syntax remains declared by providers.
 - Do not declare source flags, environment aliases, node controls, completion,

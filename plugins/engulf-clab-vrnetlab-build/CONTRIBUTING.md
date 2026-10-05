@@ -37,10 +37,11 @@ the new tag and include Docker's error detail in a warning. Cleanup failure
 alone must not turn a successful image build into a rollback.
 After successful source-backed builds, publish a
 `VrnetlabSourceProvenanceSnapshot` with one record per selected node, source
-provider, and input fingerprint. Keep local paths out of this snapshot. The
-vrnetlab builder owns hydration and persistence of this registry; the Docker
-image-build adapter persists only Docker image provider resolution. Publish the
-vrnetlab snapshot with its API helper so it remains optional when no consumer is
+provider, and input fingerprint. Carry a source path into the snapshot only
+when that provider opted in with `persist_source_path=True`; this is intended
+for stable paths such as the static image provider's input. The vrnetlab
+builder owns hydration and persistence of this registry; the Docker image-build
+adapter persists only Docker image provider resolution. Publish the vrnetlab
+snapshot with its API helper so it remains optional when no consumer is
 installed. Log the resolved source path, requested image, source-provider ID,
-and `VRNETLAB_PROVIDER_ID` during preparation through the callback-bound logger;
-do not persist the local path.
+and `VRNETLAB_PROVIDER_ID` during preparation through the callback-bound logger.

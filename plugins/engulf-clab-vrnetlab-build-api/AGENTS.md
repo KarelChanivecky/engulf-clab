@@ -14,7 +14,9 @@ the single builder. Preserve its public context ID and setter semantics.
   methods for source declarations, coverage queries, and build-job limits.
 - Attribute each source with `source_provider_id` when known. The builder
   publishes these node-level records in `VRNETLAB_SOURCE_PROVENANCE_CONTEXT`,
-  separate from Docker image provider provenance; never persist the source path.
+  separate from Docker image provider provenance. Source paths are omitted from
+  that registry by default; providers may request persistence for diagnostics
+  with `persist_source_path=True` when their paths are stable and useful.
 - The default node name for `VrnetlabBuildAPI.set_image_source()` is `default`;
   builder lookup checks a node-specific entry before that default.
 - `unprovisioned_nodes()` receives the candidate nodes from its caller and

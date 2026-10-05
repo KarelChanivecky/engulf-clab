@@ -191,7 +191,7 @@ PLUGIN_SCHEMA = (
     .route(
         "build-vrnetlab-image",
         "USAGE.md",
-        "Read image-source precedence, builder layout, and fingerprint behavior.",
+        "Read image-source precedence, Docker cache behavior, and inspect provenance.",
     )
     .refer("USAGE.md")
 )
@@ -356,7 +356,11 @@ class VrnetlabPlugin(SchemaBackedPlugin):
             ):
                 source = sources[0]
                 assert source is not None
-                build_api.set_image_source(source, source_provider_id=PLUGIN_ID)
+                build_api.set_image_source(
+                    source,
+                    source_provider_id=PLUGIN_ID,
+                    persist_source_path=True,
+                )
             else:
                 for request in requests:
                     if request.source is not None:
@@ -364,6 +368,7 @@ class VrnetlabPlugin(SchemaBackedPlugin):
                             request.source,
                             request.node_name,
                             source_provider_id=PLUGIN_ID,
+                            persist_source_path=True,
                         )
             api.logger.debug("published vrnetlab sources from topology %s", topology_path)
         except (

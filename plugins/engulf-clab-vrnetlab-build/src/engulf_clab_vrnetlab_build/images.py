@@ -452,6 +452,11 @@ def ensure_images(
                 builder_type=request.builder_type,
                 source_provider_id=request.source_provider_id,
                 source_sha256=prepared_by_image[request.image].source_sha256,
+                source_path=(
+                    str(request.source)
+                    if request.persist_source_path and request.source is not None
+                    else None
+                ),
             )
             for request in source_requests
         )

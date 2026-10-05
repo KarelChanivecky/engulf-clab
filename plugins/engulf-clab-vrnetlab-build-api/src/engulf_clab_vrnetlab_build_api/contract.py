@@ -17,12 +17,13 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 @dataclass(frozen=True, slots=True)
 class VrnetlabSourceProvenance:
-    """Source-provider attribution for one opted-in topology node."""
+    """Source attribution and an optional diagnostic path for one node."""
 
     node_name: str
     builder_type: str
     source_provider_id: str | None
     source_sha256: str
+    source_path: str | None = None
 
     def __post_init__(self) -> None:
         _validate_node_name(self.node_name)
@@ -40,6 +41,12 @@ class VrnetlabSourceProvenance:
             self.source_sha256
         ):
             raise ValueError("vrnetlab source provenance must contain a lowercase SHA-256")
+        if self.source_path is not None and (
+            not isinstance(self.source_path, str)
+            or not Path(self.source_path).is_absolute()
+            or "\0" in self.source_path
+        ):
+            raise ValueError("vrnetlab source provenance path must be absolute and NUL-free")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +84,7 @@ class VrnetlabBuildContext:
     def __init__(self) -> None:
         self._sources: dict[str, Path] = {}
         self._source_provider_ids: dict[str, str] = {}
+        self._persist_source_paths: dict[str, bool] = {}
         self._max_workers: int | None = None
         self._lock = RLock()
 
@@ -86,6 +94,7 @@ class VrnetlabBuildContext:
         node_name: str = DEFAULT_NODE_NAME,
         *,
         source_provider_id: str | None = None,
+        persist_source_path: bool = False,
         override: bool = False,
     ) -> None:
         """Publish a source, replacing an existing node only when requested."""
@@ -94,6 +103,8 @@ class VrnetlabBuildContext:
             raise ValueError("vrnetlab source path must be an absolute Path")
         if source_provider_id is not None:
             validate_global_identifier(source_provider_id, label="source_provider_id")
+        if type(persist_source_path) is not bool:
+            raise TypeError("persist_source_path must be a bool")
         if type(override) is not bool:
             raise TypeError("override must be a bool")
         with self._lock:
@@ -106,6 +117,7 @@ class VrnetlabBuildContext:
                 self._source_provider_ids.pop(node_name, None)
             else:
                 self._source_provider_ids[node_name] = source_provider_id
+            self._persist_source_paths[node_name] = persist_source_path
 
     def _unprovisioned_nodes(self, node_names: Iterable[str]) -> tuple[str, ...]:
         """Return candidates with neither an exact-node nor default source."""
@@ -141,6 +153,11 @@ class VrnetlabBuildContext:
                 return self._source_provider_ids.get(node_name)
             return self._source_provider_ids.get(DEFAULT_NODE_NAME)
 
+    def _persist_source_path_for(self, node_name: str) -> bool:
+        with self._lock:
+            source_key = node_name if node_name in self._sources else DEFAULT_NODE_NAME
+            return self._persist_source_paths.get(source_key, False)
+
     def sources(self) -> Mapping[str, Path]:
         with self._lock:
             return MappingProxyType(dict(self._sources))
@@ -175,13 +192,15 @@ class VrnetlabBuildAPI:
         node_name: str = DEFAULT_NODE_NAME,
         *,
         source_provider_id: str | None = None,
+        persist_source_path: bool = False,
         override: bool = False,
     ) -> None:
-        """Publish a path and optional source-provider ID for one node."""
+        """Publish a path and attribution, optionally retaining its path for diagnostics."""
         self._context._set_source(
             path,
             node_name,
             source_provider_id=source_provider_id,
+            persist_source_path=persist_source_path,
             override=override,
         )
 
@@ -197,6 +216,11 @@ class VrnetlabBuildAPI:
         """Return the provider ID for the exact or default source declaration."""
         _validate_node_name(node_name)
         return self._context._source_provenance_for(node_name)
+
+    def persists_source_path_for(self, node_name: str) -> bool:
+        """Return whether provenance for the exact or default source includes its path."""
+        _validate_node_name(node_name)
+        return self._context._persist_source_path_for(node_name)
 
     def uses_default_source(self, node_name: str) -> bool:
         """Return whether source lookup for a node falls back to `default`."""

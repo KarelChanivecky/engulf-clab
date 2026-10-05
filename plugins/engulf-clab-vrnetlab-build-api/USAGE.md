@@ -24,6 +24,7 @@ build_api.set_image_source(
     Path("/var/tmp/router.qcow2"),
     "router-1",
     source_provider_id="org.engulf.clab.router_source",
+    persist_source_path=True,
 )
 pending = build_api.unprovisioned_nodes(("router-1", "router-2"))
 # pending == ("router-2",)
@@ -47,9 +48,12 @@ build_api.set_build_jobs(2)
 `source_provider_id` is the globally unique plugin ID that selected or created
 the published input. Pass the same ID for every value from that provider. The
 shared builder records the selected source provider, node, builder type, and
-qcow2 SHA-256 in the separate vrnetlab source-provenance registry. It does not
-persist the local source path. Docker image provider provenance is a different
-registry and records the provider selected to resolve each Docker image.
+qcow2 SHA-256 in the separate vrnetlab source-provenance registry. A provider
+may pass `persist_source_path=True` when publishing a stable path that is useful
+for later diagnostics; the builder then stores it in workspace provenance and
+includes it in `eclab inspect` output. The default is false. Docker image
+provider provenance is a different registry and records the provider selected
+to resolve each Docker image.
 
 Read the restored or current source records with
 `vrnetlab_source_provenance(api)`. Declare

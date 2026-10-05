@@ -188,14 +188,26 @@ def _report_inspect_vrnetlab_provenance(
         return
     api.logger.info("vrnetlab image source provenance:")
     for source, image in records:
-        api.logger.info(
-            "  node %s image=%s: builder=%s provider=%s source_sha256=%s",
-            source.node_name,
-            image,
-            source.builder_type,
-            source.source_provider_id or "external",
-            source.source_sha256,
-        )
+        if source.source_path is None:
+            api.logger.info(
+                "  node %s image=%s: builder=%s provider=%s source_sha256=%s",
+                source.node_name,
+                image,
+                source.builder_type,
+                source.source_provider_id or "external",
+                source.source_sha256,
+            )
+        else:
+            api.logger.info(
+                "  node %s image=%s: builder=%s provider=%s source_path=%s "
+                "source_sha256=%s",
+                source.node_name,
+                image,
+                source.builder_type,
+                source.source_provider_id or "external",
+                source.source_path,
+                source.source_sha256,
+            )
 
 
 plugin = VrnetlabBuilderPlugin()

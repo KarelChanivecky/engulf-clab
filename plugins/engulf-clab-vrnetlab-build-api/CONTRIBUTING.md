@@ -14,10 +14,13 @@ documented source precedence authorizes that replacement. `source_for(node)`
 applies exact-node then default fallback, and `source_provenance_for(node)`
 returns the matching `source_provider_id` using the same rule. Publish the
 globally unique source-provider plugin ID with each source; an override without
-an ID clears the previous attribution. `sources()` returns an immutable path
-snapshot. `unprovisioned_nodes(names)` filters caller-supplied candidate names
-using the same exact-node/default coverage rule. It reports missing source
-declarations, not Docker build status. `uses_default_source(node)` reports
+an ID clears the previous attribution. `persist_source_path=True` asks the
+builder to include this source's absolute path in persisted source provenance
+for diagnostics; leave it false for temporary or sensitive paths. `sources()`
+returns an immutable path snapshot. `unprovisioned_nodes(names)` filters
+caller-supplied candidate names using the same exact-node/default coverage rule.
+It reports missing source declarations, not Docker build status.
+`uses_default_source(node)` reports
 whether lookup falls through to the default key and lets the builder validate
 the common builder-type invariant.
 
@@ -28,9 +31,10 @@ objects inside it. Keep values transportable: absolute `Path` values, node
 names, and a positive integer job count only.
 
 Do not import `engulf`; this public API depends only on `engulf-api`. Keep
-context IDs globally unique and stable across releases. Do not store or persist
-local source paths outside the invocation context. The builder publishes
-vrnetlab source attribution by node in its own registry; Docker image provider
-resolution is tracked independently by `engulf-docker-image-api`. Providers
-should declare the builder plugin as a packaging dependency and order themselves
-ahead of it in preprocessing so all paths are present before it runs.
+context IDs globally unique and stable across releases. The invocation context
+does not persist paths. The builder persists a source path only when its
+provider explicitly opts in, and publishes vrnetlab source attribution by node
+in its own registry; Docker image provider resolution is tracked independently
+by `engulf-docker-image-api`. Providers should declare the builder plugin as a
+packaging dependency and order themselves ahead of it in preprocessing so all
+paths are present before it runs.

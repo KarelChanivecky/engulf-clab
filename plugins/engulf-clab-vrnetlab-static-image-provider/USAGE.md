@@ -139,21 +139,22 @@ member, retaining its basename for builder tag logic.
 During preparation, this provider resolves and publishes source paths, its
 plugin ID as their provenance, and the validated job limit. The shared builder
 runs next and records source-provider attribution in the separate vrnetlab
-source-provenance registry. Docker image provenance records the Docker provider
-that resolves the image, independently of this source selection. The builder
-pairs those paths
-with opted-in node images and builder types, and constructs missing images. It
-also registers one `VrnetlabBuildRecipe` adapter with the image-build graph so
-any tag still missing at graph resolution can be built from the same request.
-The builder serializes work sharing a builder directory and restores prior
-Docker tags and builder qcow2 files after builds.
+source-provenance registry. This provider opts in to persisting the resolved
+source path so `eclab inspect -t TOPOLOGY` can report it beside the source
+provider and checksum. The path is stored in workspace provenance and appears
+in callback logs; treat both as host-path data. Docker image provenance records
+the Docker provider that resolves the image, independently of this source
+selection. The builder pairs those paths with opted-in node images and builder
+types, runs the selected vrnetlab Makefile, and registers one
+`VrnetlabBuildRecipe` adapter with the image-build graph. It serializes work
+sharing a builder directory and restores prior Docker tags and builder qcow2
+files after builds.
 
-A fingerprint covers the requested image, source checksum and basename,
-checkout identity, and builder type. A matching record plus an existing
-requested Docker tag allows reuse. Otherwise the builder safely stages the
-input for Make, moves aside and restores pre-existing builder qcow2 files,
-removes stale `docker/*.qcow2*` artifacts around the build, and records the
-fingerprint after the requested tag exists. It never modifies or updates the
+Each source-backed deploy or redeploy invokes the selected vrnetlab Makefile.
+Docker decides whether its build cache can be reused or whether the current
+inputs require a rebuild. The builder safely stages the input, moves aside and
+restores pre-existing builder qcow2 files, and removes stale
+`docker/*.qcow2*` artifacts around the build. It never modifies or updates the
 checkout outside those temporary build inputs.
 
 Builders in different directories may run concurrently up to the configured job
@@ -164,9 +165,8 @@ involved builder while provisioning.
 
 After Make succeeds, the native builder tag remains and the exact topology
 image tag is added when different. Use a requested tag unique to the lab:
-Docker tags and fingerprints are host-global, so sharing a mutable requested
-tag couples otherwise independent labs. Destroy removes neither images nor
-fingerprint history.
+Docker tags are host-global, so sharing a mutable requested tag couples
+otherwise independent labs. Destroy does not remove built images.
 
 ## Security and MCP
 
@@ -193,8 +193,8 @@ recipient supplies the VM input and rebuilds locally.
   at the topology directory.
 - Use one build job to isolate resource pressure. Same-directory builders are
   serialized regardless.
-- Unexpected rebuilds mean the requested tag is absent or a source, checkout,
-  type, tag, or fingerprint input changed.
+- Each source-backed deploy or redeploy invokes Make. Docker decides whether its
+  build cache can be reused from the current build inputs.
 - If a stale `docker/*.qcow2*` artifact cannot be removed, fix ownership or
   permissions on the checkout; the build fails rather than working around it.
 - Preserve diagnostics after failure; original builder inputs should be restored

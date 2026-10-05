@@ -47,6 +47,7 @@ def _source_from_state(value: Any) -> VrnetlabSourceProvenance:
         builder_type=value.get("builder_type"),
         source_provider_id=value.get("source_provider_id"),
         source_sha256=value.get("source_sha256"),
+        source_path=value.get("source_path"),
     )
 
 
@@ -54,23 +55,25 @@ def save_source_provenance(
     api: InvocationAPI,
     snapshot: VrnetlabSourceProvenanceSnapshot,
 ) -> None:
-    sources = [
-        {
+    sources: list[dict[str, str | None]] = []
+    for source in sorted(
+        snapshot.sources,
+        key=lambda item: (
+            item.node_name,
+            item.builder_type,
+            item.source_provider_id or "",
+            item.source_sha256,
+        ),
+    ):
+        record: dict[str, str | None] = {
             "node_name": source.node_name,
             "builder_type": source.builder_type,
             "source_provider_id": source.source_provider_id,
             "source_sha256": source.source_sha256,
         }
-        for source in sorted(
-            snapshot.sources,
-            key=lambda item: (
-                item.node_name,
-                item.builder_type,
-                item.source_provider_id or "",
-                item.source_sha256,
-            ),
-        )
-    ]
+        if source.source_path is not None:
+            record["source_path"] = source.source_path
+        sources.append(record)
     document = {"version": _STATE_VERSION, "sources": sources}
     state = api.state(StateScope.WORKSPACE)
     with state.transaction() as locked:

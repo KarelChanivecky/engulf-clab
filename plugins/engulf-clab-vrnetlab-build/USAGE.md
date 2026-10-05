@@ -39,16 +39,21 @@ For local source syntax, install `engulf-clab-vrnetlab-static-image-provider`
 and read its `USAGE.md`. Other providers may create or download sources and
 publish their paths and plugin IDs through the same API. The builder publishes
 per-node source-provider IDs, builder types, and qcow2 SHA-256 values in
-`VRNETLAB_SOURCE_PROVENANCE_CONTEXT`; it persists no source paths. The Docker
-image-build adapter separately records which Docker provider resolved each
-image. During preparation, an informational log records each source-backed
-node's requested Docker image, resolved source path, source-provider ID, and
-the Docker image provider ID (`org.engulf.docker.vrnetlab-build`). Nodes using
-an already-installed image without a source are logged as having no vrnetlab
-image provider selected. Dynamic `eclab --help` and the plugin list show which
-providers are installed for the selected edition.
+`VRNETLAB_SOURCE_PROVENANCE_CONTEXT`. Providers may opt in to persisting their
+resolved path with `persist_source_path=True`; the static image provider does
+this so inspect can show which local input it used. Other providers omit paths
+by default. The Docker image-build adapter separately records which Docker
+provider resolved each image. During preparation, an informational log records
+each source-backed node's requested Docker image, resolved source path,
+source-provider ID, and the Docker image provider ID
+(`org.engulf.docker.vrnetlab-build`). Nodes using an already-installed image
+without a source are logged as having no vrnetlab image provider selected.
+Dynamic `eclab --help` and the plugin list show which providers are installed
+for the selected edition.
 
 After a successful single-lab `eclab inspect -t TOPOLOGY`, eclab reports the
 persisted node and image reference, vrnetlab builder type, source-provider ID,
-and source SHA-256 for each vrnetlab image in that lab. It does not expose the
-source path.
+and source SHA-256 for each vrnetlab image in that lab. When a provider opted in
+to path persistence, the report also includes `source_path`. The static image
+provider opts in; other providers do not unless they choose to. That path is
+stored in workspace provenance and is also shown in the inspect output.

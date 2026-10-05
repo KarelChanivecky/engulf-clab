@@ -22,6 +22,7 @@ class BuildRequest:
     builder_type: str
     source: Path | None
     source_provider_id: str | None = None
+    persist_source_path: bool = False
 
 
 def resolve_image_expression(value: str, environ: Mapping[str, str]) -> str:
@@ -82,6 +83,11 @@ def build_requests_from_topology(
                     None
                     if build_api is None
                     else build_api.source_provenance_for(node.name)
+                ),
+                persist_source_path=(
+                    False
+                    if build_api is None
+                    else build_api.persists_source_path_for(node.name)
                 ),
             )
         )
