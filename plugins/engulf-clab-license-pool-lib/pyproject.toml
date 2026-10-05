@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-license-pool-lib"
-version = "0.1.1"
+version = "0.2.2"
 description = "Reusable license-pool allocation library for engulf-clab integrations"
 readme = "README.md"
 requires-python = ">=3.12"
