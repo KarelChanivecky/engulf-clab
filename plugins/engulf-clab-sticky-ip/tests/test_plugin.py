@@ -49,7 +49,7 @@ _APPLICATION = ApplicationMetadata(
 
 
 class PluginTest(unittest.TestCase):
-    def test_unavailable_probe_allows_managed_and_explicit_subnets_with_info(self) -> None:
+    def test_unavailable_probe_warns_but_allows_managed_and_explicit_subnets(self) -> None:
         subnet = ipaddress.ip_network("10.70.0.0/24")
         for explicit in (False, True):
             with self.subTest(explicit=explicit):
@@ -75,13 +75,45 @@ class PluginTest(unittest.TestCase):
                         logger=logger,
                     )
                 self.assertEqual(plan.subnet, subnet)
-                logger.info.assert_called_once_with(
-                    "Skipping sticky IP network probe verification: %s", unavailable
+                logger.warning.assert_called_once_with(
+                    "Sticky IP availability probe for %s %s; continuing deployment: %s",
+                    subnet,
+                    "verification is unavailable",
+                    unavailable,
                 )
-                logger.warning.assert_not_called()
                 logger.error.assert_not_called()
 
-    def test_windows_stub_logs_info_through_preparation_callback(self) -> None:
+    def test_pending_claim_does_not_block_a_new_plan_for_the_same_lab(self) -> None:
+        pending = self.allocation(
+            "old-pending", "lab-key", "10.60.0.0/24", "pending"
+        )
+        registry = Registry(
+            4,
+            1,
+            {"ipv4": (0, -1), "ipv6": (0, -1)},
+            (pending,),
+        )
+        request = TopologyRequest(
+            "lab",
+            Family.IPV4,
+            ("a",),
+            None,
+            ipaddress.ip_network("10.60.0.0/24"),
+            {"a": ipaddress.ip_address("10.60.0.10")},
+        )
+        with patch("engulf_clab_sticky_ip.plugin._probe_candidate", return_value=False):
+            plan = _allocation_plan(
+                registry,
+                parse_config({}),
+                request,
+                Path("/tmp/lab"),
+                "lab-key",
+                HostInventory((), ()),
+                destructive=False,
+            )
+        self.assertEqual(str(plan.subnet), "10.60.0.0/24")
+
+    def test_windows_stub_logs_warning_through_preparation_callback(self) -> None:
         api = Mock(spec=InvocationAPI)
         api.require_context.return_value = TopologySession(
             Path("/tmp/lab/lab.clab.yml"), {"name": "lab", "topology": {"nodes": {"a": {}}}}
@@ -103,9 +135,10 @@ class PluginTest(unittest.TestCase):
                 PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL), api
             )
         record.assert_called_once()
-        api.logger.info.assert_called_once()
-        self.assertIn("Windows", str(api.logger.info.call_args.args[1]))
-        api.logger.warning.assert_not_called()
+        api.logger.warning.assert_called_once()
+        self.assertIn("Windows", str(api.logger.warning.call_args.args[3]))
+        self.assertIn("continuing deployment", str(api.logger.warning.call_args.args[0]))
+        api.logger.info.assert_not_called()
 
     def test_unavailable_probe_keeps_host_route_checks(self) -> None:
         request = TopologyRequest("lab", Family.IPV4, ("a",), None, None, {})
@@ -125,19 +158,23 @@ class PluginTest(unittest.TestCase):
                 logger=logger,
             )
         self.assertEqual(str(plan.subnet), "10.70.1.0/24")
-        logger.info.assert_called_once()
+        logger.warning.assert_called_once()
 
-    def test_unexpected_probe_failure_is_not_skipped(self) -> None:
+    def test_probe_failure_warns_and_does_not_block_candidate(self) -> None:
         logger = Mock(spec=PluginLogger)
-        with (
-            patch(
-                "engulf_clab_sticky_ip.plugin.probe_candidate", side_effect=HostCheckError("failed")
-            ),
-            self.assertRaises(HostCheckError),
+        candidate = ipaddress.ip_network("10.70.0.0/24")
+        failure = HostCheckError("failed")
+        with patch(
+            "engulf_clab_sticky_ip.plugin.probe_candidate", side_effect=failure
         ):
-            _probe_candidate(ipaddress.ip_network("10.70.0.0/24"), own_addresses=(), logger=logger)
+            self.assertIsNone(_probe_candidate(candidate, own_addresses=(), logger=logger))
         logger.info.assert_not_called()
-        logger.warning.assert_not_called()
+        logger.warning.assert_called_once_with(
+            "Sticky IP availability probe for %s %s; continuing deployment: %s",
+            candidate,
+            "verification failed",
+            failure,
+        )
 
 
     def test_host_requirements_only_declare_docker_and_ip(self) -> None:
@@ -264,7 +301,7 @@ class PluginTest(unittest.TestCase):
         )
         self.assertIsNone(contribution)
 
-    def test_new_allocation_skips_host_conflict_and_sets_fixed_slots(self) -> None:
+    def test_probe_response_warns_but_new_allocation_keeps_fixed_slots(self) -> None:
         config = parse_config({"ECLAB_STICKY_IPV4_POOL": "10.70.0.0/23"})
         request = TopologyRequest(
             "lab",
@@ -275,10 +312,8 @@ class PluginTest(unittest.TestCase):
             {},
         )
         inventory = HostInventory((), ())
-        with patch(
-            "engulf_clab_sticky_ip.plugin.probe_candidate",
-            side_effect=(True, False),
-        ):
+        logger = Mock(spec=PluginLogger)
+        with patch("engulf_clab_sticky_ip.plugin.probe_candidate", return_value=True):
             plan = _allocation_plan(
                 Registry.empty(),
                 config,
@@ -287,10 +322,46 @@ class PluginTest(unittest.TestCase):
                 "lab-key",
                 inventory,
                 destructive=False,
+                logger=logger,
             )
 
-        self.assertEqual(plan.subnet, ipaddress.ip_network("10.70.1.0/24"))
-        self.assertEqual(plan.node_ips, {"a": "10.70.1.2", "b": "10.70.1.3"})
+        self.assertEqual(plan.subnet, ipaddress.ip_network("10.70.0.0/24"))
+        self.assertEqual(plan.node_ips, {"a": "10.70.0.2", "b": "10.70.0.3"})
+        logger.warning.assert_called_once_with(
+            "Sticky IP availability probe received a response in %s; "
+            "continuing deployment",
+            ipaddress.ip_network("10.70.0.0/24"),
+        )
+
+    def test_probe_response_warns_but_allows_explicit_subnet(self) -> None:
+        subnet = ipaddress.ip_network("10.70.0.0/24")
+        request = TopologyRequest(
+            "lab",
+            Family.IPV4,
+            ("a",),
+            None,
+            subnet,
+            {"a": ipaddress.ip_address("10.70.0.10")},
+        )
+        logger = Mock(spec=PluginLogger)
+        with patch("engulf_clab_sticky_ip.plugin.probe_candidate", return_value=True):
+            plan = _allocation_plan(
+                Registry.empty(),
+                parse_config({}),
+                request,
+                Path("/tmp/lab"),
+                "lab-key",
+                HostInventory((), ()),
+                destructive=False,
+                logger=logger,
+            )
+
+        self.assertEqual(plan.subnet, subnet)
+        logger.warning.assert_called_once_with(
+            "Sticky IP availability probe received a response in %s; "
+            "continuing deployment",
+            subnet,
+        )
 
     def test_returning_lab_prefers_history_and_keeps_node_address(self) -> None:
         history = self.allocation("old", "lab-key", "10.71.0.0/24", "inactive")

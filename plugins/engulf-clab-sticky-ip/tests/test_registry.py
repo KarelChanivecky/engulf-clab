@@ -13,6 +13,7 @@ from engulf_clab_sticky_ip.registry import (
     record_pending,
     release_lab,
     rollback_attempt,
+    save_registry,
 )
 
 
@@ -85,6 +86,34 @@ class RegistryTest(unittest.TestCase):
         finish_attempt(state, attempt, success=False)
 
         self.assertEqual(load_registry(state).allocations[0].status, "uncertain")
+
+    def test_new_attempt_supersedes_a_stale_pending_attempt(self) -> None:
+        state = MemoryState()
+        old = allocation("old", "pending", attempt="old-attempt")
+        expected = Registry(
+            3,
+            1,
+            {"ipv4": (0, -1), "ipv6": (0, -1)},
+            (old,),
+        )
+        save_registry(state, expected)
+        current = allocation("new", "pending", attempt="new-attempt")
+
+        new_attempt = record_pending(state, expected, current)
+
+        allocations = {
+            item.allocation_id: item for item in load_registry(state).allocations
+        }
+        self.assertEqual(allocations["old"].status, "uncertain")
+        self.assertIsNone(allocations["old"].attempt_id)
+        self.assertEqual(allocations["new"].status, "pending")
+        old_attempt = type(new_attempt)("old-attempt", "lab-key", "old", (), ())
+        finish_attempt(state, old_attempt, success=True)
+        allocations = {
+            item.allocation_id: item for item in load_registry(state).allocations
+        }
+        self.assertEqual(allocations["new"].attempt_id, "new-attempt")
+        self.assertEqual(allocations["new"].status, "pending")
 
     def test_invalid_persisted_allocation_fails_closed(self) -> None:
         state = MemoryState()

@@ -113,8 +113,18 @@ def record_pending(
         if current.revision != expected.revision:
             raise StickyIPError("sticky IP state changed while the host was being checked; retry")
         evicted_ids = {item.allocation_id for item in evicted}
+        # A second deployment supersedes any abandoned pending attempt for the
+        # same lab. Keep its subnet reserved as uncertain until this attempt
+        # finishes; the older callback may still arrive, but must not be allowed
+        # to finalize over the newer attempt.
         remaining = tuple(
-            item for item in current.allocations if item.allocation_id not in evicted_ids
+            replace(item, status="uncertain", attempt_id=None)
+            if item.lab_key == allocation.lab_key
+            and item.status == "pending"
+            and item.allocation_id not in evicted_ids
+            else item
+            for item in current.allocations
+            if item.allocation_id not in evicted_ids
         )
         cursors = dict(current.cursors)
         if cursor is not None:

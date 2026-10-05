@@ -18,9 +18,10 @@ deferred topology edits. State transactions must never surround subprocesses.
 and combines results without importing OS-specific APIs. The selector imports
 only the running platform's implementation. Windows is an explicit stub.
 Unavailable implementations or missing kernel features raise
-`ProbeUnavailableError`. The allocation policy catches it in `_probe_candidate`
-and logs through the callback-bound logger at info level while continuing all
-Docker, route, and claim checks. Do not turn other probe failures into skips.
+`ProbeUnavailableError`. Availability probes are advisory: a response,
+unavailable implementation, or probe failure logs a warning through the
+callback-bound logger and never rejects a candidate. Keep Docker, route, and
+claim checks authoritative.
 
 The Linux strategy uses connected, nonblocking UDP sockets with `IP_RECVERR` or
 `IPV6_RECVERR`. Decode the ICMP offender address from `sock_extended_err`, not
@@ -46,8 +47,10 @@ must run before allocation checks so a later unrelated allocation error does
 not leave dead workspaces consuming shared state.
 
 After a wrapped process starts, a failed or interrupted deployment is uncertain
-and remains reserved. A successful deployment promotes the pending claim and
-retires the lab's prior allocation. Successful destroy marks claims inactive;
+and remains reserved. A new attempt supersedes same-lab pending records as
+uncertain before reserving its own claim, so late callbacks from the old attempt
+cannot finalize the new one. A successful deployment promotes the pending claim
+and retires the lab's prior allocation. Successful destroy marks claims inactive;
 `--keep-mgmt-net` deliberately retains them.
 
 Validate narrowly with:

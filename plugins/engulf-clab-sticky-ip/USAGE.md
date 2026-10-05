@@ -89,14 +89,12 @@ claims, all Docker network IPAM subnets and endpoints, and every IPv4 and IPv6
 host route table. When network probing is supported, two Python UDP traces run
 concurrently against spread addresses in the candidate, with at most eight hops
 per trace. Each trace is stopped after 100 ms and the entire candidate search
-stops after one second. Linux delivers
-ICMP replies through each UDP socket's error queue. A responding destination or
-a router address inside the candidate rejects that block. Silence is only an
-extra signal; Docker and route overlap checks remain authoritative. Probe
-implementations are selected by operating system. The Windows implementation
-is a stub that reports probing unavailable, as do other unsupported platforms.
-If probing is unavailable, eclab skips this verification and emits an info
-message. Docker, route, and allocation claim checks still run.
+stops after one second. Linux delivers ICMP replies through each UDP socket's
+error queue. A responding destination or router address inside the candidate
+produces a warning, but does not reject the subnet. Probe failures and
+unavailable implementations also produce a warning and do not stop deployment.
+Probe implementations are selected by operating system. Docker, route, and
+allocation claim checks remain authoritative and still run.
 
 An unchanged address held by containers proven to belong to this exact lab is
 allowed for repeat deployment and redeploy. A subnet change for a live lab
@@ -106,7 +104,10 @@ cannot rebuild one authoritative source topology and require per-topology calls
 or `--eclab-no-sticky-ip`.
 
 Claims are stored as versioned Engulf user state. A pending claim is rolled back
-when preparation fails or Containerlab never starts. Once Containerlab starts,
+when preparation fails or Containerlab never starts. If a later invocation for
+the same lab encounters an old pending attempt, it supersedes that marker and
+keeps the earlier subnet reserved as uncertain; the old callback cannot
+finalize over the newer deployment. Once Containerlab starts,
 an unsuccessful result remains reserved because partial host state may exist.
 A successful destroy makes the lab's history reusable. `destroy --all` releases
 all claims, while `--keep-mgmt-net` keeps them reserved. If a failed deployment
@@ -125,9 +126,9 @@ This cleanup still runs if a later allocation check fails.
 
 Docker and `ip` must be available through the service-controlled PATH. The Linux
 probe strategy uses UDP error-queue support for the selected address family.
-Missing kernel support makes this verification unavailable and skips it with
-an info message. Probes use only Python's standard library and require no raw
-sockets or extra privileges. No local route to a candidate is an ordinary
-unreachable result. Permission and other unexpected probe failures reject the
-candidate. Failure to inspect Docker or host routes is fatal. The Windows probe
-stub does not replace these required host checks.
+Missing kernel support makes this verification unavailable and emits a warning.
+Probes use only Python's standard library and require no raw sockets or extra
+privileges. No local route to a candidate is an ordinary unreachable result.
+Permission and other unexpected probe failures also emit a warning and leave the
+candidate eligible. Failure to inspect Docker or host routes is fatal. The
+Windows probe stub does not replace these required host checks.

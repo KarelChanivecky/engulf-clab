@@ -144,8 +144,8 @@ PLUGIN_SCHEMA = (
     )
     .use_case("Give each lab stable fixed management addresses in a private per-lab subnet.")
     .use_case(
-        "Unavailable OS network probes are skipped with an info message; "
-        "Docker, route, and claim checks remain required."
+        "Availability probes only warn; Docker, route, and claim checks determine "
+        "whether a subnet can be allocated."
     )
     .reject("Do not combine sticky mode with Containerlab management-network CLI overrides.")
     .annotate(
@@ -249,8 +249,7 @@ class StickyIPPlugin(SchemaBackedPlugin):
             "ECLAB_STICKY_IPV4_POOL, ECLAB_STICKY_IPV6_POOL, and "
             "ECLAB_STICKY_IP_EXCLUDES configure private allocation space.\n"
             "  Inherited host/none/container network-mode nodes receive no address slot.\n"
-            "  Python UDP probes use the Linux ICMP error queue; unavailable probes "
-            "are skipped with an info message."
+            "  Python UDP availability probes are advisory and only emit warnings."
         )
 
     def analyze_call(
@@ -447,11 +446,6 @@ def _allocation_plan(
     destructive: bool,
     logger: PluginLogger | None = None,
 ) -> _Plan:
-    if any(
-        item.lab_key == key and item.status == "pending"
-        for item in registry.allocations
-    ):
-        raise StickyIPError("another sticky IP deployment for this lab is still pending")
     active_labs = {
         item.lab_key for item in registry.allocations if item.status in RESERVED_STATUSES
     }
@@ -496,10 +490,7 @@ def _allocation_plan(
             owned_names=owned_names,
             destructive=destructive,
         )
-        if _probe_candidate(request.explicit_subnet, own_addresses=own, logger=logger):
-            raise StickyIPError(
-                f"explicit subnet {request.explicit_subnet} responded to an availability probe"
-            )
+        _probe_candidate(request.explicit_subnet, own_addresses=own, logger=logger)
         evicted = tuple(
             item
             for item in registry.allocations
@@ -528,7 +519,6 @@ def _allocation_plan(
             if item.lab_key == key
             and item.family is request.family
             and item.managed
-            and item.status != "pending"
         ),
         key=lambda item: item.sequence,
         reverse=True,
@@ -696,7 +686,7 @@ def _find_new_plan(
             )
         blocked.append(candidate)
         cursor_pool, cursor_address = pool_index, int(candidate.network_address)
-    raise StickyIPError("sticky IP availability probes exceeded the one-second deadline")
+    raise StickyIPError("sticky IP candidate checks exceeded the one-second deadline")
 
 
 def _find_recycled_plan(
@@ -733,7 +723,7 @@ def _find_recycled_plan(
     deadline = time.monotonic() + 1.0
     for history in ordered:
         if time.monotonic() >= deadline:
-            raise StickyIPError("sticky IP availability probes exceeded the one-second deadline")
+            raise StickyIPError("sticky IP candidate checks exceeded the one-second deadline")
         found = find_available_network((history,), prefix, config.exclusions)
         if found is None:
             continue
@@ -789,9 +779,8 @@ def _candidate_usable(
             owned_names=owned_names,
             destructive=destructive,
         )
-        return not _probe_candidate(
-            candidate, own_addresses=own, timeout=probe_timeout, logger=logger
-        )
+        _probe_candidate(candidate, own_addresses=own, timeout=probe_timeout, logger=logger)
+        return True
     except HostCheckError:
         return False
 
@@ -802,13 +791,30 @@ def _probe_candidate(
     own_addresses: Iterable[Address],
     timeout: float = 0.1,
     logger: PluginLogger | None = None,
-) -> bool:
+) -> None:
+    """Warn on probe evidence or failure without rejecting the candidate."""
     try:
-        return probe_candidate(candidate, own_addresses=own_addresses, timeout=timeout)
-    except ProbeUnavailableError as error:
+        responded = probe_candidate(candidate, own_addresses=own_addresses, timeout=timeout)
+    except Exception as error:  # noqa: BLE001 - probes are advisory and cannot block deploy
         if logger is not None:
-            logger.info("Skipping sticky IP network probe verification: %s", error)
-        return False
+            reason = (
+                "verification is unavailable"
+                if isinstance(error, ProbeUnavailableError)
+                else "verification failed"
+            )
+            logger.warning(
+                "Sticky IP availability probe for %s %s; continuing deployment: %s",
+                candidate,
+                reason,
+                error,
+            )
+        return
+    if responded and logger is not None:
+        logger.warning(
+            "Sticky IP availability probe received a response in %s; "
+            "continuing deployment",
+            candidate,
+        )
 
 
 def _validate_state_conflicts(registry: Registry, key: str, candidate: Network) -> None:
