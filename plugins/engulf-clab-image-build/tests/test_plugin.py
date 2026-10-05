@@ -8,17 +8,21 @@ from unittest.mock import Mock, patch
 
 from engulf_api import ApplicationMetadata
 from engulf_clab_dockerfile_build.plugin import DockerfilePlugin
-from engulf_clab_lab_parser import TopologySession, load_topology
+from engulf_clab_lab_parser import RUNTIME_TOPOLOGY_CONTEXT, TopologySession, load_topology
 from engulf_docker_image_api import (
     DOCKER_IMAGE_PROVENANCE_CONTEXT,
     IMAGE_GRAPH_CONTEXT,
+    DockerImageProvenance,
     DockerImageProvenanceSnapshot,
+    ImageProvisionAction,
+    ProvisionAuthority,
 )
 from engulf_docker_image_core import DockerImageError
 from engulf_executable_wrapper_api import (
     ArgumentRegistry,
     CallMode,
     CompletionContext,
+    OutcomeKind,
     PreparedCallEvent,
     Shell,
 )
@@ -55,6 +59,45 @@ class ImageBuildPluginTest(unittest.TestCase):
             allow_unused=True,
         )
         self.assertIn(DOCKER_IMAGE_PROVENANCE_CONTEXT, ImageBuildPlugin.context_writes)
+
+    def test_single_lab_inspect_reports_persisted_docker_provenance(self) -> None:
+        record = DockerImageProvenance(
+            "example/app:1",
+            "org.example.dockerfile",
+            ("debian:12",),
+            ProvisionAuthority.DEFAULT,
+            False,
+            ImageProvisionAction.BUILT,
+            "dockerfile",
+        )
+        session = TopologySession(
+            Path("lab.clab.yml"),
+            {"topology": {"nodes": {"app": {"image": "example/app:1"}}}},
+        )
+        contexts = {
+            RUNTIME_TOPOLOGY_CONTEXT: session,
+            DOCKER_IMAGE_PROVENANCE_CONTEXT: DockerImageProvenanceSnapshot((record,)),
+        }
+        api = Mock()
+        api.get_context.side_effect = lambda key, default=None: contexts.get(key, default)
+        event = Mock(
+            mode=CallMode.NORMAL,
+            wrapper_args=("inspect", "-t", "lab.clab.yml"),
+            effective_args=("inspect", "-t", "lab.clab.yml"),
+            outcome=Mock(kind=OutcomeKind.COMPLETED, exit_code=0),
+        )
+
+        ImageBuildPlugin().after_call(event, api)
+
+        api.logger.info.assert_any_call("Docker image provenance:")
+        api.logger.info.assert_any_call(
+            "  %s: provider=%s action=%s recipe=%s dependencies=%s",
+            "example/app:1",
+            "org.example.dockerfile",
+            "built",
+            "dockerfile",
+            "debian:12",
+        )
 
     def test_dependencies_are_declared_in_package_metadata(self) -> None:
         project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"

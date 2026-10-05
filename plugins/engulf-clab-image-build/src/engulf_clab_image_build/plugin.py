@@ -15,6 +15,7 @@ from engulf_api import (
     StateScope,
 )
 from engulf_clab_lab_parser import (
+    RUNTIME_TOPOLOGY_CONTEXT,
     TOPOLOGY_CONTEXT,
     TopologyError,
     TopologySession,
@@ -64,6 +65,7 @@ from engulf_executable_wrapper_api import (
     CompletionContext,
     HelpAPI,
     Match,
+    OutcomeKind,
     PreparedCallEvent,
     Runtime,
 )
@@ -183,6 +185,7 @@ class ImageBuildPlugin(SchemaBackedPlugin):
         frozenset(
             {
                 TOPOLOGY_CONTEXT,
+                RUNTIME_TOPOLOGY_CONTEXT,
                 IMAGE_PROVIDER_CONTEXT,
                 IMAGE_GRAPH_CONTEXT,
                 DOCKER_IMAGE_PROVENANCE_CONTEXT,
@@ -278,12 +281,44 @@ class ImageBuildPlugin(SchemaBackedPlugin):
             raise
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
+        if event.mode is CallMode.HELP or not event.wrapper_args:
+            return
+        if is_topology_mutation_command(event.wrapper_args):
+            _save_image_provenance(api, docker_image_provenance(api))
+            return
         if (
-            event.mode is CallMode.HELP
-            or not is_topology_mutation_command(event.wrapper_args)
+            event.wrapper_args[0] != "inspect"
+            or event.outcome.kind is not OutcomeKind.COMPLETED
+            or event.outcome.exit_code != 0
+            or any(
+                value in {"-a", "--all", "--name"}
+                or value.startswith("--name=")
+                for value in event.effective_args[1:]
+            )
         ):
             return
-        _save_image_provenance(api, docker_image_provenance(api))
+        session = api.get_context(RUNTIME_TOPOLOGY_CONTEXT, None)
+        if not isinstance(session, TopologySession):
+            return
+        _report_inspect_provenance(api)
+
+
+def _report_inspect_provenance(api: InvocationAPI) -> None:
+    """Append persisted Docker provider attribution to a single-lab inspect."""
+    snapshot = docker_image_provenance(api)
+    records = sorted(snapshot.images, key=lambda record: record.image)
+    if not records:
+        return
+    api.logger.info("Docker image provenance:")
+    for record in records:
+        api.logger.info(
+            "  %s: provider=%s action=%s recipe=%s dependencies=%s",
+            record.image,
+            record.provider_id or "external",
+            record.action.value,
+            record.recipe_kind or "-",
+            ", ".join(record.dependencies) or "-",
+        )
 
 def image_build_jobs(environment: Mapping[str, str]) -> int:
     value = environment.get(_JOBS_ENV) or environment.get(_LEGACY_JOBS_ENV)

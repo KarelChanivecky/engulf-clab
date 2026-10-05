@@ -4,15 +4,17 @@ import json
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import Mock
 
+from engulf_clab_lab_parser import RUNTIME_TOPOLOGY_CONTEXT, TopologySession
 from engulf_clab_vrnetlab_build_api import (
     VRNETLAB_SOURCE_PROVENANCE_CONTEXT,
     VrnetlabSourceProvenance,
     VrnetlabSourceProvenanceSnapshot,
 )
 from engulf_docker_image_api import DOCKER_IMAGE_PROVENANCE_CONTEXT
-from engulf_executable_wrapper_api import CallMode
+from engulf_executable_wrapper_api import CallMode, OutcomeKind
 
 from engulf_clab_vrnetlab_build.plugin import VrnetlabBuilderPlugin
 from engulf_clab_vrnetlab_build.provenance import STATE_BASENAME
@@ -125,6 +127,43 @@ class VrnetlabBuilderPluginTest(unittest.TestCase):
         )
         self.assertNotIn("image", document["sources"][0])
         self.assertNotIn("source_path", document["sources"][0])
+
+    def test_single_lab_inspect_reports_vrnetlab_source_provenance(self) -> None:
+        source = VrnetlabSourceProvenance(
+            node_name="router-1",
+            builder_type="vendor/router",
+            source_provider_id="org.example.images.static",
+            source_sha256="c" * 64,
+        )
+        contexts = {
+            RUNTIME_TOPOLOGY_CONTEXT: TopologySession(
+                Path("lab.clab.yml"),
+                {"topology": {"nodes": {"router-1": {"image": "router:1"}}}},
+            ),
+            VRNETLAB_SOURCE_PROVENANCE_CONTEXT: VrnetlabSourceProvenanceSnapshot(
+                (source,)
+            ),
+        }
+        api = Mock()
+        api.get_context.side_effect = lambda key, default=None: contexts.get(key, default)
+        event = Mock(
+            mode=CallMode.NORMAL,
+            wrapper_args=("inspect", "-t", "lab.clab.yml"),
+            effective_args=("inspect", "-t", "lab.clab.yml"),
+            outcome=Mock(kind=OutcomeKind.COMPLETED, exit_code=0),
+        )
+
+        VrnetlabBuilderPlugin().after_call(event, api)
+
+        api.logger.info.assert_any_call("vrnetlab image source provenance:")
+        api.logger.info.assert_any_call(
+            "  node %s image=%s: builder=%s provider=%s source_sha256=%s",
+            "router-1",
+            "router:1",
+            "vendor/router",
+            "org.example.images.static",
+            "c" * 64,
+        )
 
 
 if __name__ == "__main__":

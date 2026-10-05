@@ -45,3 +45,8 @@ the Docker image provider ID (`org.engulf.docker.vrnetlab-build`). Nodes using
 an already-installed image without a source are logged as having no vrnetlab
 image provider selected. Dynamic `eclab --help` and the plugin list show which
 providers are installed for the selected edition.
+
+After a successful single-lab `eclab inspect -t TOPOLOGY`, eclab reports the
+persisted node and image reference, vrnetlab builder type, source-provider ID,
+and source SHA-256 for each vrnetlab image in that lab. It does not expose the
+source path.

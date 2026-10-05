@@ -83,6 +83,11 @@ separately by `engulf_clab.vrnetlab_build` in
 hydrators. Consumers can inspect either registry from the invocation context
 without rerunning providers or Docker.
 
+After a successful single-lab `eclab inspect -t TOPOLOGY`, the command also
+reports persisted Docker provenance for every image resolved by the last
+deployment, including provider ID, action, recipe kind, and image dependencies.
+All-labs and name-only inspections do not select one workspace provenance record.
+
 ## Troubleshooting
 
 - Run `eclab --help` and confirm `engulf_clab.image_build` is active, then use

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from typing import Any
 
 from engulf_api import (
     BeforeGoalAPI,
@@ -11,8 +12,10 @@ from engulf_api import (
 )
 from engulf_clab_ensure_vrnetlab import VRNETLAB_PATH_CONTEXT
 from engulf_clab_lab_parser import (
+    RUNTIME_TOPOLOGY_CONTEXT,
     TOPOLOGY_CONTEXT,
     TopologySession,
+    effective_nodes,
     is_topology_mutation_command,
 )
 from engulf_clab_vrnetlab_build_api import (
@@ -34,6 +37,7 @@ from engulf_executable_wrapper_api import (
     AfterCallEvent,
     CallMode,
     ExecutableWrapperPlugin,
+    OutcomeKind,
     PreparationFailedEvent,
     PreparedCallEvent,
 )
@@ -57,6 +61,7 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
     context_reads = frozenset(
         {
             VRNETLAB_PATH_CONTEXT,
+            RUNTIME_TOPOLOGY_CONTEXT,
             TOPOLOGY_CONTEXT,
             VRNETLAB_BUILD_CONTEXT,
             IMAGE_PROVIDER_CONTEXT,
@@ -146,13 +151,53 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
 
     def after_call(self, event: AfterCallEvent, api: InvocationAPI) -> None:
         try:
-            if (
-                event.mode is not CallMode.HELP
-                and is_topology_mutation_command(event.wrapper_args)
-            ):
+            if event.mode is CallMode.HELP or not event.wrapper_args:
+                return
+            if is_topology_mutation_command(event.wrapper_args):
                 save_source_provenance(api, vrnetlab_source_provenance(api))
+                return
+            if (
+                event.wrapper_args[0] == "inspect"
+                and event.outcome.kind is OutcomeKind.COMPLETED
+                and event.outcome.exit_code == 0
+                and not any(
+                    value in {"-a", "--all", "--name"}
+                    or value.startswith("--name=")
+                    for value in event.effective_args[1:]
+                )
+            ):
+                session = api.get_context(RUNTIME_TOPOLOGY_CONTEXT, None)
+                if isinstance(session, TopologySession):
+                    _report_inspect_vrnetlab_provenance(
+                        session.original_document(), vrnetlab_source_provenance(api), api
+                    )
         finally:
             self._provider.clear()
+
+
+def _report_inspect_vrnetlab_provenance(
+    document: dict[str, Any],
+    snapshot: VrnetlabSourceProvenanceSnapshot,
+    api: InvocationAPI,
+) -> None:
+    records = []
+    for node in effective_nodes(document):
+        source = snapshot.source_for(node.name)
+        if source is not None:
+            image = node.data.get("image")
+            records.append((source, image if isinstance(image, str) else "-"))
+    if not records:
+        return
+    api.logger.info("vrnetlab image source provenance:")
+    for source, image in records:
+        api.logger.info(
+            "  node %s image=%s: builder=%s provider=%s source_sha256=%s",
+            source.node_name,
+            image,
+            source.builder_type,
+            source.source_provider_id or "external",
+            source.source_sha256,
+        )
 
 
 plugin = VrnetlabBuilderPlugin()
