@@ -8,7 +8,6 @@ from engulf_api import (
     GoalResult,
     Invocation,
     InvocationAPI,
-    StateScope,
 )
 from engulf_clab_ensure_vrnetlab import VRNETLAB_PATH_CONTEXT
 from engulf_clab_lab_parser import (
@@ -126,7 +125,6 @@ class VrnetlabBuilderPlugin(ExecutableWrapperPlugin):
                     requests,
                     api=api,
                     checkout_context=checkout_context,
-                    state_store=api.state(StateScope.USER),
                     max_workers=max_workers,
                 )
             publish_vrnetlab_source_provenance(api, provenance)

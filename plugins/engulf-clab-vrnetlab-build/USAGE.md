@@ -15,10 +15,12 @@ image. Providers can publish exact per-node sources when a topology uses
 multiple builder types.
 
 The builder requires a prepared vrnetlab checkout, Docker access, `make`, and
-`qemu-img` for sources that need image inspection or conversion. It serializes
-work that targets one builder directory, protects existing requested Docker
-tags, restores builder qcow2 files, and fingerprints successful output in
-user-scoped Engulf state.
+`qemu-img` for sources that need image inspection or conversion. It runs the
+selected vrnetlab Makefile for each source-backed deploy or redeploy, allowing
+Docker to reuse its build cache or rebuild from the current inputs. It
+serializes work that targets one builder directory, protects existing
+requested Docker tags, and restores builder qcow2 files. It does not persist
+build fingerprints or use them to skip Docker builds.
 
 When replacing an image tag, the builder checks whether running containers use
 the previous image before removing its temporary backup tag. If any do, it
@@ -31,7 +33,7 @@ dependent containers before removing the backup with the suggested
 
 Choose a lab-unique requested image tag. Docker tags are host-global and a
 shared mutable tag couples otherwise independent labs. Destroy does not remove
-built images or build fingerprints.
+built images.
 
 For local source syntax, install `engulf-clab-vrnetlab-static-image-provider`
 and read its `USAGE.md`. Other providers may create or download sources and

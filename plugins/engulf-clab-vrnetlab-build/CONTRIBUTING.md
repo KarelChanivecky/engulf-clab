@@ -26,8 +26,10 @@ call it from worker threads.
 
 Build work may parallelize across builder directories, but work sharing a
 directory remains serial. Acquire all image and builder leases in the callback
-thread before starting workers. Keep managed state reads and writes serialized,
-and restore temporary builder and Docker context artifacts on every exit path.
+thread before starting workers, and restore temporary builder and Docker
+context artifacts on every exit path. Do not add persisted build fingerprints
+or skip the Makefile based on them; invoke it for each source-backed request
+and leave cache reuse decisions to Docker.
 Before deleting a previous image's backup tag, check for running containers
 based on it. If any are found, preserve the new tag, retain the backup, and warn
 with the backup reference and container names. If cleanup still fails, preserve

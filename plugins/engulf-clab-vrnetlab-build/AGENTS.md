@@ -14,8 +14,11 @@ topology session.
 - Use API-resolved exact-node paths before the `default` path.
 - Require all requests that fall back to the API `default` path to share one
   `ECLAB_VRNETLAB_TYPE`; exact-node source paths may use distinct types.
-- Preserve safe qcow2 staging, tag restoration, state fingerprinting, leases,
-  per-builder serialization, and invocation-map cleanup.
+- Preserve safe qcow2 staging, requested-tag restoration, Docker's own build
+  cache behavior, leases, per-builder serialization, and invocation-map cleanup.
+- Invoke the selected vrnetlab Makefile for every source-backed topology
+  mutation. Do not persist build fingerprints or skip Make based on source or
+  checkout fingerprints; Docker decides whether its build cache can be reused.
 - Before removing an old image's temporary backup tag, check for running
   containers based on it. If any exist, preserve the new requested tag, retain
   the backup, and warn with its name and the containers. If cleanup still fails,

@@ -11,7 +11,7 @@ from contextvars import copy_context
 from dataclasses import dataclass
 from pathlib import Path
 
-from engulf_api import InvocationAPI, StateStore
+from engulf_api import InvocationAPI
 from engulf_clab_vrnetlab_build_api import (
     VrnetlabSourceProvenance,
     VrnetlabSourceProvenanceSnapshot,
@@ -22,8 +22,7 @@ from .logging import info, warning
 from .provider import VRNETLAB_PROVIDER_ID
 from .requests import BuildRequest
 from .sources import file_sha256, prepared_qcow2
-from .state import BuildFingerprint, load_state, save_state
-from .vrnetlab import builder_directory, vrnetlab_fingerprint, vrnetlab_root
+from .vrnetlab import builder_directory, vrnetlab_root
 
 
 @dataclass(frozen=True)
@@ -31,7 +30,7 @@ class PreparedBuild:
     request: BuildRequest
     qcow2: Path
     builder: Path
-    fingerprint: BuildFingerprint
+    source_sha256: str
 
 
 def _require_command(command: str) -> None:
@@ -332,38 +331,16 @@ def _builder_lease(builder: Path) -> str:
     return f"vrnetlab-builder:{builder.resolve()}"
 
 
-def _matching_fingerprint(
-    state_store: StateStore,
-    image: str,
-    fingerprint: BuildFingerprint,
-) -> bool:
-    with state_store.transaction() as locked:
-        return load_state(locked).get(image) == fingerprint
-
-
-def _record_fingerprint(
-    state_store: StateStore,
-    image: str,
-    fingerprint: BuildFingerprint,
-) -> None:
-    with state_store.transaction() as locked:
-        records = load_state(locked)
-        records[image] = fingerprint
-        save_state(locked, records)
-
-
 def _ensure_builder_images(
     builds: Sequence[tuple[str, PreparedBuild]],
-) -> tuple[list[tuple[str, PreparedBuild]], list[str]]:
-    completed: list[tuple[str, PreparedBuild]] = []
+) -> list[str]:
     failures: list[str] = []
     for image, prepared in builds:
         try:
             build_native_image(prepared.qcow2, prepared.builder, image)
-            completed.append((image, prepared))
         except (OSError, subprocess.SubprocessError, VrnetlabError) as error:
             failures.append(f"{image}: {error}")
-    return completed, failures
+    return failures
 
 
 def ensure_images(
@@ -371,7 +348,6 @@ def ensure_images(
     *,
     api: InvocationAPI,
     checkout_context: object | None,
-    state_store: StateStore,
     max_workers: int = 2,
 ) -> VrnetlabSourceProvenanceSnapshot:
     if not requests:
@@ -397,7 +373,6 @@ def ensure_images(
 
     _require_command("make")
     root = vrnetlab_root(checkout_context)
-    root_fingerprint = vrnetlab_fingerprint(root)
 
     with ExitStack() as stack:
         prepared_by_image: dict[str, PreparedBuild] = {}
@@ -405,22 +380,21 @@ def ensure_images(
             assert request.source is not None
             builder = builder_directory(root, request.builder_type)
             qcow2 = stack.enter_context(prepared_qcow2(request.source))
-            fingerprint = BuildFingerprint(
-                qcow2=file_sha256(qcow2),
-                qcow2_name=qcow2.name,
-                vrnetlab=root_fingerprint,
-                builder_type=request.builder_type,
-            )
+            source_sha256 = file_sha256(qcow2)
             prepared = PreparedBuild(
                 request=request,
                 qcow2=qcow2,
                 builder=builder,
-                fingerprint=fingerprint,
+                source_sha256=source_sha256,
             )
 
             previous = prepared_by_image.get(request.image)
             if previous is not None:
-                if previous.fingerprint != fingerprint:
+                if (
+                    previous.source_sha256 != source_sha256
+                    or previous.qcow2.name != qcow2.name
+                    or previous.request.builder_type != request.builder_type
+                ):
                     raise VrnetlabError(
                         f"nodes {previous.request.node_name} and {request.node_name} target "
                         f"{request.image} with conflicting vrnetlab sources or builders"
@@ -446,17 +420,9 @@ def ensure_images(
             )
         )
         failures: list[str] = []
-        completed: list[tuple[str, PreparedBuild]] = []
         with api.leases(lease_names):
             builds_by_builder: dict[Path, list[tuple[str, PreparedBuild]]] = {}
             for image, prepared in prepared_by_image.items():
-                if docker_image_exists(image) and _matching_fingerprint(
-                    state_store,
-                    image,
-                    prepared.fingerprint,
-                ):
-                    info(f"using existing image {image}; build fingerprints unchanged")
-                    continue
                 builds_by_builder.setdefault(prepared.builder.resolve(), []).append(
                     (image, prepared)
                 )
@@ -466,7 +432,7 @@ def ensure_images(
                     max_workers=min(max_workers, len(builds_by_builder))
                 ) as executor:
                     futures: tuple[
-                        Future[tuple[list[tuple[str, PreparedBuild]], list[str]]], ...
+                        Future[list[str]], ...
                     ] = tuple(
                         executor.submit(
                             copy_context().run,
@@ -476,13 +442,7 @@ def ensure_images(
                         for builds in builds_by_builder.values()
                     )
                     for future in futures:
-                        built, build_failures = future.result()
-                        completed.extend(built)
-                        failures.extend(build_failures)
-
-            for image, prepared in completed:
-                _record_fingerprint(state_store, image, prepared.fingerprint)
-                info(f"recorded build fingerprint for {image}")
+                        failures.extend(future.result())
         if failures:
             raise VrnetlabError("vrnetlab image builds failed: " + "; ".join(failures))
 
@@ -491,7 +451,7 @@ def ensure_images(
                 node_name=request.node_name,
                 builder_type=request.builder_type,
                 source_provider_id=request.source_provider_id,
-                source_sha256=prepared_by_image[request.image].fingerprint.qcow2,
+                source_sha256=prepared_by_image[request.image].source_sha256,
             )
             for request in source_requests
         )

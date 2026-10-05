@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import hashlib
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 from engulf_clab_ensure_vrnetlab import VRNETLAB_PATH_CONTEXT
@@ -41,30 +38,3 @@ def builder_directory(root: Path, builder_type: str) -> Path:
             f"vrnetlab builder {builder_type} does not contain a Makefile under {root}"
         )
     return builder
-
-
-def vrnetlab_fingerprint(root: Path) -> str:
-    if (root / ".git").exists() and shutil.which("git") is not None:
-        try:
-            revision = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=root,
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            ).stdout.strip()
-            diff = subprocess.run(
-                ["git", "diff", "HEAD", "--binary"],
-                cwd=root,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            ).stdout
-            dirty = f"+dirty:{hashlib.sha256(diff).hexdigest()}" if diff else ""
-            return f"git:{revision}{dirty}"
-        except subprocess.CalledProcessError:
-            pass
-
-    stat = root.stat()
-    return f"path:{root.resolve()}:{stat.st_mtime_ns}"

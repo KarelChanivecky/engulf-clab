@@ -3,8 +3,7 @@ from __future__ import annotations
 import subprocess
 import time
 import unittest
-from collections.abc import Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier, Lock
@@ -19,26 +18,6 @@ from engulf_clab_vrnetlab_build.images import (
     ensure_images,
 )
 from engulf_clab_vrnetlab_build.requests import BuildRequest
-from engulf_clab_vrnetlab_build.state import BuildFingerprint, save_state
-
-
-class MemoryStateStore:
-    def __init__(self) -> None:
-        self.content: dict[str, str] = {}
-
-    def exists(self, basename: str) -> bool:
-        return basename in self.content
-
-    def read_text(self, basename: str) -> str:
-        return self.content[basename]
-
-    def write_text(self, basename: str, content: str) -> None:
-        self.content[basename] = content
-
-    @contextmanager
-    def transaction(self, *, timeout: float | None = None) -> Iterator[MemoryStateStore]:
-        del timeout
-        yield self
 
 
 def lease_api() -> MagicMock:
@@ -50,17 +29,15 @@ def lease_api() -> MagicMock:
 
 class EnsureImagesTest(unittest.TestCase):
     @patch("engulf_clab_vrnetlab_build.images.build_native_image")
-    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
     @patch("engulf_clab_vrnetlab_build.images._require_command")
     @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
     def test_distinct_builders_run_concurrently(
         self,
         image_exists: Mock,
         require_command: Mock,
-        checkout_fingerprint: Mock,
         build: Mock,
     ) -> None:
-        del image_exists, require_command, checkout_fingerprint
+        del image_exists, require_command
         rendezvous = Barrier(2)
         build.side_effect = lambda *_args: rendezvous.wait(timeout=2)
         api = lease_api()
@@ -79,7 +56,6 @@ class EnsureImagesTest(unittest.TestCase):
                 requests,
                 api=api,
                 checkout_context=root,
-                state_store=MemoryStateStore(),
                 max_workers=2,
             )
 
@@ -96,17 +72,15 @@ class EnsureImagesTest(unittest.TestCase):
         )
 
     @patch("engulf_clab_vrnetlab_build.images.build_native_image")
-    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
     @patch("engulf_clab_vrnetlab_build.images._require_command")
     @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
     def test_same_builder_runs_serially(
         self,
         image_exists: Mock,
         require_command: Mock,
-        checkout_fingerprint: Mock,
         build: Mock,
     ) -> None:
-        del image_exists, require_command, checkout_fingerprint
+        del image_exists, require_command
         active = 0
         peak = 0
         guard = Lock()
@@ -137,7 +111,6 @@ class EnsureImagesTest(unittest.TestCase):
                 requests,
                 api=api,
                 checkout_context=root,
-                state_store=MemoryStateStore(),
                 max_workers=2,
             )
 
@@ -156,7 +129,6 @@ class EnsureImagesTest(unittest.TestCase):
             [request],
             api=api,
             checkout_context=None,
-            state_store=MemoryStateStore(),
         )
         image_exists.assert_called_once_with("vrnetlab/router:1")
         require_command.assert_called_once_with("docker")
@@ -173,18 +145,15 @@ class EnsureImagesTest(unittest.TestCase):
                 [request],
                 api=lease_api(),
                 checkout_context=None,
-                state_store=MemoryStateStore(),
             )
 
     @patch("engulf_clab_vrnetlab_build.images.build_native_image")
-    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
     @patch("engulf_clab_vrnetlab_build.images._require_command")
     @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=True)
-    def test_matching_fingerprint_skips_build(
+    def test_source_backed_request_always_schedules_build(
         self,
         image_exists: Mock,
         require_command: Mock,
-        checkout_fingerprint: Mock,
         build: Mock,
     ) -> None:
         with TemporaryDirectory() as directory:
@@ -201,45 +170,39 @@ class EnsureImagesTest(unittest.TestCase):
                 qcow2,
                 source_provider_id="org.example.images.static",
             )
-            expected = BuildFingerprint(
-                qcow2="e60e82356bd75d39a38c0cfd1414f5eddfe226b2ce77d0b3d699619b06e9a90b",
-                qcow2_name="router-v1.qcow2",
-                vrnetlab="git:abc",
-                builder_type="vendor/router",
-            )
-            store = MemoryStateStore()
-            save_state(store, {request.image: expected})
 
             api = lease_api()
             provenance = ensure_images(
                 [request],
                 api=api,
                 checkout_context=root,
-                state_store=store,
             )
 
-        build.assert_not_called()
+        build.assert_called_once()
+        image_exists.assert_not_called()
+        require_command.assert_has_calls([call("docker"), call("make")])
         self.assertIsInstance(provenance, VrnetlabSourceProvenanceSnapshot)
         self.assertEqual(len(provenance.sources), 1)
         source = provenance.sources[0]
         self.assertEqual(source.node_name, "r1")
         self.assertEqual(source.builder_type, "vendor/router")
         self.assertEqual(source.source_provider_id, "org.example.images.static")
-        self.assertEqual(source.source_sha256, expected.qcow2)
+        self.assertEqual(
+            source.source_sha256,
+            "e60e82356bd75d39a38c0cfd1414f5eddfe226b2ce77d0b3d699619b06e9a90b",
+        )
         self.assertFalse(hasattr(source, "image"))
         api.leases.assert_called_once_with(
             ("docker-image:vrnetlab/router:1", f"vrnetlab-builder:{builder.resolve()}")
         )
 
     @patch("engulf_clab_vrnetlab_build.images.build_native_image")
-    @patch("engulf_clab_vrnetlab_build.images.vrnetlab_fingerprint", return_value="git:abc")
     @patch("engulf_clab_vrnetlab_build.images._require_command")
     @patch("engulf_clab_vrnetlab_build.images.docker_image_exists", return_value=False)
     def test_conflicting_sources_for_one_tag_fail_before_build(
         self,
         image_exists: Mock,
         require_command: Mock,
-        checkout_fingerprint: Mock,
         build: Mock,
     ) -> None:
         with TemporaryDirectory() as directory:
@@ -261,7 +224,6 @@ class EnsureImagesTest(unittest.TestCase):
                     requests,
                     api=lease_api(),
                     checkout_context=root,
-                    state_store=MemoryStateStore(),
                 )
 
         build.assert_not_called()
