@@ -5,7 +5,8 @@ deployment-state reconciliation, inspection, and cleanup. Use
 `eclab init-license-pool` to register an ordered pool for a Containerlab node
 kind and `eclab inspect-license-pool --all` to view every registered or
 actively allocated pool. Deploy and redeploy also reclaim allocations from
-workspaces with no remaining Containerlab containers.
+workspaces with no remaining Containerlab containers, and inspection performs
+the same reconciliation before reporting usage.
 
 The reusable, framework-neutral pool-manager and selector contracts are
 published separately as

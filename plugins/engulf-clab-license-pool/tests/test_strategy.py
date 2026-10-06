@@ -23,6 +23,7 @@ from engulf_clab_license_pool.plugin import (
     DEFAULT_LICENSE_KIND,
     DISABLE_AUTO_LICENSE_ENVIRONMENT,
     INIT_LICENSE_POOL_COMMAND,
+    INSPECT_LICENSE_POOL_COMMAND,
     LICENSE_POOL_STRATEGY_ENVIRONMENT,
     LICENSE_SELECTION_CONTEXT,
     PLUGIN_SCHEMA,
@@ -120,7 +121,7 @@ class LicenseStrategyTestCase(unittest.TestCase):
 
         self.assertIn("inspect-license-pool [PATH] [--all] [--alloc-details]", help_text)
         self.assertIn(
-            "Deploy reconciles claims against remaining Containerlab containers",
+            "Deploy and inspection reconcile claims against remaining Containerlab containers",
             help_text,
         )
 
@@ -358,6 +359,120 @@ class LicenseStrategyTestCase(unittest.TestCase):
             self.assertEqual(registry["registrations"], [])
             self.assertEqual(entry["last_used"][str(first)], 0)
             self.assertGreater(entry["last_used"][str(second)], 0)
+
+
+class LicensePoolInspectionReconciliationTestCase(unittest.TestCase):
+    _APPLICATION = ApplicationMetadata(
+        application_id="engulf-clab",
+        display_name="eclab",
+        vendor="Engulf",
+        product="eclab",
+        short_product_name="eclab",
+        version="1.0",
+    )
+
+    def _api(self, state: MemoryState) -> tuple[Mock, dict[str, object]]:
+        contexts: dict[str, object] = {}
+        api = Mock(spec=BeforeGoalAPI)
+        api.application = self._APPLICATION
+        api.state.return_value = state
+        api.leases.return_value = nullcontext()
+        api.get_context.return_value = None
+        api.set_context.side_effect = lambda key, value, **_kwargs: contexts.__setitem__(
+            key, value
+        )
+        return api, contexts
+
+    def test_inspecting_one_pool_reconciles_all_active_pools(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_pool = root / "first"
+            second_pool = root / "second"
+            first_pool.mkdir()
+            second_pool.mkdir()
+            (first_pool / "one.lic").write_text("license", encoding="utf-8")
+            (second_pool / "two.lic").write_text("license", encoding="utf-8")
+            first_workspace = root / "stale-first"
+            second_workspace = root / "stale-second"
+            for workspace in (first_workspace, second_workspace):
+                copy_dir = workspace / ".eclab" / "licenses"
+                copy_dir.mkdir(parents=True)
+                (copy_dir / "old.lic").write_text("license", encoding="utf-8")
+            state = MemoryState()
+            _claim(state, [_request(first_pool, str(first_workspace))])
+            _claim(state, [_request(second_pool, str(second_workspace))])
+            api, _contexts = self._api(state)
+
+            with patch(
+                "engulf_clab_license_pool.plugin._deployed_license_workspaces",
+                return_value=frozenset(),
+            ):
+                LicensePoolPlugin().before_goal(
+                    Invocation(
+                        (INSPECT_LICENSE_POOL_COMMAND, str(first_pool), "--alloc-details"),
+                        root,
+                        {},
+                    ),
+                    api,
+                )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                registry["pools"][str(first_pool.resolve())]["allocations"], {}
+            )
+            self.assertEqual(
+                registry["pools"][str(second_pool.resolve())]["allocations"], {}
+            )
+            for workspace in (first_workspace, second_workspace):
+                self.assertFalse((workspace / ".eclab" / "licenses").exists())
+            self.assertTrue(
+                any(
+                    call.args
+                    == (
+                        "reclaimed %d stale license allocation(s)",
+                        2,
+                    )
+                    for call in api.logger.info.call_args_list
+                )
+            )
+            report = api.logger.info.call_args_list[-1].args[1]
+            self.assertIn(f"POOL: {str(first_pool.resolve())!r}", report)
+            self.assertIn("USAGE: 0/1", report)
+            self.assertIn("ALLOCATIONS:\n  (none)", report)
+
+    def test_inspection_fails_closed_when_container_inventory_is_unavailable(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pool = root / "pool"
+            pool.mkdir()
+            license_path = pool / "one.lic"
+            license_path.write_text("license", encoding="utf-8")
+            workspace = root / "old-lab"
+            workspace.mkdir()
+            state = MemoryState()
+            _claim(state, [_request(pool, str(workspace))])
+            api, _contexts = self._api(state)
+
+            with patch(
+                "engulf_clab_license_pool.plugin._deployed_license_workspaces",
+                side_effect=LicensePoolError("Docker is unavailable"),
+            ):
+                LicensePoolPlugin().before_goal(
+                    Invocation(
+                        (INSPECT_LICENSE_POOL_COMMAND, str(pool)), root, {}
+                    ),
+                    api,
+                )
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                registry["pools"][str(pool.resolve())]["allocations"],
+                {str(license_path.resolve()): f"{workspace}:router"},
+            )
+            api.logger.error.assert_called_once()
+            api.logger.info.assert_not_called()
 
 
 class RegisteredLicensePoolTestCase(unittest.TestCase):

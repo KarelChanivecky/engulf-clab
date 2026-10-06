@@ -173,7 +173,7 @@ PLUGIN_SCHEMA = (
     )
     .add_command(
         INSPECT_LICENSE_POOL_COMMAND,
-        "Inspect a license pool's metadata, capacity, and active allocations.",
+        "Reconcile stale claims, then inspect pool metadata, capacity, and allocations.",
     )
     .add_cli_argument(
         INSPECT_LICENSE_POOL_COMMAND,
@@ -306,7 +306,7 @@ PLUGIN_SCHEMA = (
         INSPECT_LICENSE_POOL_COMMAND,
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         implies=(
-            "reports pool metadata and current license allocations without modifying them",
+            "reconciles allocations against deployed labs before reporting pool usage",
         ),
         examples=(
             "eclab inspect-license-pool ./licenses --alloc-details",
@@ -589,6 +589,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             publish_license_pool_availability(api, availability)
         if invocation.arguments[:1] == (INSPECT_LICENSE_POOL_COMMAND,):
             application_name = api.application.short_product_name or api.application.product
+            reclaimed = 0
             try:
                 options = _parse_inspect_license_pool_options(
                     invocation.arguments[1:], invocation.cwd
@@ -609,6 +610,14 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                             pools = _inspection_pool_paths(registry)
                             if not set(pools).issubset(initial_pools):
                                 continue
+                            registry, reclaimed = _reconcile_registry_allocations(
+                                state,
+                                registry,
+                                environment=invocation.environment,
+                                cwd=invocation.cwd,
+                                contract=license_contract(api.application),
+                            )
+                            pools = _inspection_pool_paths(registry)
                             reports = tuple(
                                 _inspect_pool_report(
                                     registry,
@@ -627,19 +636,40 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                         report = "No registered pools or active allocations."
                 else:
                     assert options.pool is not None
-                    leases = tuple(
-                        sorted(
-                            ("license-pool-registry", _lease(str(options.pool)))
-                        )
-                    )
-                    with api.leases(leases):
-                        registry = _read_pool_registry(state)
-                        report = "\n".join(
-                            _inspect_pool_report(
-                                registry,
-                                str(options.pool),
-                                alloc_details=options.alloc_details,
+                    selected_pool = str(options.pool)
+                    for _attempt in range(3):
+                        initial_registry = _read_pool_registry(state)
+                        initial_pools = _active_allocation_pool_paths(initial_registry)
+                        locked_pools = initial_pools | {selected_pool}
+                        leases = tuple(
+                            sorted(
+                                {"license-pool-registry"}
+                                | {_lease(pool) for pool in locked_pools}
                             )
+                        )
+                        with api.leases(leases):
+                            registry = _read_pool_registry(state)
+                            active_pools = _active_allocation_pool_paths(registry)
+                            if not active_pools.issubset(locked_pools):
+                                continue
+                            registry, reclaimed = _reconcile_registry_allocations(
+                                state,
+                                registry,
+                                environment=invocation.environment,
+                                cwd=invocation.cwd,
+                                contract=license_contract(api.application),
+                            )
+                            report = "\n".join(
+                                _inspect_pool_report(
+                                    registry,
+                                    selected_pool,
+                                    alloc_details=options.alloc_details,
+                                )
+                            )
+                            break
+                    else:
+                        raise LicensePoolError(
+                            "pool state kept changing during inspection; retry"
                         )
             except (
                 LicensePoolError,
@@ -652,6 +682,10 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 )
                 exit_code = 2
             else:
+                if reclaimed:
+                    api.logger.info(
+                        "reclaimed %d stale license allocation(s)", reclaimed
+                    )
                 api.logger.info("%s", report)
                 exit_code = 0
             api.set_context(
@@ -762,7 +796,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             "      Set typed metadata with --eclab-licence-pool-var NAME=VALUE; repeat as needed.\n"
             "      Lists use ';' separators and ';;' for a literal semicolon.\n"
             f"  {INSPECT_LICENSE_POOL_COMMAND} [PATH] [--all] [--alloc-details]\n"
-            "      Show pool metadata and used/total; allocation details name each lab.\n"
+            "      Reconcile stale claims, then show metadata and used/total.\n"
             "      PATH defaults to the current directory; --all includes every pool.\n"
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
@@ -782,7 +816,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             f"  {contract.license_environment}_<NODE> remains the per-node prompt override.\n"
             "  Registered pools are matched to the effective node kind in registration order.\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
-            "  Deploy reconciles claims against remaining Containerlab containers before allocation.\n"
+            "  Deploy and inspection reconcile claims against remaining Containerlab containers.\n"
             "  Deploy and redeploy log each selected license basename, pool, and node.\n"
             "  Failed deployment rolls back new claims; successful destroy releases workspace claims."
         )
@@ -860,29 +894,18 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 active_pools = _active_allocation_pool_paths(registry)
                 if not active_pools.issubset(locked_pools):
                     continue
-                if active_pools:
-                    deployed_workspaces = _deployed_license_workspaces(
-                        event.environment, workspace
+                registry, reclaimed = _reconcile_registry_allocations(
+                    state,
+                    registry,
+                    environment=event.environment,
+                    cwd=workspace,
+                    contract=contract,
+                )
+                if reclaimed:
+                    api.logger.info(
+                        "reclaimed %d license allocation(s) for labs that are no longer deployed",
+                        reclaimed,
                     )
-                    pending_workspaces = _pending_deploy_workspaces(state)
-                    stale_claims = _stale_allocation_claims(
-                        registry,
-                        deployed_workspaces,
-                        pending_workspaces=pending_workspaces,
-                    )
-                    if stale_claims:
-                        stale_workspaces = {
-                            owner
-                            for _pool, _path, claim in stale_claims
-                            if (owner := _allocation_workspace(claim)) is not None
-                        }
-                        _release_claims(state, stale_claims)
-                        for stale_workspace in stale_workspaces:
-                            _remove_license_copies(Path(stale_workspace), contract)
-                        api.logger.info(
-                            "reclaimed %d license allocation(s) for labs that are no longer deployed",
-                            len(stale_claims),
-                        )
                 pending_token = None
                 if requests or automatic:
                     pending_token = _mark_deploy_pending(state, workspace)
@@ -1557,6 +1580,36 @@ def _stale_allocation_claims(
         for path, claim in entry["allocations"].items()
         if _allocation_workspace(claim) not in protected_workspaces
     )
+
+
+def _reconcile_registry_allocations(
+    state: Any,
+    registry: dict[str, Any],
+    *,
+    environment: Mapping[str, str],
+    cwd: Path,
+    contract: LicenseContract,
+) -> tuple[dict[str, Any], int]:
+    if not _active_allocation_pool_paths(registry):
+        return registry, 0
+    deployed_workspaces = _deployed_license_workspaces(environment, cwd)
+    pending_workspaces = _pending_deploy_workspaces(state)
+    stale_claims = _stale_allocation_claims(
+        registry,
+        deployed_workspaces,
+        pending_workspaces=pending_workspaces,
+    )
+    if not stale_claims:
+        return registry, 0
+    stale_workspaces = {
+        owner
+        for _pool, _path, claim in stale_claims
+        if (owner := _allocation_workspace(claim)) is not None
+    }
+    _release_claims(state, stale_claims)
+    for stale_workspace in stale_workspaces:
+        _remove_license_copies(Path(stale_workspace), contract)
+    return _read_pool_registry(state), len(stale_claims)
 
 
 def _deployed_license_workspaces(

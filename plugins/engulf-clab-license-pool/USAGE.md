@@ -99,22 +99,24 @@ the `.lic-pool` initialization metadata, and `USAGE: used/total`. The total
 counts eligible files directly in the pool: nonempty regular files whose names
 do not begin with a dot. With `--alloc-details`, each claimed filename is
 paired with the owning lab directory; claims whose source is missing or no
-longer eligible are marked. The command is read-only and can inspect a pool
-that has not been registered. Use `--all` without `PATH` to show every
-registered pool plus any unregistered pool with active allocations. `PATH` and
-`--all` cannot be used together.
+longer eligible are marked. The command can inspect a pool that has not been
+registered. Use `--all` without `PATH` to show every registered pool plus any
+unregistered pool with active allocations. `PATH` and `--all` cannot be used
+together.
 
-Before deploy or redeploy allocates a license, it reconciles existing claims
-against Docker's Containerlab container inventory. A workspace keeps its claims
-while any container labeled for a topology in that workspace remains, including
-stopped containers. If none remain, the next deploy releases those claims and
-removes this plugin's generated license copies from that workspace. Reconciliation
-also runs when the incoming lab has no pool requests. If Docker inventory cannot
-be read or a Containerlab container has no topology path, deployment stops
-without reclaiming claims. Claims selected by a deploy stay protected while its
-wrapper is running; after an abrupt exit, the next deploy clears that in-flight
-marker and checks Docker again. The command reads the registry for the current
-eclab user or service.
+Before reporting, inspection reconciles every active allocation across all
+pools, even when a single `PATH` is selected. Deploy and redeploy use the same
+reconciliation before allocating, including when the incoming lab has no pool
+requests. A workspace keeps its claims while any container labeled for a
+topology in that workspace remains, including stopped containers. If none
+remain, reconciliation releases its claims and removes this plugin's generated
+license copies. If Docker inventory cannot be read or a Containerlab container
+has no topology path, inspection reports an error and deployment stops without
+reclaiming claims. Claims selected by a deploy stay protected while its wrapper
+is running; after an abrupt exit, the next inspection or deploy clears that
+in-flight marker and checks Docker again. Reconciliation reads the registry
+for the current eclab user or service and may modify its allocation state and
+generated copies.
 
 ## Inputs
 

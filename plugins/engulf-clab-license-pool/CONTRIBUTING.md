@@ -68,12 +68,13 @@ exited.
   the command. Keep this plugin's `before_goal` priority above any edition
   adapter that reads the registration result in that phase; package lifecycle
   dependency edges do not order `before_goal` callbacks.
-- `inspect-license-pool [PATH] [--all] [--alloc-details]` is read-only. Resolve paths
-  relative to the invocation directory, hold the registry and selected pool
-  leases while taking one snapshot, and count only files accepted by
-  `_pool_files()`. `--all` snapshots the registered paths plus unregistered
-  paths with active claims. Allocation details show the owning workspace
-  derived from each stored claim; never expose license contents.
+- `inspect-license-pool [PATH] [--all] [--alloc-details]` reconciles every active
+  allocation before reporting, even when a single `PATH` is selected. Acquire
+  the registry and all active pool leases plus the selected pool, then check
+  Docker, reclaim stale claims/copies, and read the final report snapshot.
+  `--all` reports registered pools plus unregistered pools with active claims
+  after reconciliation. Allocation details show the owning workspace derived
+  from each stored claim; never expose license contents.
 - Reconciliation runs during deploy/redeploy even when that invocation has no
   license requests. Keep its Docker inventory query fail-closed and use
   `--all` so stopped containers still protect their allocations.
