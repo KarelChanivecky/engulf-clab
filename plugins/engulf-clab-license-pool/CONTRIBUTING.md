@@ -9,6 +9,23 @@ License allocation is user-scoped shared state. Hold all affected pool leases
 while claiming or releasing licenses; source topologies are modified only
 through the shared topology editor.
 
+Before each deploy or redeploy, reconcile stored claims while holding the
+registry lease and every pool lease with active allocations (plus the pools
+requested by this invocation). Match each claim's canonical workspace to
+Docker's `clab-topo-file` labels. Any remaining Containerlab container keeps
+the workspace's claims, including stopped containers; a workspace with no
+remaining containers has its allocations and generated copies reclaimed. If
+Docker inspection is incomplete, fail closed and preserve allocations. All
+allocation writers and release paths must take the registry lease so this
+snapshot cannot race a concurrent claim. An alternate provider that publishes
+an allocation handoff owns reconciliation for that invocation alongside its
+selection, leases, copies, rollback, and destroy cleanup.
+Write a pooled deploy's in-flight marker while holding the registry lease so a
+concurrent reconciler does not mistake the gap before Containerlab creates
+containers for a stale workspace. Track the marker in invocation context and
+clear it on both success and unwind; prune markers whose wrapper process has
+exited.
+
 - Derive from `SchemaBackedPlugin`. Bind global `--eclab-license` to persistent
   `ECLAB_LICENSE`, read only the normalized event environment, and preserve
   arbitrary pool variables plus node-specific `ECLAB_LICENSE_*` inputs.
@@ -51,11 +68,15 @@ through the shared topology editor.
   the command. Keep this plugin's `before_goal` priority above any edition
   adapter that reads the registration result in that phase; package lifecycle
   dependency edges do not order `before_goal` callbacks.
-- `inspect-license-pool [PATH] [--alloc-details]` is read-only. Resolve paths
+- `inspect-license-pool [PATH] [--all] [--alloc-details]` is read-only. Resolve paths
   relative to the invocation directory, hold the registry and selected pool
   leases while taking one snapshot, and count only files accepted by
-  `_pool_files()`. Allocation details show the owning workspace derived from
-  each stored claim; never expose license contents.
+  `_pool_files()`. `--all` snapshots the registered paths plus unregistered
+  paths with active claims. Allocation details show the owning workspace
+  derived from each stored claim; never expose license contents.
+- Reconciliation runs during deploy/redeploy even when that invocation has no
+  license requests. Keep its Docker inventory query fail-closed and use
+  `--all` so stopped containers still protect their allocations.
 - For `defrost`, inspect registered pools in this plugin's own user state under
   the registry lease, then publish only `LicensePoolAvailability(registered)`
   through `LICENSE_POOL_AVAILABILITY_CONTEXT`. Never put pool paths in that

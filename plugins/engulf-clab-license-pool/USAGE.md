@@ -89,8 +89,9 @@ removed from user state. Restore and re-register a moved pool before retrying.
 Inspect the current directory by default, or select a pool directory explicitly:
 
 ```bash
-eclab inspect-license-pool [PATH] [--alloc-details]
+eclab inspect-license-pool [PATH] [--all] [--alloc-details]
 eclab inspect-license-pool ./licenses/router --alloc-details
+eclab inspect-license-pool --all --alloc-details
 ```
 
 The report shows the canonical pool path, its registered Containerlab kind,
@@ -99,10 +100,21 @@ counts eligible files directly in the pool: nonempty regular files whose names
 do not begin with a dot. With `--alloc-details`, each claimed filename is
 paired with the owning lab directory; claims whose source is missing or no
 longer eligible are marked. The command is read-only and can inspect a pool
-that has not been registered.
+that has not been registered. Use `--all` without `PATH` to show every
+registered pool plus any unregistered pool with active allocations. `PATH` and
+`--all` cannot be used together.
 
-Claims remain reserved until successful destroy, including while a lab is
-stopped. The command reads the registry for the current eclab user or service.
+Before deploy or redeploy allocates a license, it reconciles existing claims
+against Docker's Containerlab container inventory. A workspace keeps its claims
+while any container labeled for a topology in that workspace remains, including
+stopped containers. If none remain, the next deploy releases those claims and
+removes this plugin's generated license copies from that workspace. Reconciliation
+also runs when the incoming lab has no pool requests. If Docker inventory cannot
+be read or a Containerlab container has no topology path, deployment stops
+without reclaiming claims. Claims selected by a deploy stay protected while its
+wrapper is running; after an abrupt exit, the next deploy clears that in-flight
+marker and checks Docker again. The command reads the registry for the current
+eclab user or service.
 
 ## Inputs
 
@@ -213,8 +225,10 @@ removes the generated copies from every workspace the registry recorded a claim
 for, reading those workspaces before the allocations are cleared. Only the
 plugin's own copy directories are deleted; nothing else in a workspace is
 touched.
-Do not edit allocation state or delete generated copies while a lab is active;
-preserve state and use targeted diagnostics to identify the owning workspace.
+Reconciliation applies the same copy cleanup only after confirming that no
+Containerlab container remains for the workspace. Do not edit allocation state
+or delete generated copies while a lab is active; preserve state and use
+targeted diagnostics to identify the owning workspace.
 
 The lab-local state prefix is the normalized callback-bound short product name,
 with product metadata as fallback. Editions sharing that short name share the
@@ -269,7 +283,7 @@ An alternate edition allocator may use the shared library registry and publish
 `LicenseAllocationHandoff` through
 `LICENSE_ALLOCATION_HANDOFF_CONTEXT`. When present for an invocation, this
 plugin skips allocation and cleanup. The alternate provider must own leases,
-copies, rollback, and destroy cleanup.
+reconciliation, copies, rollback, and destroy cleanup.
 
 ## Frozen prompts and security
 

@@ -24,6 +24,20 @@ through the shared topology editor.
 - Acquire the complete deterministic pool lease set before registry updates.
   Keep state transactions short, versioned, and atomic; never place license
   contents in user state.
+- Before every deploy or redeploy, reconcile existing allocations against
+  Docker's Containerlab inventory before selecting licenses, even if the new
+  topology has no pool requests. Match canonical workspaces through
+  `clab-topo-file`; any remaining container, including a stopped one, protects
+  that workspace's claims. Reclaim stale allocations and this plugin's generated
+  copies only when no container remains. Fail closed if Docker inspection or
+  container topology metadata is incomplete. Hold the registry lease and every
+  affected pool lease throughout reconciliation and allocation; every writer
+  of allocation state must take the registry lease to prevent races. An
+  alternate provider that publishes an allocation handoff owns reconciliation
+  for that invocation. Write an in-flight marker while holding the registry
+  lease before returning from preparation; this protects claims before
+  Containerlab creates containers. Clear it on success or unwind and prune it
+  after the wrapper process exits.
 - Keep `init-license-pool [PATH] [--eclab-kind KIND] [--eclab-update]` a
   user-state control command.
   Canonical paths are unique and ordered; re-registration updates the kind in
@@ -45,10 +59,11 @@ through the shared topology editor.
   Keep the collector's `before_goal` priority above edition adapters that read
   `INIT_LICENSE_POOL_CONTEXT` in their own `before_goal`; packaging lifecycle
   edges do not order these callbacks.
-- `inspect-license-pool [PATH] [--alloc-details]` is read-only. Resolve paths
+- `inspect-license-pool [PATH] [--all] [--alloc-details]` is read-only. Resolve paths
   from the invocation directory and acquire the registry plus selected pool
-  leases before reading metadata, inventory, and claims. Count only files
-  accepted by `_pool_files()` and never read or display license contents.
+  leases before reading metadata, inventory, and claims. `--all` includes
+  registered pools and paths with active claims. Count only files accepted by
+  `_pool_files()` and never read or display license contents.
 - On `defrost`, publish path-free pool availability after reading this plugin's
   user-scoped registry under its lease. Consumers must use the shared
   invocation context because plugin-scoped state is private.

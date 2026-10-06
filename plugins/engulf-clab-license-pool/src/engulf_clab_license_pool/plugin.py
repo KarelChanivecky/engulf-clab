@@ -5,8 +5,10 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,6 +86,8 @@ from engulf_executable_wrapper_api import (
 from .selector import selector
 
 _FILE = "license-pools.json"
+_PENDING_FILE = "license-pool-pending.json"
+_PENDING_VERSION = 1
 _STATE_VERSION = 3
 _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
 _INIT_LICENSE_POOL_EXIT_CONTEXT = "engulf_clab.license_pool.init_exit"
@@ -182,6 +186,13 @@ PLUGIN_SCHEMA = (
     .add_cli_flag(
         "--alloc-details",
         "Show each allocated license filename and its owning lab directory.",
+        command=INSPECT_LICENSE_POOL_COMMAND,
+        values=ValueType.BOOLEAN,
+        default=False,
+    )
+    .add_cli_flag(
+        "--all",
+        "Inspect every registered pool and every pool with active allocations.",
         command=INSPECT_LICENSE_POOL_COMMAND,
         values=ValueType.BOOLEAN,
         default=False,
@@ -306,6 +317,14 @@ PLUGIN_SCHEMA = (
         commands=(INSPECT_LICENSE_POOL_COMMAND,),
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         implies=("each active license claim is paired with its owning lab directory",),
+    )
+    .annotate(
+        "--all",
+        commands=(INSPECT_LICENSE_POOL_COMMAND,),
+        lifecycle=(LifecycleStage.BEFORE_GOAL,),
+        implies=(
+            "includes all registered pools and pools with active allocations",
+        ),
     )
     .annotate(
         "--kind",
@@ -453,6 +472,7 @@ class LicenseContract:
 class _InvocationAllocation:
     claims: tuple[tuple[str, str, str], ...] = ()
     copies: tuple[str, ...] = ()
+    pending_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,15 +593,54 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 options = _parse_inspect_license_pool_options(
                     invocation.arguments[1:], invocation.cwd
                 )
-                pool_lease = _lease(str(options.pool))
-                with api.leases(
-                    tuple(sorted(("license-pool-registry", pool_lease)))
-                ):
-                    report = _inspect_pool_report(
-                        api.state(StateScope.USER),
-                        options.pool,
-                        alloc_details=options.alloc_details,
+                state = api.state(StateScope.USER)
+                if options.all_pools:
+                    for _attempt in range(3):
+                        initial_registry = _read_pool_registry(state)
+                        initial_pools = _inspection_pool_paths(initial_registry)
+                        leases = tuple(
+                            sorted(
+                                {"license-pool-registry"}
+                                | {_lease(pool) for pool in initial_pools}
+                            )
+                        )
+                        with api.leases(leases):
+                            registry = _read_pool_registry(state)
+                            pools = _inspection_pool_paths(registry)
+                            if not set(pools).issubset(initial_pools):
+                                continue
+                            reports = tuple(
+                                _inspect_pool_report(
+                                    registry,
+                                    pool,
+                                    alloc_details=options.alloc_details,
+                                )
+                                for pool in pools
+                            )
+                            break
+                    else:
+                        raise LicensePoolError(
+                            "pool state kept changing during inspection; retry"
+                        )
+                    report = "\n\n".join("\n".join(lines) for lines in reports)
+                    if not report:
+                        report = "No registered pools or active allocations."
+                else:
+                    assert options.pool is not None
+                    leases = tuple(
+                        sorted(
+                            ("license-pool-registry", _lease(str(options.pool)))
+                        )
                     )
+                    with api.leases(leases):
+                        registry = _read_pool_registry(state)
+                        report = "\n".join(
+                            _inspect_pool_report(
+                                registry,
+                                str(options.pool),
+                                alloc_details=options.alloc_details,
+                            )
+                        )
             except (
                 LicensePoolError,
                 LicensePoolMetadataError,
@@ -593,7 +652,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 )
                 exit_code = 2
             else:
-                api.logger.info("%s", "\n".join(report))
+                api.logger.info("%s", report)
                 exit_code = 0
             api.set_context(
                 _INSPECT_LICENSE_POOL_EXIT_CONTEXT,
@@ -702,9 +761,9 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             "      Existing metadata is reused; --eclab-update asks contributors to refresh it.\n"
             "      Set typed metadata with --eclab-licence-pool-var NAME=VALUE; repeat as needed.\n"
             "      Lists use ';' separators and ';;' for a literal semicolon.\n"
-            f"  {INSPECT_LICENSE_POOL_COMMAND} [PATH] [--alloc-details]\n"
+            f"  {INSPECT_LICENSE_POOL_COMMAND} [PATH] [--all] [--alloc-details]\n"
             "      Show pool metadata and used/total; allocation details name each lab.\n"
-            "      PATH defaults to the current directory.\n"
+            "      PATH defaults to the current directory; --all includes every pool.\n"
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
             "    license: <directory>        Allocate from that pool directory directly\n"
@@ -723,6 +782,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             f"  {contract.license_environment}_<NODE> remains the per-node prompt override.\n"
             "  Registered pools are matched to the effective node kind in registration order.\n"
             "  Pools contain top-level regular files and are leased across workspaces.\n"
+            "  Deploy reconciles claims against remaining Containerlab containers before allocation.\n"
             "  Deploy and redeploy log each selected license basename, pool, and node.\n"
             "  Failed deployment rolls back new claims; successful destroy releases workspace claims."
         )
@@ -783,20 +843,64 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             automatic_prompts=automatic_prompts,
         )
         requests.extend(prompt_requests)
+        requested_pools = {
+            pool for _node, pool, _clamp, _claim in requests
+        } | {pool for request in automatic for pool in request.pools}
+        # The registry lease fences every allocation mutation. Take a snapshot
+        # first to learn which per-pool leases are needed, then verify that no
+        # new active pool appeared while those leases were being acquired.
+        while True:
+            initial_registry = _read_pool_registry(state)
+            locked_pools = _active_allocation_pool_paths(initial_registry) | requested_pools
+            leases = tuple(
+                sorted({"license-pool-registry"} | {_lease(pool) for pool in locked_pools})
+            )
+            with api.leases(leases):
+                registry = _read_pool_registry(state)
+                active_pools = _active_allocation_pool_paths(registry)
+                if not active_pools.issubset(locked_pools):
+                    continue
+                if active_pools:
+                    deployed_workspaces = _deployed_license_workspaces(
+                        event.environment, workspace
+                    )
+                    pending_workspaces = _pending_deploy_workspaces(state)
+                    stale_claims = _stale_allocation_claims(
+                        registry,
+                        deployed_workspaces,
+                        pending_workspaces=pending_workspaces,
+                    )
+                    if stale_claims:
+                        stale_workspaces = {
+                            owner
+                            for _pool, _path, claim in stale_claims
+                            if (owner := _allocation_workspace(claim)) is not None
+                        }
+                        _release_claims(state, stale_claims)
+                        for stale_workspace in stale_workspaces:
+                            _remove_license_copies(Path(stale_workspace), contract)
+                        api.logger.info(
+                            "reclaimed %d license allocation(s) for labs that are no longer deployed",
+                            len(stale_claims),
+                        )
+                pending_token = None
+                if requests or automatic:
+                    pending_token = _mark_deploy_pending(state, workspace)
+                    try:
+                        assigned, created_claims = _claim_all_with_created(
+                            state, requests, automatic, strategy
+                        )
+                    except BaseException:
+                        _clear_deploy_pending(state, pending_token)
+                        raise
+                else:
+                    assigned, created_claims = {}, ()
+                break
         if not requests and not automatic and not direct:
             return
-        with api.leases(
-            tuple(
-                sorted(
-                    {_lease(pool) for _node, pool, _clamp, _claim in requests}
-                    | {_lease(pool) for request in automatic for pool in request.pools}
-                )
-            )
-        ):
-            assigned, created_claims = _claim_all_with_created(
-                state, requests, automatic, strategy
-            )
-        allocation = _InvocationAllocation(claims=created_claims)
+        allocation = _InvocationAllocation(
+            claims=created_claims, pending_token=pending_token
+        )
         try:
             api.set_context(_INVOCATION_ALLOCATION_CONTEXT, allocation)
             assigned.update({claim: source for claim, source in direct.values()})
@@ -830,6 +934,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                     allocation = _InvocationAllocation(
                         claims=allocation.claims,
                         copies=(*allocation.copies, str(target)),
+                        pending_token=allocation.pending_token,
                     )
                     api.set_context(_INVOCATION_ALLOCATION_CONTEXT, allocation)
                 copied = _copy_to_lab(source, session.path.parent, claim, contract)
@@ -874,11 +979,14 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             return
         allocation = api.get_context(_INVOCATION_ALLOCATION_CONTEXT)
         if is_topology_mutation_command(event.wrapper_args):
-            if isinstance(allocation, _InvocationAllocation) and (
-                event.outcome.kind is not OutcomeKind.COMPLETED
-                or event.outcome.exit_code != 0
-            ):
-                self._rollback_deploy(api, allocation)
+            if isinstance(allocation, _InvocationAllocation):
+                if (
+                    event.outcome.kind is not OutcomeKind.COMPLETED
+                    or event.outcome.exit_code != 0
+                ):
+                    self._rollback_deploy(api, allocation)
+                else:
+                    self._finish_deploy(api, allocation)
             return
         if (
             not event.wrapper_args
@@ -888,32 +996,59 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             return
         if event.outcome.kind is not OutcomeKind.COMPLETED or event.outcome.exit_code:
             return
-        with api.lease("license-pool-registry"):
-            state = api.state(StateScope.USER)
-            contract = license_contract(api.application)
-            if any(value in {"-a", "--all"} for value in event.wrapper_args[1:]):
-                # Read the claimed workspaces before releasing them: afterwards the
-                # registry no longer records which labs hold copied licenses, and
-                # releasing the registry alone would leave every copy on disk.
-                roots = _claimed_workspaces(state)
-                _release_all(state)
-                for root in roots:
-                    _remove_license_copies(Path(root), contract)
-                return
-            workspace = api.state(StateScope.WORKSPACE)
-            _release_workspace(state, str(workspace.root))
-            _remove_license_copies(workspace.root, contract)
+        state = api.state(StateScope.USER)
+        contract = license_contract(api.application)
+        release_all = any(value in {"-a", "--all"} for value in event.wrapper_args[1:])
+        workspace = api.state(StateScope.WORKSPACE)
+        while True:
+            initial_registry = _read_pool_registry(state)
+            initial_pools = _active_allocation_pool_paths(initial_registry)
+            leases = tuple(
+                sorted({"license-pool-registry"} | {_lease(pool) for pool in initial_pools})
+            )
+            with api.leases(leases):
+                registry = _read_pool_registry(state)
+                active_pools = _active_allocation_pool_paths(registry)
+                if not active_pools.issubset(initial_pools):
+                    continue
+                if release_all:
+                    # Capture roots before releasing claims; afterward the pool
+                    # registry no longer identifies where plugin copies live.
+                    roots = _claimed_workspaces_from_registry(registry)
+                    _release_all(state)
+                    for root in roots:
+                        _remove_license_copies(Path(root), contract)
+                else:
+                    _release_workspace(state, str(workspace.root))
+                    _remove_license_copies(workspace.root, contract)
+                break
 
     def _rollback_deploy(
         self, api: InvocationAPI, allocation: _InvocationAllocation
     ) -> None:
         pools = tuple(sorted({pool for pool, _path, _claim in allocation.claims}))
-        with api.leases(tuple(_lease(pool) for pool in pools)):
-            _release_claims(api.state(StateScope.USER), allocation.claims)
+        leases = tuple(sorted({"license-pool-registry", *(_lease(pool) for pool in pools)}))
+        with api.leases(leases):
+            state = api.state(StateScope.USER)
+            _release_claims(state, allocation.claims)
+            if allocation.pending_token is not None:
+                _clear_deploy_pending(state, allocation.pending_token)
         for value in allocation.copies:
             target = Path(value)
             target.unlink(missing_ok=True)
             _remove_empty_copy_parents(target.parent)
+
+    def _finish_deploy(
+        self, api: InvocationAPI, allocation: _InvocationAllocation
+    ) -> None:
+        if allocation.pending_token is None:
+            return
+        pools = tuple(sorted({pool for pool, _path, _claim in allocation.claims}))
+        leases = tuple(sorted({"license-pool-registry", *(_lease(pool) for pool in pools)}))
+        with api.leases(leases):
+            _clear_deploy_pending(
+                api.state(StateScope.USER), allocation.pending_token
+            )
 
 
 def _pool(
@@ -1192,7 +1327,8 @@ class _InitLicensePoolOptions:
 
 @dataclass(frozen=True, slots=True)
 class _InspectLicensePoolOptions:
-    pool: Path
+    pool: Path | None
+    all_pools: bool
     alloc_details: bool
 
 
@@ -1266,10 +1402,13 @@ def _parse_inspect_license_pool_options(
     arguments: tuple[str, ...], cwd: Path
 ) -> _InspectLicensePoolOptions:
     path_value = "."
+    all_pools = False
     alloc_details = False
     positional = False
     for argument in arguments:
-        if argument == "--alloc-details":
+        if argument == "--all":
+            all_pools = True
+        elif argument == "--alloc-details":
             alloc_details = True
         elif argument.startswith("-"):
             raise LicensePoolError(
@@ -1280,26 +1419,224 @@ def _parse_inspect_license_pool_options(
         else:
             path_value = argument
             positional = True
+    if all_pools and positional:
+        raise LicensePoolError("PATH cannot be combined with --all")
+    if all_pools:
+        return _InspectLicensePoolOptions(None, True, alloc_details)
     candidate = Path(path_value).expanduser()
     if not candidate.is_absolute():
         candidate = cwd / candidate
     pool = candidate.resolve()
     if not pool.is_dir():
         raise LicensePoolError(f"license-pool path is not an existing directory: {pool}")
-    return _InspectLicensePoolOptions(pool, alloc_details)
+    return _InspectLicensePoolOptions(pool, False, alloc_details)
+
+
+def _read_pool_registry(state: Any) -> dict[str, Any]:
+    with state.transaction() as locked:
+        return _load(locked)
+
+
+def _load_pending_deploys(state: Any) -> dict[str, Any]:
+    if not state.exists(_PENDING_FILE):
+        return {"version": _PENDING_VERSION, "deploys": {}}
+    try:
+        value = json.loads(state.read_text(_PENDING_FILE))
+    except json.JSONDecodeError as error:
+        raise LicensePoolError("invalid pending license-pool deploy state") from error
+    if (
+        not isinstance(value, dict)
+        or value.get("version") != _PENDING_VERSION
+        or not isinstance(value.get("deploys"), dict)
+        or any(
+            not isinstance(token, str)
+            or not token
+            or not isinstance(item, dict)
+            or not isinstance(item.get("workspace"), str)
+            or not Path(item["workspace"]).is_absolute()
+            or type(item.get("pid")) is not int
+            or item["pid"] < 1
+            for token, item in value["deploys"].items()
+        )
+    ):
+        raise LicensePoolError("invalid pending license-pool deploy state")
+    return value
+
+
+def _mark_deploy_pending(state: Any, workspace: Path) -> str:
+    token = uuid.uuid4().hex
+    with state.transaction() as locked:
+        pending = _load_pending_deploys(locked)
+        pending["deploys"][token] = {
+            "pid": os.getpid(),
+            "workspace": str(workspace.resolve()),
+        }
+        locked.write_text(_PENDING_FILE, json.dumps(pending, sort_keys=True) + "\n")
+    return token
+
+
+def _clear_deploy_pending(state: Any, token: str) -> None:
+    with state.transaction() as locked:
+        pending = _load_pending_deploys(locked)
+        if token not in pending["deploys"]:
+            return
+        del pending["deploys"][token]
+        locked.write_text(_PENDING_FILE, json.dumps(pending, sort_keys=True) + "\n")
+
+
+def _pending_deploy_workspaces(state: Any) -> frozenset[str]:
+    """Keep claims owned by a deploy whose wrapper process is still alive."""
+    with state.transaction() as locked:
+        pending = _load_pending_deploys(locked)
+        deploys = pending["deploys"]
+        retained = {
+            token: item
+            for token, item in deploys.items()
+            if _process_is_alive(item["pid"])
+        }
+        if retained != deploys:
+            pending["deploys"] = retained
+            locked.write_text(_PENDING_FILE, json.dumps(pending, sort_keys=True) + "\n")
+        return frozenset(
+            str(Path(item["workspace"]).resolve()) for item in retained.values()
+        )
+
+
+def _process_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        # Uncertain process status must preserve the claim, never free it.
+        return True
+    return True
+
+
+def _inspection_pool_paths(registry: dict[str, Any]) -> tuple[str, ...]:
+    registered = [item["path"] for item in registry["registrations"]]
+    registered_set = set(registered)
+    active = {
+        pool
+        for pool, entry in registry["pools"].items()
+        if entry["allocations"]
+    }
+    return (*registered, *sorted(active - registered_set))
+
+
+def _active_allocation_pool_paths(registry: dict[str, Any]) -> set[str]:
+    return {
+        pool
+        for pool, entry in registry["pools"].items()
+        if entry["allocations"]
+    }
+
+
+def _allocation_workspace(claim: str) -> str | None:
+    if ":" not in claim:
+        return None
+    workspace, identity = claim.rsplit(":", 1)
+    path = Path(workspace)
+    if not identity or not path.is_absolute():
+        return None
+    return str(path.resolve())
+
+
+def _stale_allocation_claims(
+    registry: dict[str, Any],
+    deployed_workspaces: frozenset[str],
+    *,
+    pending_workspaces: frozenset[str] = frozenset(),
+) -> tuple[tuple[str, str, str], ...]:
+    protected_workspaces = deployed_workspaces | pending_workspaces
+    return tuple(
+        (pool, path, claim)
+        for pool, entry in registry["pools"].items()
+        for path, claim in entry["allocations"].items()
+        if _allocation_workspace(claim) not in protected_workspaces
+    )
+
+
+def _deployed_license_workspaces(
+    environment: Mapping[str, str], cwd: Path
+) -> frozenset[str]:
+    """Return workspaces with a remaining Containerlab container.
+
+    Stopped containers still represent a deployed lab: their owners may restart
+    them or destroy them later. Only a workspace with no Containerlab container
+    is safe to reclaim. Any incomplete runtime observation fails closed.
+    """
+    container_ids = _docker_output(
+        ("container", "ls", "--all", "--filter", "label=containerlab", "--quiet", "--no-trunc"),
+        environment,
+    ).split()
+    if not container_ids:
+        return frozenset()
+    output = _docker_output(("container", "inspect", *container_ids), environment)
+    try:
+        containers = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise LicensePoolError(
+            "cannot reconcile license allocations: Docker returned invalid container data"
+        ) from error
+    if not isinstance(containers, list):
+        raise LicensePoolError(
+            "cannot reconcile license allocations: Docker returned invalid container data"
+        )
+    workspaces: set[str] = set()
+    for container in containers:
+        config = container.get("Config") if isinstance(container, dict) else None
+        labels = config.get("Labels") if isinstance(config, dict) else None
+        if not isinstance(labels, dict) or "containerlab" not in labels:
+            raise LicensePoolError(
+                "cannot reconcile license allocations: a Containerlab container has no labels"
+            )
+        topology = labels.get("clab-topo-file")
+        if not isinstance(topology, str) or not topology:
+            raise LicensePoolError(
+                "cannot reconcile license allocations: a Containerlab container has no topology path"
+            )
+        topology_path = Path(topology).expanduser()
+        if not topology_path.is_absolute():
+            topology_path = cwd / topology_path
+        workspaces.add(str(topology_path.resolve().parent))
+    return frozenset(workspaces)
+
+
+def _docker_output(arguments: tuple[str, ...], environment: Mapping[str, str]) -> str:
+    try:
+        result = subprocess.run(
+            ["docker", *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=dict(environment),
+        )
+    except OSError as error:
+        raise LicensePoolError(
+            f"cannot reconcile license allocations: could not run docker: {error}"
+        ) from error
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise LicensePoolError(
+            "cannot reconcile license allocations: "
+            f"docker {' '.join(arguments[:2])} failed: {detail}"
+        )
+    return result.stdout
 
 
 def _inspect_pool_report(
-    state: Any,
-    pool: Path,
+    registry: dict[str, Any],
+    pool: str,
     *,
     alloc_details: bool,
 ) -> tuple[str, ...]:
-    metadata = load_pool_metadata(pool)
-    with state.transaction() as locked:
-        registry = _load(locked)
-
-    pool_path = str(pool)
+    pool_path = pool
+    pool_directory = Path(pool_path)
+    exists = pool_directory.is_dir()
+    metadata = load_pool_metadata(pool_directory) if exists else None
     kind = next(
         (
             registration["kind"]
@@ -1310,15 +1647,15 @@ def _inspect_pool_report(
     )
     entry = registry["pools"].get(pool_path, {})
     allocations: dict[str, str] = entry.get("allocations", {})
-    files = set(_pool_files(pool_path))
+    files = set(_pool_files(pool_path, missing_ok=not exists))
     used = files.intersection(allocations)
 
     lines = [
-        f"POOL: {pool_path!r}",
+        f"POOL: {pool_path!r}" + (" [missing or not a directory]" if not exists else ""),
         f"KIND: {kind if kind is not None else '(not registered)'}",
         "METADATA:",
     ]
-    if metadata.exists:
+    if metadata is not None and metadata.exists:
         lines.extend(
             f"  {line}"
             for line in json.dumps(
@@ -1985,12 +2322,16 @@ def _claimed_workspaces(state: Any) -> tuple[str, ...]:
     """
     with state.transaction() as locked:
         registry = _load(locked)
-        roots = {
-            claim.rsplit(":", 1)[0]
-            for entry in registry["pools"].values()
-            for claim in entry["allocations"].values()
-            if ":" in claim
-        }
+    return _claimed_workspaces_from_registry(registry)
+
+
+def _claimed_workspaces_from_registry(registry: dict[str, Any]) -> tuple[str, ...]:
+    roots = {
+        workspace
+        for entry in registry["pools"].values()
+        for claim in entry["allocations"].values()
+        if (workspace := _allocation_workspace(claim)) is not None
+    }
     return tuple(sorted(roots))
 
 

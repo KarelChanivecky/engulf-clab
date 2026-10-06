@@ -49,5 +49,5 @@ plugin's private state namespace.
 An alternate allocation plugin can publish
 `LicenseAllocationHandoff(provider_id=...)` in
 `LICENSE_ALLOCATION_HANDOFF_CONTEXT`. The standard adapter then skips its
-deployment allocation path; the alternate provider owns leases, copies,
-rollback, and destroy cleanup.
+deployment allocation path; the alternate provider owns reconciliation,
+leases, copies, rollback, and destroy cleanup.

@@ -35,8 +35,11 @@ from engulf_clab_license_pool.plugin import (
     _AutomaticRequest,
     _claim,
     _claim_all_with_created,
+    _clear_deploy_pending,
     _collect_pool_metadata,
+    _deployed_license_workspaces,
     _license_strategy,
+    _mark_deploy_pending,
     _parse_init_license_pool,
     _prompt_requests,
     _register_pool,
@@ -101,6 +104,26 @@ def _filename(assignments: dict[str, str], workspace: str) -> str:
 
 
 class LicenseStrategyTestCase(unittest.TestCase):
+    def test_help_documents_all_pool_inspection_and_reconciliation(self) -> None:
+        application = ApplicationMetadata(
+            application_id="engulf-clab",
+            display_name="eclab",
+            vendor="Engulf",
+            product="eclab",
+            short_product_name="eclab",
+            version="1.0",
+        )
+        api = Mock()
+        api.application = application
+
+        help_text = LicensePoolPlugin().help(api)
+
+        self.assertIn("inspect-license-pool [PATH] [--all] [--alloc-details]", help_text)
+        self.assertIn(
+            "Deploy reconciles claims against remaining Containerlab containers",
+            help_text,
+        )
+
     def test_schema_declares_closed_strategy_flag_and_environment_default(self) -> None:
         application = ApplicationMetadata(
             application_id="engulf-clab",
@@ -809,6 +832,40 @@ class AutomaticLicensePoolTestCase(unittest.TestCase):
 
 
 class LicenseSelectionLoggingTestCase(unittest.TestCase):
+    def test_deployed_workspace_scan_includes_stopped_containers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "lab"
+            topology = workspace / "lab.clab.yml"
+            responses = (
+                SimpleNamespace(returncode=0, stdout="container-id\n", stderr=""),
+                SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps(
+                        [
+                            {
+                                "Config": {
+                                    "Labels": {
+                                        "containerlab": "lab",
+                                        "clab-topo-file": str(topology),
+                                    }
+                                }
+                            }
+                        ]
+                    ),
+                    stderr="",
+                ),
+            )
+
+            with patch(
+                "engulf_clab_license_pool.plugin.subprocess.run",
+                side_effect=responses,
+            ) as run:
+                workspaces = _deployed_license_workspaces({}, root)
+
+            self.assertEqual(workspaces, frozenset({str(workspace.resolve())}))
+            self.assertIn("--all", run.call_args_list[0].args[0])
+
     def test_prepare_logs_node_basename_and_pool(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1147,8 +1204,24 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
 
             first_api, _first_contexts = self._api(session, state, workspace)
             plugin.prepare_call(event, first_api)
+            plugin.after_call(
+                AfterCallEvent(
+                    "containerlab",
+                    ("deploy",),
+                    event.effective_args,
+                    CallMode.NORMAL,
+                    CallOutcome(OutcomeKind.COMPLETED, 0, process_started=True),
+                    0.1,
+                    environment,
+                ),
+                first_api,
+            )
             second_api, _second_contexts = self._api(session, state, workspace)
-            plugin.prepare_call(event, second_api)
+            with patch(
+                "engulf_clab_license_pool.plugin._deployed_license_workspaces",
+                return_value=frozenset({str(workspace.resolve())}),
+            ):
+                plugin.prepare_call(event, second_api)
             plugin.after_call(
                 AfterCallEvent(
                     "containerlab",
@@ -1170,6 +1243,134 @@ class LicenseDeployRollbackTestCase(unittest.TestCase):
                 len(list((workspace / ".eclab" / "licenses").rglob("*.lic"))),
                 1,
             )
+
+    def test_deploy_without_pool_requests_reclaims_missing_labs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stale_workspace = root / "stale"
+            stale_workspace.mkdir()
+            (stale_workspace / ".eclab" / "licenses").mkdir(parents=True)
+            (stale_workspace / ".eclab" / "licenses" / "old.lic").write_text(
+                "license", encoding="utf-8"
+            )
+            workspace = root / "current"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "one.lic").write_text("license", encoding="utf-8")
+            state = MemoryState()
+            _claim(state, [_request(pool, str(stale_workspace))])
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {"topology": {"nodes": {"router": {"kind": "linux"}}}},
+            )
+            api, _contexts = self._api(session, state, workspace)
+            event = PreparedCallEvent(
+                "containerlab",
+                ("deploy",),
+                ("deploy", "-t", str(session.path)),
+                CallMode.NORMAL,
+                {},
+            )
+
+            with patch(
+                "engulf_clab_license_pool.plugin._deployed_license_workspaces",
+                return_value=frozenset(),
+            ):
+                LicensePoolPlugin().prepare_call(event, api)
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                registry["pools"][str(pool.resolve())]["allocations"], {}
+            )
+            self.assertFalse((stale_workspace / ".eclab" / "licenses").exists())
+            api.logger.info.assert_any_call(
+                "reclaimed %d license allocation(s) for labs that are no longer deployed",
+                1,
+            )
+
+    def test_stopped_container_inventory_keeps_license_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            active_workspace = root / "stopped-lab"
+            active_workspace.mkdir()
+            workspace = root / "current"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "one.lic").write_text("license", encoding="utf-8")
+            state = MemoryState()
+            _claim(state, [_request(pool, str(active_workspace))])
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {
+                    "topology": {
+                        "nodes": {"router": {"license": "$ROUTER_POOL"}}
+                    }
+                },
+            )
+            api, _contexts = self._api(session, state, workspace)
+            event = PreparedCallEvent(
+                "containerlab",
+                ("deploy",),
+                ("deploy", "-t", str(session.path)),
+                CallMode.NORMAL,
+                {"ROUTER_POOL": str(pool)},
+            )
+
+            with (
+                patch(
+                    "engulf_clab_license_pool.plugin._deployed_license_workspaces",
+                    return_value=frozenset({str(active_workspace.resolve())}),
+                ),
+                self.assertRaisesRegex(LicensePoolError, "no available licenses"),
+            ):
+                LicensePoolPlugin().prepare_call(event, api)
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                registry["pools"][str(pool.resolve())]["allocations"],
+                {str(pool.resolve() / "one.lic"): f"{active_workspace}:router"},
+            )
+
+    def test_pending_deploy_is_not_reclaimed_before_containers_start(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pending_workspace = root / "deploying"
+            pending_workspace.mkdir()
+            workspace = root / "current"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "one.lic").write_text("license", encoding="utf-8")
+            state = MemoryState()
+            _claim(state, [_request(pool, str(pending_workspace))])
+            token = _mark_deploy_pending(state, pending_workspace)
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                {"topology": {"nodes": {"router": {"kind": "linux"}}}},
+            )
+            api, _contexts = self._api(session, state, workspace)
+            event = PreparedCallEvent(
+                "containerlab",
+                ("deploy",),
+                ("deploy", "-t", str(session.path)),
+                CallMode.NORMAL,
+                {},
+            )
+
+            with patch(
+                "engulf_clab_license_pool.plugin._deployed_license_workspaces",
+                return_value=frozenset(),
+            ):
+                LicensePoolPlugin().prepare_call(event, api)
+
+            registry = json.loads(state.content["license-pools.json"])
+            self.assertEqual(
+                registry["pools"][str(pool.resolve())]["allocations"],
+                {str(pool.resolve() / "one.lic"): f"{pending_workspace}:router"},
+            )
+            _clear_deploy_pending(state, token)
 
 
 if __name__ == "__main__":
