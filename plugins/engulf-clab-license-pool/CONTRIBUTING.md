@@ -51,6 +51,11 @@ through the shared topology editor.
   the command. Keep this plugin's `before_goal` priority above any edition
   adapter that reads the registration result in that phase; package lifecycle
   dependency edges do not order `before_goal` callbacks.
+- `inspect-license-pool [PATH] [--alloc-details]` is read-only. Resolve paths
+  relative to the invocation directory, hold the registry and selected pool
+  leases while taking one snapshot, and count only files accepted by
+  `_pool_files()`. Allocation details show the owning workspace derived from
+  each stored claim; never expose license contents.
 - For `defrost`, inspect registered pools in this plugin's own user state under
   the registry lease, then publish only `LicensePoolAvailability(registered)`
   through `LICENSE_POOL_AVAILABILITY_CONTEXT`. Never put pool paths in that

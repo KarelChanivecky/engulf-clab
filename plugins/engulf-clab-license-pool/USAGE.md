@@ -84,6 +84,26 @@ registered or every matching pool is out of licenses.
 At deploy-time discovery, registrations whose directories no longer exist are
 removed from user state. Restore and re-register a moved pool before retrying.
 
+## Inspecting a pool
+
+Inspect the current directory by default, or select a pool directory explicitly:
+
+```bash
+eclab inspect-license-pool [PATH] [--alloc-details]
+eclab inspect-license-pool ./licenses/router --alloc-details
+```
+
+The report shows the canonical pool path, its registered Containerlab kind,
+the `.lic-pool` initialization metadata, and `USAGE: used/total`. The total
+counts eligible files directly in the pool: nonempty regular files whose names
+do not begin with a dot. With `--alloc-details`, each claimed filename is
+paired with the owning lab directory; claims whose source is missing or no
+longer eligible are marked. The command is read-only and can inspect a pool
+that has not been registered.
+
+Claims remain reserved until successful destroy, including while a lab is
+stopped. The command reads the registry for the current eclab user or service.
+
 ## Inputs
 
 Set a node's `license` to `$POOL_NAME`, then set that invocation environment

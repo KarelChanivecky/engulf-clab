@@ -1,8 +1,9 @@
 # engulf-clab-license-pool
 
 Product-aware registered pools, automatic per-node license allocation,
-selection strategies, and cleanup. Use `eclab init-license-pool` to register an
-ordered pool for a Containerlab node kind.
+selection strategies, inspection, and cleanup. Use `eclab init-license-pool` to
+register an ordered pool for a Containerlab node kind and
+`eclab inspect-license-pool` to view its metadata and allocation counts.
 
 The reusable, framework-neutral pool-manager and selector contracts are
 published separately as

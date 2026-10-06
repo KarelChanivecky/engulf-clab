@@ -45,6 +45,10 @@ through the shared topology editor.
   Keep the collector's `before_goal` priority above edition adapters that read
   `INIT_LICENSE_POOL_CONTEXT` in their own `before_goal`; packaging lifecycle
   edges do not order these callbacks.
+- `inspect-license-pool [PATH] [--alloc-details]` is read-only. Resolve paths
+  from the invocation directory and acquire the registry plus selected pool
+  leases before reading metadata, inventory, and claims. Count only files
+  accepted by `_pool_files()` and never read or display license contents.
 - On `defrost`, publish path-free pool availability after reading this plugin's
   user-scoped registry under its lease. Consumers must use the shared
   invocation context because plugin-scoped state is private.

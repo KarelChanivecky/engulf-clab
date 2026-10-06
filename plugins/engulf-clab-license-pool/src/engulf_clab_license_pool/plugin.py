@@ -87,6 +87,7 @@ _FILE = "license-pools.json"
 _STATE_VERSION = 3
 _INVOCATION_ALLOCATION_CONTEXT = "engulf_clab.license_pool.invocation_allocation"
 _INIT_LICENSE_POOL_EXIT_CONTEXT = "engulf_clab.license_pool.init_exit"
+_INSPECT_LICENSE_POOL_EXIT_CONTEXT = "engulf_clab.license_pool.inspect_exit"
 INIT_LICENSE_POOL_CONTEXT = "engulf_clab.license_pool.init_registration"
 
 # Published for plugins outside this package -- typically an edition-specific
@@ -122,6 +123,7 @@ AUTO_LICENSE = f"{LABEL_PREFIX}_AUTO_LICENSE"
 DISABLE_AUTO_LICENSE_ENVIRONMENT = f"{LABEL_PREFIX}_DISABLE_AUTO_LICENSE"
 DEFAULT_LICENSE_KIND = "fortinet_fortigate"
 INIT_LICENSE_POOL_COMMAND = "init-license-pool"
+INSPECT_LICENSE_POOL_COMMAND = "inspect-license-pool"
 
 
 _STRATEGY_VALUES = (
@@ -164,6 +166,25 @@ PLUGIN_SCHEMA = (
         values=ValueType.DIRECTORY_PATH,
         required=False,
         default=".",
+    )
+    .add_command(
+        INSPECT_LICENSE_POOL_COMMAND,
+        "Inspect a license pool's metadata, capacity, and active allocations.",
+    )
+    .add_cli_argument(
+        INSPECT_LICENSE_POOL_COMMAND,
+        "PATH",
+        "Select the license-pool directory to inspect.",
+        values=ValueType.DIRECTORY_PATH,
+        required=False,
+        default=".",
+    )
+    .add_cli_flag(
+        "--alloc-details",
+        "Show each allocated license filename and its owning lab directory.",
+        command=INSPECT_LICENSE_POOL_COMMAND,
+        values=ValueType.BOOLEAN,
+        default=False,
     )
     .add_cli_flag(
         "--kind",
@@ -267,8 +288,24 @@ PLUGIN_SCHEMA = (
     )
     .annotate(
         "PATH",
-        commands=(INIT_LICENSE_POOL_COMMAND,),
+        commands=(INIT_LICENSE_POOL_COMMAND, INSPECT_LICENSE_POOL_COMMAND),
         path_base=PathBase.INVOCATION_DIRECTORY,
+    )
+    .annotate(
+        INSPECT_LICENSE_POOL_COMMAND,
+        lifecycle=(LifecycleStage.BEFORE_GOAL,),
+        implies=(
+            "reports pool metadata and current license allocations without modifying them",
+        ),
+        examples=(
+            "eclab inspect-license-pool ./licenses --alloc-details",
+        ),
+    )
+    .annotate(
+        "--alloc-details",
+        commands=(INSPECT_LICENSE_POOL_COMMAND,),
+        lifecycle=(LifecycleStage.BEFORE_GOAL,),
+        implies=("each active license claim is paired with its owning lab directory",),
     )
     .annotate(
         "--kind",
@@ -490,6 +527,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
                 TOPOLOGY_CONTEXT,
                 _INVOCATION_ALLOCATION_CONTEXT,
                 _INIT_LICENSE_POOL_EXIT_CONTEXT,
+                _INSPECT_LICENSE_POOL_EXIT_CONTEXT,
                 INIT_LICENSE_POOL_CONTEXT,
                 LICENSE_SELECTION_CONTEXT,
                 LICENSE_ALLOCATION_HANDOFF_CONTEXT,
@@ -502,6 +540,7 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             {
                 _INVOCATION_ALLOCATION_CONTEXT,
                 _INIT_LICENSE_POOL_EXIT_CONTEXT,
+                _INSPECT_LICENSE_POOL_EXIT_CONTEXT,
                 INIT_LICENSE_POOL_CONTEXT,
                 LICENSE_SELECTION_CONTEXT,
                 LICENSE_POOL_AVAILABILITY_CONTEXT,
@@ -528,6 +567,40 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             else:
                 availability = LicensePoolAvailability(registered)
             publish_license_pool_availability(api, availability)
+        if invocation.arguments[:1] == (INSPECT_LICENSE_POOL_COMMAND,):
+            application_name = api.application.short_product_name or api.application.product
+            try:
+                options = _parse_inspect_license_pool_options(
+                    invocation.arguments[1:], invocation.cwd
+                )
+                pool_lease = _lease(str(options.pool))
+                with api.leases(
+                    tuple(sorted(("license-pool-registry", pool_lease)))
+                ):
+                    report = _inspect_pool_report(
+                        api.state(StateScope.USER),
+                        options.pool,
+                        alloc_details=options.alloc_details,
+                    )
+            except (
+                LicensePoolError,
+                LicensePoolMetadataError,
+                OSError,
+                ValueError,
+            ) as error:
+                api.logger.error(
+                    "%s %s: %s", application_name, INSPECT_LICENSE_POOL_COMMAND, error
+                )
+                exit_code = 2
+            else:
+                api.logger.info("%s", "\n".join(report))
+                exit_code = 0
+            api.set_context(
+                _INSPECT_LICENSE_POOL_EXIT_CONTEXT,
+                exit_code,
+                allow_unused=True,
+            )
+            return None
         if (
             not invocation.arguments
             or invocation.arguments[0] != INIT_LICENSE_POOL_COMMAND
@@ -629,6 +702,9 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             "      Existing metadata is reused; --eclab-update asks contributors to refresh it.\n"
             "      Set typed metadata with --eclab-licence-pool-var NAME=VALUE; repeat as needed.\n"
             "      Lists use ';' separators and ';;' for a literal semicolon.\n"
+            f"  {INSPECT_LICENSE_POOL_COMMAND} [PATH] [--alloc-details]\n"
+            "      Show pool metadata and used/total; allocation details name each lab.\n"
+            "      PATH defaults to the current directory.\n"
             "  Node YAML fields:\n"
             "    license: $POOL              Allocate from invocation environment POOL directory\n"
             "    license: <directory>        Allocate from that pool directory directly\n"
@@ -654,11 +730,18 @@ class LicensePoolPlugin(SchemaBackedPlugin):
     def analyze_call(
         self, event: BeforeCallEvent, api: InvocationAPI
     ) -> CallContribution | None:
-        if not event.wrapper_args or event.wrapper_args[0] != INIT_LICENSE_POOL_COMMAND:
+        if not event.wrapper_args:
             return None
-        exit_code = api.require_context(_INIT_LICENSE_POOL_EXIT_CONTEXT)
+        command = event.wrapper_args[0]
+        if command == INIT_LICENSE_POOL_COMMAND:
+            context_key = _INIT_LICENSE_POOL_EXIT_CONTEXT
+        elif command == INSPECT_LICENSE_POOL_COMMAND:
+            context_key = _INSPECT_LICENSE_POOL_EXIT_CONTEXT
+        else:
+            return None
+        exit_code = api.require_context(context_key)
         if type(exit_code) is not int:
-            raise LicensePoolError("invalid init-license-pool invocation context")
+            raise LicensePoolError(f"invalid {command} invocation context")
         return CallContribution(preempt_exit_code=exit_code)
 
     def prepare_call(self, event: PreparedCallEvent, api: InvocationAPI) -> None:
@@ -1107,6 +1190,12 @@ class _InitLicensePoolOptions:
     variable_overrides: tuple[tuple[str, str], ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _InspectLicensePoolOptions:
+    pool: Path
+    alloc_details: bool
+
+
 def _parse_init_license_pool_options(
     arguments: tuple[str, ...], cwd: Path
 ) -> _InitLicensePoolOptions:
@@ -1171,6 +1260,90 @@ def _parse_init_license_pool(arguments: tuple[str, ...], cwd: Path) -> tuple[Pat
     """Compatibility wrapper for callers that need only path and kind."""
     options = _parse_init_license_pool_options(arguments, cwd)
     return options.pool, options.kind
+
+
+def _parse_inspect_license_pool_options(
+    arguments: tuple[str, ...], cwd: Path
+) -> _InspectLicensePoolOptions:
+    path_value = "."
+    alloc_details = False
+    positional = False
+    for argument in arguments:
+        if argument == "--alloc-details":
+            alloc_details = True
+        elif argument.startswith("-"):
+            raise LicensePoolError(
+                f"inspect-license-pool does not support option {argument}"
+            )
+        elif positional:
+            raise LicensePoolError("inspect-license-pool accepts at most one PATH")
+        else:
+            path_value = argument
+            positional = True
+    candidate = Path(path_value).expanduser()
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+    pool = candidate.resolve()
+    if not pool.is_dir():
+        raise LicensePoolError(f"license-pool path is not an existing directory: {pool}")
+    return _InspectLicensePoolOptions(pool, alloc_details)
+
+
+def _inspect_pool_report(
+    state: Any,
+    pool: Path,
+    *,
+    alloc_details: bool,
+) -> tuple[str, ...]:
+    metadata = load_pool_metadata(pool)
+    with state.transaction() as locked:
+        registry = _load(locked)
+
+    pool_path = str(pool)
+    kind = next(
+        (
+            registration["kind"]
+            for registration in registry["registrations"]
+            if registration["path"] == pool_path
+        ),
+        None,
+    )
+    entry = registry["pools"].get(pool_path, {})
+    allocations: dict[str, str] = entry.get("allocations", {})
+    files = set(_pool_files(pool_path))
+    used = files.intersection(allocations)
+
+    lines = [
+        f"POOL: {pool_path!r}",
+        f"KIND: {kind if kind is not None else '(not registered)'}",
+        "METADATA:",
+    ]
+    if metadata.exists:
+        lines.extend(
+            f"  {line}"
+            for line in json.dumps(
+                metadata.to_document(), indent=2, sort_keys=True
+            ).splitlines()
+        )
+    else:
+        lines.append("  (none)")
+    lines.append(f"USAGE: {len(used)}/{len(files)}")
+    if alloc_details:
+        lines.append("ALLOCATIONS:")
+        if allocations:
+            for license_path, claim in sorted(allocations.items()):
+                lab_path = claim.rsplit(":", 1)[0] if ":" in claim else "(unknown)"
+                unavailable = (
+                    " [missing or no longer eligible]"
+                    if license_path not in files
+                    else ""
+                )
+                lines.append(
+                    f"  {Path(license_path).name!r}: {lab_path!r}{unavailable}"
+                )
+        else:
+            lines.append("  (none)")
+    return tuple(lines)
 
 
 def _prompt_license_pool_kind() -> str:
