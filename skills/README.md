@@ -1,9 +1,9 @@
 # Runtime-generated lab skill
 
-The primary lab-development skill is no longer maintained as a repository snapshot.
-Installed Engulf plugins describe their own commands, CLI controls, runtime
-variables, topology extensions, use cases, exclusions, and packaged references
-through `engulf-clab-schema-api`.
+The primary lab-development skill is generated from installed plugin
+declarations. Plugins can also contribute complete skills through the path-only
+`engulf-clab-skill-api`; `engulf-clab-skill-collector` owns installation and
+refresh.
 
 `engulf-clab-schema` runs after schema contributors. The fixed schema-registry
 context contains partitioned declaration pipelines. It resolves only the
@@ -35,37 +35,36 @@ runtime-selection, topology-design, safety, and diagnostic guidance.
 
 ## Install
 
-Install `engulf-clab-develop-eclab-lab` in the same environment as the base
-wrapper, then inspect eclab help. Its command and target are static:
+Install the collector and whichever skill providers you need in the same
+environment as the launcher, then inspect its help:
 
 ```bash
-eclab install-develop-eclab-lab-skill "$CODEX_HOME"
+python -m pip install engulf-clab-skill-collector engulf-clab-develop-eclab-lab
+eclab install-skills "$CODEX_HOME"
 ```
 
-The argument is the configuration root containing `skills/`, not the skills
-directory itself. The command creates
-`$CODEX_HOME/skills/develop-eclab-lab/`. This collector is inactive under every
-other executable, so it cannot generate or refresh the eclab target there.
-
-The installer refuses a symlinked configuration root, a symlinked skills
-directory, and an existing target without its generated-skill ownership marker.
-Recognized prior generations are moved to a backup directory beside the active
-skill. The generated skill retains only the active runtime fingerprint under
-`references/runtimes/`; if that runtime is missing or incomplete, the next
-eclab call treats the target as stale and requests a fresh compilation.
+The argument is the existing configuration root containing or ready to contain
+`skills/`, not the skills directory itself. Each plugin contributes an absolute
+path to a complete skill directory; the directory basename becomes its target
+name. The shared context carries these paths and never embeds the directory
+contents. The collector refuses symlinked roots, sources, skills directories,
+targets, and targets without a recognized ownership marker. Replacements are
+staged beside the target and published atomically.
 
 ## Refresh lifecycle
 
-Explicit installation requests a strict schema compile and preempts normal
-Containerlab execution. Thereafter the plugin tracks the installation in user
-state. Help, shell completion, and invocations with no tracked target request no
-schema work.
-Other wrapper lifecycle points compare a persisted fingerprint of the active
-plugin declarations, package versions, compiler format, and selected local or
-repository sources. They compile only after an input change or missing cache
-artifact, and refresh only stale or incomplete tracked targets. A deleted
-target or one that no longer has its ownership marker is untracked; an unsafe or
-manually replaced target is reported and left alone.
+The command preempts normal Containerlab execution after active contributors
+have registered their paths. The generated lab-skill provider requests a strict
+schema build for explicit installation and a best-effort cached build only when
+its target is tracked. The collector stores installed roots and skill names in
+user state, then refreshes changed tracked sources during later invocations.
+Newly contributed skill names are installed on the next explicit command.
+Generated providers can mark their source paths as temporary; the collector
+removes those per-invocation trees after each copy or refresh attempt. Installed
+targets retain the active runtime and at most one previous recognized backup,
+while the schema compiler keeps only the active artifact for each pipeline.
+Help, shell completion, and invocations without tracked generated skills do not
+request schema work.
 
 ## Static comparison baseline
 
@@ -84,10 +83,14 @@ Invoke `$develop-eclab-lab-static` explicitly when evaluating the baseline and
 a comparison artifact; normal plugin and documentation changes update only the
 generated skill pipeline.
 
-Newly discovered eclab plugins participate automatically when they depend on
-`engulf_clab.schema` and call `record_plugin_schema()` during `before_goal`.
-Because the generator is declared as an after-dependency, it sees every
-contribution before compiling.
+New plugins that contribute a skill depend on `engulf-clab-skill-api`, package a
+complete skill directory, call `record_skill(api, path)` for persistent sources
+or `record_temporary_skill(api, path)` for generated sources, and declare the
+collector ordering edge so the collector installs after their contribution.
+Each contribution is independent, so providers can later split the current lab
+skill into separately named skills without adding rendered content to shared
+context. Schema-enabled plugins continue to declare `engulf_clab.schema` and
+call `record_plugin_schema()` during `before_goal()`.
 
 ## Superset edition contract
 
@@ -110,9 +113,9 @@ the running edition metadata.
 
 Each pipeline has its own `pipelines/<pipeline-id>/latest.json` and artifact
 tree in schema-generator user state. Containerlab/vrnetlab source caches and the
-generation lease remain shared. The API exposes the final compiled bundle to an
-external edition; the external edition owns its distinct skill template,
-installation command, target, and refresh tracking.
+generation lease remain shared. An external edition can render its own skill
+directory and contribute its path to the shared collector; target installation
+and refresh remain shared across active contributors.
 
 ## Contributor contract
 
@@ -155,10 +158,12 @@ adapter from `SchemaBackedPlugin`, and call
 make check-skill
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-schema-api
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-schema
+.venv/bin/python -m build --no-isolation plugins/engulf-clab-skill-api
+.venv/bin/python -m build --no-isolation plugins/engulf-clab-skill-collector
 .venv/bin/python -m build --no-isolation plugins/engulf-clab-develop-eclab-lab
 .venv/bin/python -m build --no-isolation skills/engulf-clab-develop-eclab-lab-static
 ```
 
 For an integration check, install the built packages into a temporary virtual
 environment with the wrapper and contributors, run plugin discovery, then run
-the static eclab install command against a temporary configuration root.
+`install-skills` against a temporary configuration root.

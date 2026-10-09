@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-all-plugins"
-version = "0.1.9"
+version = "0.2.0"
 description = "Meta-package that installs all engulf-clab plugins (requires Python 3.12+)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,9 @@ license = "MIT"
 dependencies = [
     "engulf-clab-schema-api>=1.2,<2",
     "engulf-clab-schema>=0.2,<1",
-    "engulf-clab-develop-eclab-lab>=0.2,<1",
+    "engulf-clab-develop-eclab-lab>=0.3,<1",
+    "engulf-clab-skill-api>=0.2,<1",
+    "engulf-clab-skill-collector>=0.2,<1",
     "engulf-docker-image-api>=1.1,<2",
     "engulf-docker-image-core>=1.0,<2",
     "engulf-clab-image-build>=0.2,<1",
@@ -38,6 +40,7 @@ dependencies = [
     "engulf-clab-vrnetlab-fortigate-pki-injector>=0.2,<1",
     "engulf-clab-vrnetlab-fortigate-license-injector>=0.1,<1",
     "engulf-clab-fortinet-operation-guard>=0.1,<1",
+    "engulf-clab-port-check>=0.1,<1",
     "engulf-clab-lab-parser>=0.1,<1",
     "engulf-clab-lab-writer>=0.2,<1",
     "engulf-clab-sticky-ip>=0.1,<1",

@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-all-plugins = ["engulf-clab-all-plugins>=0.1,<1"]
+all-plugins = ["engulf-clab-all-plugins>=0.2,<1"]
 
 [project.scripts]
 eclab-mcp = "engulf_clab_mcp.bridge:main"

@@ -256,7 +256,7 @@ def refresh(commands, eclab, root, discovery_environment=None):
     commands.run([eclab, "defrost", "--help"])
     commands.run([eclab, "--eclab-containers-help"])
     commands.run(
-        [eclab, "install-develop-eclab-lab-skill", config],
+        [eclab, "install-skills", config],
         timeout=600,
         env=discovery_environment,
     )

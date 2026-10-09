@@ -457,7 +457,9 @@ required host tools, and cleanup behavior.
 | `engulf-clab-mcp` | `eclab-mcp`, `eclab-mcpd` | Local Unix-socket privileged MCP executor and standard-stdio bridge. |
 | `engulf-clab-all-plugins` | None | Meta-package that installs all maintained plugins. |
 | `engulf-clab-demo-lab` | `eclab-demo-lab-install` | Non-plugin installer for one comprehensive client/Fake-WAN/FortiGate/DMZ/work demonstration lab. |
-| `engulf-clab-develop-eclab-lab` | `eclab install-develop-eclab-lab-skill` | Runtime-generated eclab skill collector. |
+| `engulf-clab-skill-api` | Contract only | Path-only skill contribution context for installed plugins. |
+| `engulf-clab-skill-collector` | `install-skills` | Installs and refreshes contributed skill directories. |
+| `engulf-clab-develop-eclab-lab` | Skill contribution | Runtime-generated eclab skill installed by the shared collector. |
 | `engulf-clab-develop-eclab-lab-static` | `develop-eclab-lab-static-install` | Historical static skill retained for comparative evaluation. |
 | `engulf-clab-schema-api` | Contract only | Typed runtime control, reference, task-routing, and edition-pipeline declaration API. |
 | `engulf-clab-schema` | `engulf_clab.schema` | Compiles active declarations with exact Containerlab/vrnetlab sources into catalogs, provider references, and validation schemas. |
@@ -659,10 +661,12 @@ ACME_CLAB = CONTAINERLAB_APPLICATION.edition(
 )
 ```
 
-The edition's collector requests only `acme-clab`; base eclab declarations are
-inherited and expanded against the running edition metadata. The bundled
-`engulf-clab-develop-eclab-lab` collector remains exclusive to eclab, so the
-edition owns its own skill command, renderer, target, and refresh tracking.
+The edition's schema consumer requests only `acme-clab`; base eclab declarations
+are inherited and expanded against the running edition metadata. The shared
+skill collector can install paths contributed by any active edition plugin.
+The bundled `develop-eclab-lab` content provider remains exclusive to eclab, so
+an edition contributes its own directory when it needs edition-specific
+guidance.
 
 ## Contributing
 
@@ -697,21 +701,23 @@ Each installed plugin declares its exact controls and packaged references. The
 schema generator emits a task catalog and compact YAML capability file for each
 plugin, while also combining the declarations with the selected Containerlab
 source's `schemas/clab.schema.json` for complete validation.
-`engulf-clab-develop-eclab-lab` installs the base result as the static,
-fingerprinted `develop-eclab-lab` Codex skill. Read
+`engulf-clab-develop-eclab-lab` contributes the base result as the
+fingerprinted `develop-eclab-lab` Codex skill. The shared skill collector
+installs contributed paths without placing skill contents in invocation
+context. Read
 [`skills/README.md`](skills/README.md) for the contract and lifecycle.
 
 For the standard edition, install it into a Codex configuration root with:
 
 ```bash
-eclab install-develop-eclab-lab-skill "$CODEX_HOME"
+eclab install-skills "$CODEX_HOME"
 ```
 
 Superset editions declare and request their own inherited schema pipeline,
-consume the resulting bundle, and own a separate skill package. The eclab
-installer refuses unsafe or unrelated destinations and refreshes only its
-tracked eclab installations after later runtime schema changes. Run `make
-check-skill` in CI.
+consume the resulting bundle, and can contribute separately named skills
+through the same path API. The collector refuses unsafe or unrelated
+destinations and refreshes tracked installations after source changes. Run
+`make check-skill` in CI.
 
 For a side-by-side baseline, install
 `engulf-clab-develop-eclab-lab-static` and explicitly invoke

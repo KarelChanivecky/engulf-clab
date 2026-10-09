@@ -301,10 +301,12 @@ VENDOR_CLAB = CONTAINERLAB_APPLICATION.edition(
 )
 ```
 
-The edition's collector requests only `vendor-clab`; base eclab declarations
-are inherited and expanded against the running edition metadata. The bundled
-eclab skill collector is inactive under that executable, so the edition owns
-its skill renderer, command, target, and refresh tracking.
+The edition's schema consumer requests only `vendor-clab`; base eclab
+declarations are inherited and expanded against the running edition metadata.
+The shared skill collector can install path contributions from the edition's
+active plugins. The base `develop-eclab-lab` provider remains eclab-only, so an
+edition contributes its own complete skill directory when it needs edition-
+specific guidance.
 
 The edition launcher belongs in its own distribution and console-script entry
 point. It should include its own plugin explicitly rather than publishing a

@@ -1,64 +1,35 @@
-# Generated skill plugin development notes
+# Generated lab skill contributor guidance
 
-- Keep `PLUGIN_SCHEMA` at `audience=SchemaAudience.SUPPORT`: this plugin serves
-  other plugins, so the generated lab skill omits it. Do not add topology
-  controls, task routes, or node kinds to that declaration.
-- Derive from `SchemaBackedPlugin` so the install command and configuration-root
-  path are completed directly from `PLUGIN_SCHEMA`.
-- Declare the schema ordering edge only in the
-  `engulf.plugins.v1.dependency.engulf_clab_develop_lab_skill` package metadata,
-  keeping both positions (`preprocess=after; postprocess=before`). The
-  postprocess edge is what lets this collector run before the schema plugin
-  tears down. Do not restore `plugin_dependencies` on the class; Engulf rejects
-  code-declared dependencies.
-- Keep the public distribution name `engulf-clab-develop-eclab-lab`; it is the
-  stable package identity even though the plugin ID is product-neutral. The
-  command `install-develop-eclab-lab-skill`, target `develop-eclab-lab`, and
-  requested pipeline `eclab` are static.
-- Gate registration, schema contribution, requests, tracked-target reads, and
-  installation on the running application's normalized short product being
-  exactly `eclab`. Another edition owns its own collector and must never cause
-  this package to refresh the eclab target.
-- A valid explicit install request must enter the schema generator before the
-  wrapped goal is preempted. The consumer installs only a compiled context value.
-- Never overwrite an unrecognized or symlinked target. Stage beside the target,
-  retain only the active recognized runtime fingerprint, preserve unknown
-  runtime entries and symlinks, then rename atomically.
-- `_installed_fingerprint()` must treat a missing or incomplete active runtime
-  as stale. The tracked-target path must request a fresh schema build so the
-  next eclab call can repair it; the generated skill must not fall back to an
-  older fingerprint.
-- Automatic refresh is best effort and cannot change a wrapped call's result.
-  Explicit installation failures must return nonzero.
-- Do not request automatic schema work without a tracked target. Report one
-  current fingerprint only when every retained target is complete and identical;
-  this lets the terminal generator suppress both compilation and target writes.
-- Help-only and internal-completion invocations must not open target state or
-  request schema generation.
-- Keep the skill entrypoint concise: read `current.json`, route through the
-  catalog, load only relevant provider `schema.yaml` files, and open detailed
-  references only as needed.
-- Preserve durable cross-plugin lab judgment in the template. Append the
-  generated catalog during installation and rewrite its artifact paths relative
-  to the installed skill; never bake one runtime fingerprint into the template.
-  Provider- and vendor-specific instructions belong in generated references,
-  not the generic template.
-- Validate with the schema API/generator tests and skill-creator quick validator
-  against a generated temporary installation.
+This package provides the eclab-specific content and renderer for
+`develop-eclab-lab`. `engulf-clab-skill-api` owns the path-only shared context;
+`engulf-clab-skill-collector` owns installation and refresh.
+
+- Record the schema declaration during `before_goal()` and request compilation
+  only for explicit installation or a tracked generated skill.
+- The compiler runs after schema contributors. Its bundle is read from the
+  existing compiled context, rendered into a unique per-invocation directory
+  under this plugin's user state, and contributed with
+  `record_temporary_skill(api, path)`.
+- The collector removes temporary generated sources after every collection
+  attempt. Keep process-exit cleanup for interruption and reap process roots
+  left by exited or stale processes on the next generation. Clean the source if
+  recording its path fails.
+- Keep the path contribution small. Do not publish catalog text, schema bytes,
+  references, or callbacks in the skill context.
+- The generated target name and eclab pipeline are stable. Other editions own
+  their own runtime-specific providers and may install separate skills through
+  the shared collector.
+- Keep package dependency ordering in `pyproject.toml`: this provider precedes
+  the schema compiler in `before_goal`, consumes compiler output before its
+  postprocessing, reads tracked names from the collector first, and publishes
+  its path before the collector installs it.
+- Do not configure logging or print operational messages directly. Report
+  diagnostics through callback-bound `api.logger`.
 
 ## Validation
-
-Run the narrowest checks that exercise the changed boundary:
 
 ```bash
 .venv/bin/python -m compileall -q plugins/engulf-clab-develop-eclab-lab/src
 .venv/bin/python -m pytest -q plugins/engulf-clab-develop-eclab-lab/tests
 make check-skill
 ```
-
-Skill template or renderer changes require the `engulf-clab-schema` suite.
-
-Run `make build-<package>` for a distribution build (or `make build` for
-every distribution), and `git diff --check` before committing. Never run
-real deploy/destroy, Docker builds, Git clones, or
-privileged MCP installation as part of validation.

@@ -1,6 +1,8 @@
 PYTHON := .venv/bin/python
 PACKAGES := \
 	engulf-clab-schema-api \
+	engulf-clab-skill-api \
+	engulf-clab-skill-collector \
 	engulf-clab-lab-registry-api \
 	engulf-clab-freeze-api \
 	engulf-clab-pki-api \
@@ -39,6 +41,7 @@ PACKAGES := \
 	engulf-clab-vrnetlab-fortigate-pki-injector \
 	engulf-clab-vrnetlab-fortigate-license-injector \
 	engulf-clab-fortinet-operation-guard \
+	engulf-clab-port-check \
 	engulf-clab-all-plugins \
 	engulf-clab \
 	engulf-clab-demo-lab \
@@ -46,6 +49,8 @@ PACKAGES := \
 
 # Package name -> source directory
 DIR_engulf-clab-schema-api := plugins/engulf-clab-schema-api
+DIR_engulf-clab-skill-api := plugins/engulf-clab-skill-api
+DIR_engulf-clab-skill-collector := plugins/engulf-clab-skill-collector
 DIR_engulf-clab-lab-registry-api := plugins/engulf-clab-lab-registry-api
 DIR_engulf-clab-freeze-api := plugins/engulf-clab-freeze-api
 DIR_engulf-clab-pki-api := plugins/engulf-clab-pki-api
@@ -84,6 +89,7 @@ DIR_engulf-clab-containers-pki := plugins/engulf-clab-containers-pki
 DIR_engulf-clab-vrnetlab-fortigate-pki-injector := plugins/engulf-clab-vrnetlab-fortigate-pki-injector
 DIR_engulf-clab-vrnetlab-fortigate-license-injector := plugins/engulf-clab-vrnetlab-fortigate-license-injector
 DIR_engulf-clab-fortinet-operation-guard := plugins/engulf-clab-fortinet-operation-guard
+DIR_engulf-clab-port-check := plugins/engulf-clab-port-check
 DIR_engulf-clab-all-plugins := plugins/engulf-clab-all-plugins
 DIR_engulf-clab := engulf-clab
 DIR_engulf-clab-demo-lab := demo-lab
@@ -115,6 +121,8 @@ build: $(PACKAGES:%=dist/%/.built)
 
 check-skill:
 	@$(PYTHON) -m pytest -q \
+		plugins/engulf-clab-skill-api/tests \
+		plugins/engulf-clab-skill-collector/tests \
 		plugins/engulf-clab-schema-api/tests \
 		plugins/engulf-clab-schema/tests \
 		plugins/engulf-clab-develop-eclab-lab/tests

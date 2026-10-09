@@ -1,53 +1,45 @@
-# Runtime-generated lab development skill
+# Runtime-generated lab skill contribution
 
-This eclab plugin installs a Codex-compatible lab skill generated from the
-active plugin set and the exact selected Containerlab and vrnetlab sources:
+Install this contributor and the shared skill collector into the wrapper's
+Python environment:
 
 ```bash
-python -m pip install engulf-clab-develop-eclab-lab
-eclab install-develop-eclab-lab-skill ~/.codex
+python -m pip install engulf-clab-develop-eclab-lab engulf-clab-skill-collector
+eclab install-skills ~/.codex
 ```
 
-Install the skill distribution into the same environment as the wrapper, since
-Engulf discovers plugins from the wrapper's environment. The beta release
-requires the Engulf 1.0 plugin APIs used for packaging-declared dependency
-ordering.
+The exact command is `eclab install-skills CONFIG_ROOT`. Pass the existing
+configuration root that contains or will contain `skills/`, such as `~/.codex`,
+not the `skills/` directory. The generated skill is installed at
+`CONFIG_ROOT/skills/develop-eclab-lab/`. There are no environment-variable or
+edition-prefix controls. This provider contributes only under the base eclab
+short product; other editions can contribute their own skill paths.
 
-Pass the configuration root that contains `skills/`, not the skills directory.
-Base eclab installs `~/.codex/skills/develop-eclab-lab`. The command is also an
-idempotent refresh.
+The provider asks the installed schema compiler for the active eclab runtime
+bundle, combines it with the concise packaged template, writes fingerprinted
+references into a unique per-invocation directory beneath a process-owned
+directory in its private user state, then contributes that directory by path.
+The shared collector copies the directory and tracks the target. The shared
+context carries a path rather than the generated catalog or reference contents.
 
-The installed `SKILL.md` combines durable cross-plugin lab guidance with the
-catalog current at generation time. The skill keeps fingerprinted runtime
-bundles under `references/runtimes/`; `references/current.json` identifies the
-active one. It uses its embedded catalog first, uses `catalog.json` for
-structured queries, then loads only task-relevant
-`plugins/<plugin-id>/schema.yaml` files and detailed references, reserving the
-full composed schema for final topology validation.
+The collector removes each temporary source tree after its installation or
+refresh attempt, including early returns and handled failures. Unique source
+directories let concurrent invocations copy independently. Process-exit cleanup
+removes the process-owned directory; the next generation reaps roots left by
+exited processes and legacy fingerprint snapshots older than a day. Process
+roots over a day old are also reaped. The installed target
+contains only the active runtime snapshot, and the collector keeps at most one
+previous installed backup. The schema compiler retains only the active artifact
+for each pipeline. Explicit installation errors return nonzero; later automatic
+refresh is best effort and does not change the wrapped command result.
 
-The configuration root must already exist and must not be a symlink. The
-installer also refuses a symlinked `skills/` directory, a symlinked target, and
-an unrelated target. Recognized replacements are moved beneath
-`.develop-eclab-lab-backups/<timestamp>` before the staged update is published
-atomically. Only the latest skill backup and the active runtime bundle are
-retained; older backups and recognized older runtime fingerprint directories
-are removed. Unknown entries and symlinks under `references/runtimes/` are left
-untouched.
+The collector requires an existing non-symlink configuration root. It refuses
+symlinked source entries, `skills/` directories, targets, and unrelated targets
+without an ownership marker. The skill content is trusted prompt instruction
+data and will be loaded by the coding agent; install only trusted plugin
+packages. No lab state or host resources are modified by installing this skill.
 
-Explicitly installed roots are tracked for best-effort refresh after later
-eclab calls. An incomplete recognized target is repaired from the cached bundle.
-If `references/current.json` points to a missing or incomplete runtime, the
-target is considered stale and the next eclab call requests a fresh schema
-bundle; the skill must not fall back to another fingerprint. Deleting the whole
-generated target or removing its ownership marker untracks that root from
-automatic refresh. Explicit installation failures return nonzero, while an
-automatic refresh failure cannot change the wrapped command's result.
-
-This collector runs only under the base `eclab` executable. A superset edition
-registers and requests its own schema pipeline, consumes its `CompiledSchemaBundle`,
-and owns its separate skill renderer, command, and installation target, so both
-edition-specific skills can exist side by side without being regenerated
-together. This package does not expose a generic template-composition API.
-
-If the obsolete `engulf-clab-develop-lab-skill` distribution is installed,
-remove it before upgrading to avoid duplicate discovery of the same plugin ID.
+If `install-skills` is absent from `eclab --help`, install the collector in the
+same environment as the launcher. If the target is reported as unrecognized,
+inspect it and move it aside before retrying; the collector will not overwrite
+unowned content.

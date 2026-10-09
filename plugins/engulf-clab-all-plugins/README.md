@@ -13,9 +13,10 @@ discovers those installed entry points when `engulf-clab` runs.
 
 | Distribution | Installed capability |
 | --- | --- |
+| `engulf-clab-skill-api` and `engulf-clab-skill-collector` | Path-based skill contributions plus shared `install-skills` installation and refresh. |
 | `engulf-clab-schema-api` | Stable partitioned-pipeline declaration and invocation-state contract. |
 | `engulf-clab-schema` | Last-running compiler for one executable-selected inherited pipeline and exact Containerlab source. |
-| `engulf-clab-develop-eclab-lab` | Static eclab command that installs and refreshes only the `develop-eclab-lab` Codex skill. |
+| `engulf-clab-develop-eclab-lab` | Runtime-generated `develop-eclab-lab` contribution installed by the shared skill collector. |
 | `engulf-clab-lab-parser` and `engulf-clab-lab-writer` | Immutable source-topology session and temporary derived-topology collector. |
 | `engulf-clab-sticky-ip` | Stable private IPv4 or IPv6 management subnets and fixed node addresses. |
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
@@ -42,12 +43,13 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-vrnetlab-fortigate-pki-injector` | Automatic path-only installation of authorized PKI identities into FortiGate vrnetlab nodes. |
 | `engulf-clab-vrnetlab-fortigate-license-injector` | Mounts a registered FortiGate license read-only for vrnetlab startup. |
 | `engulf-clab-fortinet-operation-guard` | Rejects unsupported reconfigure, restart, and already-running deploy operations for Fortinet nodes. |
+| `engulf-clab-port-check` | Offers interactive or automatic protocol-specific replacements for occupied deploy host ports. |
 
 Included feature packages are Dockerfile builds, the packaged-container manager,
 core and PKI collections, Containerlab and vrnetlab provisioning, vrnetlab image
 builds, license pools, managed DHCP/NAT WAN bridges, resource-consumption reports, frozen shareable archives,
 PKI catalogs, certificate mounts, FortiGate PKI and registered-license injection,
-sticky management addresses, and the topology mutation/collector infrastructure. Review the individual package READMEs before
+sticky management addresses, interactive host-port replacement, and the topology mutation/collector infrastructure. Review the individual package READMEs before
 enabling host-affecting features such as WAN bridges or
 automatic source updates.
 

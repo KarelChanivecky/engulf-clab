@@ -173,12 +173,12 @@ example `engulf_clab.example`.
 
 - Keep the static template in `plugins/engulf-clab-develop-eclab-lab/skill/`
   concise and put runtime detail in the compiler-generated `references/` tree.
-- The bundled eclab generated-skill command, target, prompt, and pipeline are
-  static and must be gated to callback-bound `short_product_name == "eclab"`.
-  External editions consume their own compiled pipeline bundle and own their
-  skill tooling. Install atomically, back up only recognized generated targets,
-  refuse symlinks and unknown targets, and retain fingerprinted runtime snapshots
-  for existing conversations.
+- Keep the shared `install-skills` command and collector target behavior generic
+  across active launchers. The `develop-eclab-lab` content provider and its schema
+  pipeline remain gated to callback-bound `short_product_name == "eclab"`.
+  Providers contribute complete skill-directory paths; the collector installs
+  atomically, backs up only recognized targets, and refuses symlinks and unknown
+  targets. Retain fingerprinted runtime snapshots for existing conversations.
 - Declare plugins that only serve other plugins (serializers, registries,
   platform asset images, schema/skill tooling) with
   `audience=SchemaAudience.SUPPORT` so the generated skill omits them; they may
@@ -224,9 +224,9 @@ example `engulf_clab.example`.
 - Check installed documentation surfaces with `.venv/bin/eclab --help`,
   `.venv/bin/eclab --engulf-plugin-list`, and any advertised secondary help.
 - Run `make check-skill` after schema, plugin behavior, or generated-skill
-  changes. Validate a release candidate by building the three schema/skill
-  packages and invoking the static eclab install command against a temporary
-  configuration root.
+  changes. Validate a release candidate by building the schema API/compiler,
+  skill API/collector, and generated-skill provider, then invoke
+  `install-skills` against a temporary configuration root.
 - Commits that change wrapper, plugin, MCP, schema, skill, or referenced
   documentation paths need exactly one `Skill-Impact: updated` or
   `Skill-Impact: none` trailer. Use `updated` when declarations, compilation, or

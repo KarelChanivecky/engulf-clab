@@ -1,7 +1,4 @@
-# Runtime-generated lab development skill
+# Runtime-generated lab skill contribution
 
-Installation and refresh of the generated eclab development skill, published as
-`engulf-clab-develop-eclab-lab`.
-
-- [Usage](USAGE.md) documents installation, refresh and tracking behavior, and failure semantics.
-- [Contributing](CONTRIBUTING.md) documents implementation invariants and focused validation.
+Contributes a runtime-generated eclab skill through the shared skill API. See
+[usage](USAGE.md) and [contributor notes](CONTRIBUTING.md).
