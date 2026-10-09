@@ -33,12 +33,15 @@ def parser(program: str) -> argparse.ArgumentParser:
     selection.add_argument(
         "--all",
         action="store_true",
-        help="reclaim every known lab, but only when all are destroyed",
+        help="select every known lab; without --stopped, all must be destroyed",
     )
     result.add_argument(
         "--stopped",
         action="store_true",
-        help="with --all, reclaim only labs whose containers are stopped",
+        help=(
+            "with --all, select non-running labs with stopped containers or "
+            "recorded images still in Docker"
+        ),
     )
     return result
 
@@ -68,12 +71,20 @@ def plan(
     records = registry.records()
     containers = docker.containers()
     universe = _known_labs(records, containers)
+    available: dict[str, str] | None = None
     if options.all:
         if options.stopped:
+            available = docker.available_images()
             targets = tuple(
                 lab
                 for lab in universe
-                if lab.container_ids and not lab.has_running_containers
+                if not lab.has_running_containers
+                and (
+                    lab.container_ids
+                    or any(
+                        _normalized(image_id) in available for image_id in lab.image_ids
+                    )
+                )
             )
         else:
             deployed = tuple(lab for lab in universe if lab.container_ids)
@@ -106,6 +117,8 @@ def plan(
         universe = _overlay((*universe, selected))
         targets = (selected,)
 
+    if available is None:
+        available = docker.available_images()
     target_keys = {lab.key for lab in targets}
     owners: dict[str, set[tuple[str, Path | None]]] = defaultdict(set)
     representative: dict[str, str] = {}
@@ -124,7 +137,6 @@ def plan(
     else:
         shared = {image_id for image_id in candidates if owners[image_id] - target_keys}
         deletable = candidates - shared
-    available = docker.available_images()
     image_ids = tuple(
         sorted(available[image_id] for image_id in deletable if image_id in available)
     )
@@ -192,23 +204,45 @@ def execute(
     else:
         storage_before = reclaim_plan.storage_before
 
+    planned_image_ids = {_normalized(image_id) for image_id in image_ids}
+    for lab in reclaim_plan.labs:
+        lab_image_count = sum(
+            _normalized(image_id) in planned_image_ids for image_id in lab.image_ids
+        )
+        logger.info(
+            "reclaiming lab %s: %d container(s), %d image ID(s) planned",
+            _lab_label(lab),
+            len(lab.container_ids),
+            lab_image_count,
+        )
+
     failures: list[str] = []
     removed_containers = 0
     removed_images = 0
     for container_id in reclaim_plan.container_ids:
         try:
             removed = docker.remove_container(container_id)
-            removed_containers += 1
+            removed_containers += int(removed is not False)
             if removed is not False:
-                logger.info("reclaimed container: %s", container_id)
+                logger.info(
+                    "reclaimed container: %s; lab(s): %s",
+                    container_id,
+                    _container_labs(reclaim_plan, container_id),
+                )
         except DockerError as error:
             failures.append(str(error))
     for image_id in image_ids:
         try:
-            removed = docker.remove_image(image_id)
-            removed_images += 1
-            if removed is not False:
-                logger.info("reclaimed image: %s", image_id)
+            outcome = docker.remove_image(image_id)
+            removed_images += int(outcome.removed)
+            if outcome.removed:
+                references = ", ".join(outcome.references) or "<untagged>"
+                logger.info(
+                    "reclaimed image: %s (ID %s); lab(s): %s",
+                    references,
+                    image_id,
+                    _image_labs(reclaim_plan, image_id),
+                )
         except DockerError as error:
             failures.append(str(error))
 
@@ -285,6 +319,31 @@ def _bytes(value: int | None) -> str:
             break
         amount /= 1024
     return f"{amount:.0f} {unit}" if unit == "B" else f"{amount:.2f} {unit}"
+
+
+def _lab_label(lab: LabUse) -> str:
+    if lab.directory is None:
+        return f"{lab.name} (directory unknown)"
+    return f"{lab.name} ({lab.directory})"
+
+
+def _container_labs(reclaim_plan: ReclaimPlan, container_id: str) -> str:
+    labels = tuple(
+        _lab_label(lab)
+        for lab in reclaim_plan.labs
+        if container_id in lab.container_ids
+    )
+    return ", ".join(labels) or "unknown lab"
+
+
+def _image_labs(reclaim_plan: ReclaimPlan, image_id: str) -> str:
+    normalized = _normalized(image_id)
+    labels = tuple(
+        _lab_label(lab)
+        for lab in reclaim_plan.labs
+        if any(_normalized(candidate) == normalized for candidate in lab.image_ids)
+    )
+    return ", ".join(labels) or "unknown lab"
 
 
 def _known_labs(

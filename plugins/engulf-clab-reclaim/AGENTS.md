@@ -9,11 +9,15 @@
   crash mid-deletion is idempotent and never over-deletes.
 - Preserve lab directories and registry history.
 - Delete only selected lab containers, anonymous volumes, and planned image IDs.
-- Log each resource successfully removed, including its Docker ID, in addition
-  to the aggregate storage summary.
-- Preserve cross-lab shared images unless `--all` selects every known lab.
-- Reject plain `--all` if any lab has containers; `--all --stopped` selects only
-  labs with stopped containers and preserves images owned outside that subset.
+- Log each target lab with its workspace and planned resource counts. Identify
+  successful removals with lab provenance and Docker IDs; show image tags or
+  digests when available, in addition to the aggregate storage summary.
+- Preserve images owned by any lab outside the selected target set. Images
+  shared only by labs in that set are reclaimable, including an `--all --stopped`
+  subset.
+- Reject plain `--all` if any lab has containers. `--all --stopped` selects
+  labs with no running containers when they have stopped containers or recorded
+  images still present in Docker; preserve images owned outside that subset.
   Images shared only by labs in the selected subset are reclaimable.
 - Never force Docker image removal or add broad prune behavior.
 - Use callback logging, keep the reclamation lease around planning and mutation,

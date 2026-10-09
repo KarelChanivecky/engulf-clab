@@ -24,10 +24,14 @@ plan every known lab before the bulk destroy and reclaim the complete image
 union afterward. The reclaim step runs only after a successful destroy; a
 failed or interrupted destroy leaves resources for a later explicit reclaim.
 
-The command logs each successfully reclaimed container and image by ID. The
-final status reports storage reclaimed in IEC units. For `destroy --reclaim`,
-that amount covers the full destroy-and-reclaim operation, including storage
-removed by the native destroy call. Standalone reclaim snapshots Docker's
+Before deletion, the command logs each selected lab's name, workspace, container
+count, and image IDs planned for removal. Each successfully reclaimed container
+includes its lab identity. Each reclaimed image includes its repository tag or
+digest when available, full image ID, and owning selected lab or labs. Untagged
+images are labeled `<untagged>`. The final status reports storage reclaimed in
+IEC units. For `destroy --reclaim`, that amount covers the full
+destroy-and-reclaim operation, including storage removed by the native destroy
+call. Standalone reclaim snapshots Docker's
 reported aggregate storage for images, container writable layers, and local
 volumes immediately before deletion; destroy snapshots it before native
 destroy. Both compare that value with the value after every deletion attempt.
@@ -42,11 +46,13 @@ Plain `reclaim --all` is guarded bulk cleanup: it fails without deleting
 anything when any known lab still has a Containerlab container, running or
 stopped. Once every known lab is destroyed, it reclaims all registry labs and
 removes the complete union of their available images, including images shared
-between them. `reclaim --all --stopped` instead selects only labs that have
-containers and none of those containers are running. It removes those stopped
-containers and every image with no owner outside that stopped selection;
-images also owned by a running or destroyed lab are preserved. Destroyed and
-running labs are not selected by this mode.
+between them. `reclaim --all --stopped` selects labs with no running containers
+that still have Docker resources to reclaim: stopped containers, or recorded
+image IDs that remain present in Docker. This includes already-destroyed labs
+whose remembered images remain available. It removes stopped containers and
+images with no owner outside the selected subset. An image shared only among
+selected labs can be removed; an image owned by any non-selected lab, including
+a running lab, is preserved.
 
 Image removal does not use Docker's `--force`. When one image ID has several
 repository tags, reclaim removes those tags one at a time so Docker can remove
@@ -106,8 +112,8 @@ edition-specific key. Use the selected edition's launcher name in place of
 Review the target first with `eclab consumption` or `eclab consumption --all`.
 `reclaim --all` is intentionally destructive and should be used only when every
 known lab is already destroyed and all of its images may be rebuilt or pulled
-again. Use `--all --stopped` when only currently stopped labs should be
-reclaimed.
+again. Use `--all --stopped` to reclaim non-running labs with stopped
+containers or remembered images that still exist in Docker.
 
 Useful troubleshooting checks are:
 

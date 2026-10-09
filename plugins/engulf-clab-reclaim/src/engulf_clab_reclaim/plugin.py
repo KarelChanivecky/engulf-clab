@@ -57,12 +57,12 @@ PLUGIN_SCHEMA = (
     )
     .add_cli_flag(
         "--all",
-        "Reclaim storage for every known lab only when all are already destroyed.",
+        "Select every known lab; without --stopped, all must be destroyed.",
         command="reclaim",
     )
     .add_cli_flag(
         "--stopped",
-        "With --all, reclaim only labs whose containers exist but are stopped.",
+        "With --all, select non-running labs with stopped containers or recorded images still in Docker.",
         command="reclaim",
     )
     .add_cli_flag(
@@ -79,6 +79,7 @@ PLUGIN_SCHEMA = (
             "a registry that changed past the plan is re-validated before deletion",
             "lab containers, writable layers, anonymous volumes, and selected images are deleted",
             "lab directories and registry records are preserved",
+            "successful removals log lab identity, Docker IDs, and readable image references",
             "Docker-reported storage reclaimed is measured and logged",
         ),
         host_tools=("docker",),
@@ -99,13 +100,19 @@ PLUGIN_SCHEMA = (
         "--all",
         commands=("reclaim",),
         conflicts_with=("-t or --topology",),
-        implies=("the command fails if any known lab still has containers",),
+        implies=(
+            "the command fails if any known lab still has containers unless --stopped is set",
+        ),
     )
     .annotate(
         "--stopped",
         commands=("reclaim",),
         requires=("--all",),
-        implies=("running and destroyed labs are not selected",),
+        implies=(
+            "running labs are not selected",
+            "stopped containers and recorded images still present in Docker are selected",
+            "images owned by a non-selected lab are preserved",
+        ),
     )
     .annotate(
         _RECLAIM_FLAG,
@@ -265,7 +272,7 @@ class ReclaimPlugin(SchemaBackedPlugin):
         del api
         return (
             "  reclaim [-t TOPOLOGY | --all [--stopped]]  "
-            "Remove lab containers, reclaim images, and report storage reclaimed\n"
+            "Remove lab containers, report image and lab provenance, and reclaim storage\n"
             "  destroy [--all] --reclaim                 "
             "Destroy the lab, then reclaim its Docker resources"
         )

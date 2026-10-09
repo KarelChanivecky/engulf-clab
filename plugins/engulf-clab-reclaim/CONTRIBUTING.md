@@ -10,9 +10,11 @@ anonymous-volume removal, and removal of the explicitly planned image IDs.
 Determine image sharing by exact image ID across distinct registry/Docker lab
 identities. A single-lab reclamation must never remove an image owned by another
 known lab. Plain `--all` must reject the complete plan if any known lab has a
-running or stopped container; only then may it remove the shared union. `--all
---stopped` selects stopped-container labs and preserves images owned outside
-that subset.
+running or stopped container; only then may it remove the shared union.
+`--all --stopped` selects labs with no running containers that still have
+stopped containers or recorded images present in Docker. This includes
+registry-only labs whose containers were already removed. Preserve images owned
+outside the selected subset.
 Never pass `--force` to Docker image removal: non-lab containers are outside the
 registry's ownership model and Docker must protect them.
 Before removal, inspect the planned image ID and remove each of its repository
@@ -26,9 +28,11 @@ is eligible for removal; ownership outside the selection always preserves it.
 Persist complete observations before the first deletion and abort cleanly if
 that or the initial Docker storage snapshot fails. For `destroy --reclaim`,
 capture that snapshot before native destroy. Once deletion starts,
-continue independent removals, log every successfully removed container and
-image by ID, take a final storage snapshot, log every failure through the callback
-logger, and return nonzero for partial completion. Compute
+continue independent removals, log each target lab with its workspace and
+planned resource counts, and log every successful container and image removal
+with Docker ID and lab provenance. Image logs use tags or digests when available.
+Take a final storage snapshot, log every failure through the callback logger,
+and return nonzero for partial completion. Compute
 reclaimed storage from Docker's aggregate image, container, and local-volume totals;
 exclude build cache. Hold the reclamation lease across Docker discovery,
 planning, measurement, and mutation so two reclamation commands cannot act on

@@ -31,7 +31,7 @@ from engulf_clab_reclaim.command import (
     parser,
     plan,
 )
-from engulf_clab_reclaim.docker import DockerClient, DockerError
+from engulf_clab_reclaim.docker import DockerClient, DockerError, ImageRemoval
 from engulf_clab_reclaim.model import Container, LabUse, ReclaimPlan
 from engulf_clab_reclaim.plugin import PLUGIN_SCHEMA, ReclaimPlugin
 
@@ -119,6 +119,7 @@ class FakeDocker:
         self.removed_images: list[str] = []
         self.container_failures: set[str] = set()
         self.image_failures: set[str] = set()
+        self.image_reference_values: dict[str, tuple[str, ...]] = {}
         self.storage_values = [0, 0]
         self.storage_error: DockerError | None = None
 
@@ -147,10 +148,14 @@ class FakeDocker:
             raise DockerError(f"cannot remove container {container_id}")
         self.removed_containers.append(container_id)
 
-    def remove_image(self, image_id: str) -> None:
+    def remove_image(self, image_id: str) -> ImageRemoval:
         if image_id in self.image_failures:
             raise DockerError(f"cannot remove image {image_id}")
         self.removed_images.append(image_id)
+        return ImageRemoval(
+            True,
+            self.image_reference_values.get(image_id, ()),
+        )
 
 
 def topology(root: Path, name: str = "one", image: str = "example:1") -> Path:
@@ -301,6 +306,57 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual(reclaim_plan.image_ids, ())
         self.assertEqual(reclaim_plan.preserved_shared_image_ids, ("sha256:shared",))
 
+    def test_all_stopped_selects_registry_only_images_and_preserves_shared(
+        self,
+    ) -> None:
+        stopped = Path("/labs/stopped/lab.clab.yml")
+        running = Path("/labs/running/lab.clab.yml")
+        missing = Path("/labs/missing/lab.clab.yml")
+        records = (
+            LabRecord(
+                "stopped",
+                stopped.parent,
+                stopped,
+                frozenset({"sha256:unique", "sha256:shared"}),
+                True,
+            ),
+            LabRecord(
+                "running",
+                running.parent,
+                running,
+                frozenset({"sha256:shared"}),
+                True,
+            ),
+            LabRecord(
+                "missing",
+                missing.parent,
+                missing,
+                frozenset({"sha256:missing"}),
+                True,
+            ),
+        )
+        docker = FakeDocker()
+        docker.container_values = (
+            Container("running", "running", running, "sha256:shared", True),
+        )
+        docker.images = {
+            "unique": "sha256:unique",
+            "shared": "sha256:shared",
+        }
+
+        reclaim_plan = plan(
+            ("--all", "--stopped"),
+            cwd=Path("/labs"),
+            environment={},
+            registry=FakeRegistry(records),
+            docker=docker,
+        )
+
+        self.assertEqual(tuple(lab.name for lab in reclaim_plan.labs), ("stopped",))
+        self.assertEqual(reclaim_plan.container_ids, ())
+        self.assertEqual(reclaim_plan.image_ids, ("sha256:unique",))
+        self.assertEqual(reclaim_plan.preserved_shared_image_ids, ("sha256:shared",))
+
     def test_all_stopped_removes_images_shared_only_inside_selected_labs(self) -> None:
         first = Path("/labs/first/lab.clab.yml")
         second = Path("/labs/second/lab.clab.yml")
@@ -365,9 +421,9 @@ class ExecutionTest(unittest.TestCase):
                 events.append(f"container:{container_id}")
                 super().remove_container(container_id)
 
-            def remove_image(self, image_id: str) -> None:
+            def remove_image(self, image_id: str) -> ImageRemoval:
                 events.append(f"image:{image_id}")
-                super().remove_image(image_id)
+                return super().remove_image(image_id)
 
         record = LabRecord(
             "one", Path("/labs/one"), None, frozenset({"sha256:image"}), True
@@ -488,10 +544,33 @@ class ExecutionTest(unittest.TestCase):
 
     def test_reports_each_resource_reclaimed(self) -> None:
         docker = FakeDocker()
+        docker.image_reference_values["sha256:image"] = ("example/router:latest",)
         logger = MagicMock()
+        lab = LabUse(
+            "basic-auth",
+            Path("/labs/basic-auth"),
+            None,
+            frozenset({"sha256:image"}),
+            ("container",),
+            True,
+        )
+        shared_lab = LabUse(
+            "fclab-demo",
+            Path("/labs/demo"),
+            None,
+            frozenset({"sha256:image"}),
+            (),
+            True,
+        )
 
         code = execute(
-            ReclaimPlan((), ("container",), ("sha256:image",), (), ()),
+            ReclaimPlan(
+                (lab, shared_lab),
+                ("container",),
+                ("sha256:image",),
+                (),
+                (),
+            ),
             commit=committed(),
             docker=docker,
             logger=logger,
@@ -499,8 +578,54 @@ class ExecutionTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         info_calls = [call.args for call in logger.info.call_args_list]
-        self.assertIn(("reclaimed container: %s", "container"), info_calls)
-        self.assertIn(("reclaimed image: %s", "sha256:image"), info_calls)
+        self.assertIn(
+            (
+                "reclaiming lab %s: %d container(s), %d image ID(s) planned",
+                "basic-auth (/labs/basic-auth)",
+                1,
+                1,
+            ),
+            info_calls,
+        )
+        self.assertIn(
+            (
+                "reclaimed container: %s; lab(s): %s",
+                "container",
+                "basic-auth (/labs/basic-auth)",
+            ),
+            info_calls,
+        )
+        self.assertIn(
+            (
+                "reclaimed image: %s (ID %s); lab(s): %s",
+                "example/router:latest",
+                "sha256:image",
+                "basic-auth (/labs/basic-auth), fclab-demo (/labs/demo)",
+            ),
+            info_calls,
+        )
+
+    def test_untagged_image_log_uses_fallback_label(self) -> None:
+        logger = MagicMock()
+        reclaim_plan = ReclaimPlan((), (), ("sha256:untagged",), (), ())
+
+        code = execute(
+            reclaim_plan,
+            commit=committed(),
+            docker=FakeDocker(),
+            logger=logger,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            (
+                "reclaimed image: %s (ID %s); lab(s): %s",
+                "<untagged>",
+                "sha256:untagged",
+                "unknown lab",
+            ),
+            [call.args for call in logger.info.call_args_list],
+        )
 
     def test_storage_measurement_failure_aborts_before_deletion(self) -> None:
         docker = FakeDocker()
@@ -690,7 +815,8 @@ class DockerTest(unittest.TestCase):
             "_run",
             side_effect=(json.dumps([{"RepoTags": [], "RepoDigests": []}]), ""),
         ) as run:
-            docker.remove_image("sha256:image")
+            outcome = docker.remove_image("sha256:image")
+        self.assertEqual(outcome, ImageRemoval(True, ()))
         self.assertEqual(
             [call.args[0] for call in run.call_args_list],
             [
@@ -713,7 +839,12 @@ class DockerTest(unittest.TestCase):
             ]
         )
         with patch.object(docker, "_run", side_effect=(inspect, "", "")) as run:
-            docker.remove_image("sha256:image")
+            outcome = docker.remove_image("sha256:image")
+
+        self.assertEqual(
+            outcome,
+            ImageRemoval(True, ("example/router:latest", "mirror/router:1")),
+        )
 
         self.assertEqual(
             [call.args[0] for call in run.call_args_list],
@@ -724,6 +855,23 @@ class DockerTest(unittest.TestCase):
             ],
         )
         self.assertNotIn("--force", run.call_args_list[-1].args[0])
+
+    def test_image_removal_reports_digest_when_image_has_no_tag(self) -> None:
+        docker = DockerClient()
+        digest = "example/router@sha256:digest"
+        inspect = json.dumps(
+            [
+                {
+                    "RepoTags": ["<none>:<none>"],
+                    "RepoDigests": [digest],
+                }
+            ]
+        )
+        with patch.object(docker, "_run", side_effect=(inspect, "")) as run:
+            outcome = docker.remove_image("sha256:image")
+
+        self.assertEqual(outcome, ImageRemoval(True, (digest,)))
+        self.assertEqual(run.call_args_list[-1].args[0], ("image", "rm", digest))
 
     def test_already_removed_objects_are_tolerated_on_retry(self) -> None:
         """durability-002: a retry after a mid-delete crash must not fail."""

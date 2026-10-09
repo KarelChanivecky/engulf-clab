@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,14 @@ from .model import Container
 
 class DockerError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class ImageRemoval:
+    """Outcome and readable references for one image removal."""
+
+    removed: bool
+    references: tuple[str, ...]
 
 
 _SIZE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kmgtpe]?i?b)\s*$", re.IGNORECASE)
@@ -139,14 +148,14 @@ class DockerClient:
     def remove_container(self, container_id: str) -> bool:
         return self._run_removal(("container", "rm", "--force", "--volumes", container_id))
 
-    def remove_image(self, image_id: str) -> bool:
+    def remove_image(self, image_id: str) -> ImageRemoval:
         # Deliberately omit --force: Docker must protect non-lab consumers that
         # are outside the registry's ownership model.
         try:
             tags, digests = self._image_references(image_id)
         except DockerError as error:
             if _already_gone(str(error)):
-                return False
+                return ImageRemoval(False, ())
             raise
         references = tags or digests or (image_id,)
         removed = False
@@ -155,7 +164,7 @@ class DockerClient:
         # it is still referenced by another repository.
         for reference in references:
             removed = self._run_removal(("image", "rm", reference)) or removed
-        return removed
+        return ImageRemoval(removed, tags or digests)
 
     def _image_references(self, image_id: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         payload = _json(
