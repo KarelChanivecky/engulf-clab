@@ -1402,27 +1402,36 @@ def _ask_license(
         return None
     while True:
         try:
-            answer = input(
-                f"License for node {node_name} "
-                + (
+            if license_pools_registered is True:
+                prompt = (
+                    "(default: auto; enter to use it, or choose a file, pool "
+                    "directory, or $VARIABLE): "
+                )
+            elif license_pools_registered is False:
+                prompt = (
                     "(auto, file, pool directory, $VARIABLE, or empty to set later; "
                     "defrost did not confirm a registered pool): "
-                    if license_pools_registered is False
-                    else "(auto, file, pool directory, $VARIABLE, or empty to set later): "
                 )
-            )
+            else:
+                prompt = (
+                    "(auto, file, pool directory, $VARIABLE, or empty to set later): "
+                )
+            answer = input(f"License for node {node_name} {prompt}")
         except EOFError:
             return None
         value = answer.strip()
         if not value:
-            return None
+            return "auto" if license_pools_registered is True else None
         if (
             value.casefold() == "auto"
             or value.startswith("$")
             or Path(value).expanduser().exists()
         ):
             return value
-        print("Enter auto, an existing path, a $VARIABLE, or nothing.")
+        if license_pools_registered is True:
+            print("Enter auto, an existing path, a $VARIABLE, or nothing for auto.")
+        else:
+            print("Enter auto, an existing path, a $VARIABLE, or nothing.")
 
 
 def _auto_license_requested(environment: Mapping[str, object]) -> bool:

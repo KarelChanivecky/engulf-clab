@@ -991,29 +991,44 @@ def _write_environment_initializer(copied_topology: Path, staging_root: Path) ->
     """Add the recipient-side helper for the topology's private env file."""
     document = parse_topology_yaml(copied_topology.read_text(encoding="utf-8"))
     references: set[str] = set()
+    defaults: dict[str, set[str]] = {}
     if isinstance(document, dict):
         document = dict(document)
         document.pop(_FREEZE_KEY, None)
-    _collect_environment_references(document, references)
+    _collect_environment_references(document, references, defaults)
     env_name = env_file_for_topology(copied_topology).name
+    prompt_defaults = {
+        name: next(iter(values))
+        for name, values in defaults.items()
+        if len(values) == 1
+    }
     script = staging_root / _ENV_INITIALIZER
     script.write_text(
-        _environment_initializer_script(env_name, sorted(references)),
+        _environment_initializer_script(
+            env_name, sorted(references), prompt_defaults
+        ),
         encoding="utf-8",
     )
     os.chmod(script, 0o755)
 
 
-def _collect_environment_references(value: object, references: set[str]) -> None:
+def _collect_environment_references(
+    value: object,
+    references: set[str],
+    defaults: dict[str, set[str]] | None = None,
+) -> None:
     if isinstance(value, str):
         references.update(_environment_references(value))
+        if defaults is not None:
+            for name, default in _environment_default_references(value):
+                defaults.setdefault(name, set()).add(default)
     elif isinstance(value, Mapping):
         for key, item in value.items():
-            _collect_environment_references(key, references)
-            _collect_environment_references(item, references)
+            _collect_environment_references(key, references, defaults)
+            _collect_environment_references(item, references, defaults)
     elif isinstance(value, (list, tuple)):
         for item in value:
-            _collect_environment_references(item, references)
+            _collect_environment_references(item, references, defaults)
 
 
 def _environment_references(value: str) -> set[str]:
@@ -1055,7 +1070,56 @@ def _environment_character(value: str) -> bool:
     return value == "_" or value.isalnum()
 
 
-def _environment_initializer_script(env_name: str, references: list[str]) -> str:
+def _environment_default_references(value: str) -> list[tuple[str, str]]:
+    """Find authored fallback words for supported braced variable forms."""
+    defaults: list[tuple[str, str]] = []
+    index = 0
+    while index < len(value):
+        if value[index] != "$":
+            index += 1
+            continue
+        if index + 1 >= len(value) or value[index + 1] == "$":
+            index += 2
+            continue
+        if value[index + 1] != "{":
+            index += 1
+            continue
+
+        name_start = index + 2
+        name_end = name_start
+        while name_end < len(value) and _environment_character(value[name_end]):
+            name_end += 1
+        name = value[name_start:name_end]
+        if not name or name[0].isdigit():
+            index += 2
+            continue
+
+        remainder = value[name_end:]
+        operator = next(
+            (
+                candidate
+                for candidate in (":-", ":=", ":+", "-", "=", "+")
+                if remainder.startswith(candidate)
+            ),
+            None,
+        )
+        if operator in (":-", ":=", "-", "="):
+            closing = value.find("}", name_end + len(operator))
+            if closing >= 0:
+                default_start = name_end + len(operator)
+                defaults.append((name, value[default_start:closing]))
+
+        # Continue inside braces so nested $NAME fallback references become
+        # separate prompts, matching _environment_references.
+        index += 2
+    return defaults
+
+
+def _environment_initializer_script(
+    env_name: str,
+    references: list[str],
+    defaults: Mapping[str, str] | None = None,
+) -> str:
     quoted_env_name = shlex.quote(env_name)
     lines = [
         "#!/usr/bin/env bash",
@@ -1102,6 +1166,13 @@ def _environment_initializer_script(env_name: str, references: list[str]) -> str
             ]
         )
         for name in references:
+            prompt = f"Value for {name} (leave empty to set it later): "
+            if defaults is not None and name in defaults:
+                default = defaults[name] or "empty"
+                prompt = (
+                    f"Value for {name} (default: {default}; "
+                    "leave empty to use the default): "
+                )
             lines.extend(
                 [
                     f"if [[ -v {name} ]]; then",
@@ -1112,7 +1183,7 @@ def _environment_initializer_script(env_name: str, references: list[str]) -> str
                     "        printf 'The restored lab includes FREEZE-README.md with setup and run instructions.\\n\\n'",
                     "        printed_help=1",
                     "    fi",
-                    f"    printf 'Value for {name} (leave empty to set it later): '",
+                    f"    printf '%s' {shlex.quote(prompt)}",
                     "    IFS= read -r value || value=",
                     "fi",
                     'if [[ -z "$value" ]]; then',

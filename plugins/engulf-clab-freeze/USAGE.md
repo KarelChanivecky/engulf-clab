@@ -135,7 +135,9 @@ root image, VM source, or actual missing recipe input in non-offline modes may
 become an `${ECLAB_FREEZE_...}` variable; `initialize-env.sh` asks the recipient
 for it. When a VM source already uses a single variable such as
 `${FCLAB_DEMO_IMAGE:-}`, lean freeze keeps that expression and prompts for its
-original name. A vrnetlab VM input is supplied with
+original name. When a variable has one unambiguous authored fallback, the
+initializer shows that value in its prompt; pressing Enter leaves the variable
+unset so the topology fallback applies. A vrnetlab VM input is supplied with
 `--eclab-vrnetlab-image NODE=PATH` at deploy time; lean freeze does not create a
 replacement image-path variable. Existing build-context paths such as `.` stay
 literal when their directory is included, even if freeze exclusions omit files
@@ -223,12 +225,15 @@ to the topology's sibling `.env` file with mode `0600`.
 
 License answers resolve from `--eclab-license NODE=VALUE` (or a bare value for all
 nodes), `ECLAB_LICENSE_<NODE>`, `ECLAB_LICENSE`, auto license, then an
-interactive prompt. Answers may be `auto`, an existing file or pool directory,
-or a `$VARIABLE` for deploy. `auto` is retained as a request for the active
-license provider to allocate at deploy; a defrost preflight that cannot see a
-pool does not reject that request. Deployment reports whether a matching pool
-is actually available. License answers are neither frozen nor written to the
-defrost record.
+interactive prompt. When defrost confirms a registered license pool, `auto` is
+the interactive default; pressing Enter requests automatic allocation. Answers
+may be `auto`, an existing file or pool directory, or a `$VARIABLE` for deploy.
+Without confirmed pool availability, pressing Enter leaves the license prompt
+for deploy, though an explicit `auto` request is still accepted. `auto` is
+retained as a request for the active license provider to allocate at deploy; a
+defrost preflight that cannot see a pool does not reject that request.
+Deployment reports whether a matching pool is actually available. License
+answers are neither frozen nor written to the defrost record.
 
 Defrost requires one archive root and a topology with supported metadata. It
 rejects escaping members, invalid image checksums, and missing contributors.

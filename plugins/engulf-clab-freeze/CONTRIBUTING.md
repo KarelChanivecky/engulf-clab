@@ -70,9 +70,10 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   record keeps the removed freeze provenance beside the lab, never inside it.
 - Resolve licenses from `--eclab-license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
   `ECLAB_LICENSE`, then `--eclab-auto-license`, then an interactive prompt;
-  accept `auto` as a registered-pool request and leave an unanswered marker
-  for deploy. Never log, record, or embed a license value in an error message;
-  name only the node, exactly as license-pool does.
+  when pool availability is confirmed, make `auto` the prompt default and map
+  Enter to `auto`. Otherwise leave an unanswered marker for deploy, while still
+  accepting an explicit `auto` request. Never log, record, or embed a license
+  value in an error message; name only the node, exactly as license-pool does.
 - Select a bundled image archive only when it carries the node's exact image
   reference and the node declares none, because `ECLAB_IMAGE_ARCHIVE` suppresses
   the registry fallback. Freeze and defrost must not load images; the image
@@ -100,9 +101,10 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   files, and fail when generated lab-local license copies exist.
 - Generate `initialize-env.sh` only from the final staged topology, after
   contributor and offline rewrites. Keep variable discovery aligned with the
-  parser's `$NAME` and `${NAME...}` syntax, accept exported values for
-  noninteractive initialization, and test shell quoting, empty
-  answers, mode `0600`, defrost execution in staging, and
+  parser's `$NAME` and `${NAME...}` syntax. Show the authored fallback when all
+  fallback expressions for a variable agree; omit it when they conflict. Accept
+  exported values for noninteractive initialization, and test shell quoting,
+  empty answers, mode `0600`, defrost execution in staging, and
   `--eclab-skip-env-init` suppression.
 - Use the fixed `ECLAB` prefix (`command._LABEL_PREFIX`) for the portable
   license marker, rewritten vrnetlab input key, defrost's per-node license

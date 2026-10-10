@@ -60,9 +60,10 @@ and atomic so a failure cannot leave a partial output at its requested destinati
   successful sudo-less setup. Ownership restoration must not follow symlinks.
 - Resolve licenses from `--eclab-license`, then `ECLAB_LICENSE_<NODE_NAME>`, then
   `ECLAB_LICENSE`, then `--eclab-auto-license`, then an interactive prompt;
-  accept `auto` as a registered-pool request and leave an unanswered marker
-  for deploy. Never log, record, or embed a license value in an error message;
-  name only the node, exactly as license-pool does.
+  when pool availability is confirmed, make `auto` the prompt default and map
+  Enter to `auto`. Otherwise leave an unanswered marker for deploy, while still
+  accepting an explicit `auto` request. Never log, record, or embed a license
+  value in an error message; name only the node, exactly as license-pool does.
 - On defrost, consume the path-free `LicensePoolAvailability` invocation
   context from `engulf-clab-license-pool-lib`; the license-pool plugin reads
   its own state before freeze's `before_goal`. If frozen license prompts exist
@@ -104,8 +105,9 @@ and atomic so a failure cannot leave a partial output at its requested destinati
 - Generate `initialize-env.sh` from the final frozen topology's environment
   references. It is recipient-run, writes only non-empty answers to the
   topology's expected sibling `.env` file with mode `0600`, accepts exported
-  values for noninteractive use, and never carries source values into the archive;
-  defrost restores its executable bit and runs
+  values for noninteractive use, and never carries source values into the archive.
+  Show an authored fallback in the prompt only when all fallback expressions
+  for that variable agree. Defrost restores its executable bit and runs
   it before recipient resolution unless `--eclab-skip-env-init` is selected. The
   format-2 metadata marker gates execution so unmarked legacy files are never
   treated as generated helpers.
