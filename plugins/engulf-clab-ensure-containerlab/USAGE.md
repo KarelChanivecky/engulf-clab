@@ -23,7 +23,7 @@ Sources are tried in this order:
 | --- | --- | --- |
 | `--eclab-containerlab-bin PATH` | `CONTAINERLAB_BIN` | Explicit executable; never updated or rebuilt. |
 | `--eclab-containerlab-dir DIR` | `CONTAINERLAB_DIR` | Existing source checkout. |
-| `--eclab-containerlab-repo URL` | `CONTAINERLAB_REPO` | Managed clone source; defaults to `https://github.com/srl-labs/containerlab/tree/master` (cloned from `https://github.com/srl-labs/containerlab.git` at `master`). GitHub `/tree/<branch>` URLs select that branch. |
+| `--eclab-containerlab-repo URL` | `CONTAINERLAB_REPO` | Managed clone source; defaults to `https://github.com/srl-labs/containerlab.git` and follows the remote's default branch (currently `main`). GitHub `/tree/<branch>` URLs select a specific branch. |
 | `--eclab-containerlab-update` | `CONTAINERLAB_UPDATE` | Opt into an update check, at most daily per checkout/request. |
 | `--eclab-containerlab-version REV` | `CONTAINERLAB_VERSION` | Pin a tag, commit, or revision and enable checking. |
 
@@ -78,6 +78,22 @@ with `ls -hal "$(command -v containerlab)"` and `groups`: the binary should be
 root-owned with an `s` in the owner execute position, and the user should be in
 both `clab_admins` and `docker`.
 
+Before `deploy`, `redeploy`, or `destroy`, an unprivileged caller must have a
+root-owned Containerlab binary with the SUID bit set and an active
+`clab_admins` group membership when that group exists. The plugin checks the
+selected binary and the current session before invoking Containerlab. On failure
+it reports the missing condition and suggests `<launcher> sudoless`. Run that
+command as the normal user, then log out and back in before retrying. The
+privilege check does not apply to other commands such as plain `version` or to
+help. An effectively root caller passes the check, although the standard
+`eclab` launcher refuses elevated startup.
+
+Containerlab permits all callers of a root-owned SUID binary when the
+`clab_admins` group does not exist; the check follows that upstream behavior.
+The `sudoless` command creates the group to restrict privileged commands. This
+check does not test Docker socket access or whether the filesystem honors SUID;
+either can still prevent a deployment.
+
 Membership in either `clab_admins` or `docker` grants effective root-level host
 access through the corresponding tool. The command changes the selected binary
 in place, including a binary in a configured or managed checkout. Rebuilding or
@@ -88,16 +104,19 @@ safe to repeat.
 
 ## Privileges and troubleshooting
 
-This plugin resolves the executable but does not grant the host privileges
-Containerlab needs. Depending on the node kinds and host setup, local deploy
-may require root or Containerlab's documented sudo-less configuration. Managed
-WAN bridges have their own explicit root requirement; ordinary labs can still
-fail for separate Docker or Containerlab privilege reasons.
+This plugin resolves the executable and detects missing Containerlab sudo-less
+setup before privileged lifecycle calls. Managed WAN bridges have their own
+explicit root requirement; ordinary labs can still fail for separate Docker or
+Containerlab privilege reasons.
 
 - Run `eclab --help` in the target environment and confirm
   `engulf_clab.ensure_containerlab` is active.
 - Verify an explicit binary with `test -x` and a checkout with `go.mod`.
 - Inspect `git status` when an update is refused; local changes are preserved.
+- If cloning reports `Remote branch master not found`, replace a stale
+  `CONTAINERLAB_REPO` value ending in `/tree/master` with
+  `https://github.com/srl-labs/containerlab.git` so Git selects the upstream
+  default branch.
 - Reproduce a reported Go build from the checkout root when compilation fails,
   and verify the installed Go version and module dependencies.
 - Preserve an invalid managed checkout for diagnosis or remove it intentionally

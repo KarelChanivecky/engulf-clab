@@ -16,6 +16,7 @@ from engulf_clab_ensure_containerlab.containerlab import (
     ensure_binary,
     ensure_repo_binary,
     require_containerlab_dependencies,
+    require_containerlab_privilege,
     resolved_containerlab_source,
     sudoless_user,
 )
@@ -83,6 +84,52 @@ class EnsureContainerlabTest(unittest.TestCase):
             ],
         )
 
+    def test_privileged_call_rejects_binary_without_root_suid(self) -> None:
+        binary = Path("/usr/bin/containerlab")
+        with (
+            patch("engulf_clab_ensure_containerlab.containerlab.os.geteuid", return_value=1000),
+            patch("engulf_clab_ensure_containerlab.containerlab.Path.stat") as path_stat,
+        ):
+            path_stat.return_value = Mock(st_uid=1000, st_mode=stat.S_IFREG | 0o4755)
+            with self.assertRaisesRegex(EnsureContainerlabError, "fclab sudoless"):
+                require_containerlab_privilege(binary, command="deploy", launcher="fclab")
+
+            path_stat.return_value = Mock(st_uid=0, st_mode=stat.S_IFREG | 0o755)
+            with self.assertRaisesRegex(EnsureContainerlabError, "SUID bit"):
+                require_containerlab_privilege(binary, command="deploy", launcher="fclab")
+
+    def test_privileged_call_requires_active_clab_admins_membership(self) -> None:
+        binary = Path("/usr/bin/containerlab")
+        with (
+            patch("engulf_clab_ensure_containerlab.containerlab.os.geteuid", return_value=1000),
+            patch("engulf_clab_ensure_containerlab.containerlab.Path.stat") as path_stat,
+            patch("engulf_clab_ensure_containerlab.containerlab.grp.getgrnam") as group,
+            patch("engulf_clab_ensure_containerlab.containerlab.os.getgid", return_value=1000),
+            patch("engulf_clab_ensure_containerlab.containerlab.os.getegid", return_value=1000),
+            patch("engulf_clab_ensure_containerlab.containerlab.os.getgroups") as groups,
+        ):
+            path_stat.return_value = Mock(st_uid=0, st_mode=stat.S_IFREG | 0o4755)
+            group.return_value = Mock(gr_gid=1234)
+            groups.return_value = [1234]
+            require_containerlab_privilege(binary, command="deploy", launcher="fclab")
+
+            groups.return_value = []
+            with self.assertRaisesRegex(EnsureContainerlabError, "current session.*clab_admins"):
+                require_containerlab_privilege(binary, command="deploy", launcher="fclab")
+
+            group.side_effect = KeyError("clab_admins")
+            require_containerlab_privilege(binary, command="deploy", launcher="fclab")
+
+    def test_effective_root_needs_no_suid_binary(self) -> None:
+        with (
+            patch("engulf_clab_ensure_containerlab.containerlab.os.geteuid", return_value=0),
+            patch("engulf_clab_ensure_containerlab.containerlab.Path.stat") as path_stat,
+        ):
+            require_containerlab_privilege(
+                Path("/usr/bin/containerlab"), command="destroy", launcher="fclab"
+            )
+            path_stat.assert_not_called()
+
     def test_executable_environment_override_takes_precedence(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -131,6 +178,40 @@ class EnsureContainerlabTest(unittest.TestCase):
 
         self.assertIs(hint.kind, ContainerlabSourceKind.CHECKOUT)
         self.assertEqual(hint.checkout, managed)
+
+    @patch("engulf_clab_ensure_containerlab.containerlab.ensure_repo_binary")
+    @patch("engulf_clab_ensure_containerlab.containerlab._run")
+    @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which")
+    def test_default_managed_clone_uses_remote_default_branch(
+        self,
+        which: Mock,
+        run: Mock,
+        build: Mock,
+    ) -> None:
+        which.side_effect = lambda command: "/usr/bin/git" if command == "git" else None
+        with TemporaryDirectory() as directory:
+            state = FilesystemState(Path(directory) / "state")
+            hint = containerlab_source_hint(state, {})
+
+            def clone(argv: list[str]) -> None:
+                self.assertEqual(
+                    argv[:4],
+                    ["git", "clone", "--", UPSTREAM_CONTAINERLAB_REPO],
+                )
+                self.assertEqual(len(argv), 5)
+                make_checkout(Path(argv[-1]))
+
+            run.side_effect = clone
+            build.return_value = state.path("containerlab") / "bin" / "containerlab"
+            resolved = ensure_binary(state, {})
+
+            self.assertEqual(resolved, build.return_value)
+            build.assert_called_once_with(state.path("containerlab").resolve())
+            run.assert_called_once()
+
+        self.assertIs(hint.kind, ContainerlabSourceKind.REPOSITORY)
+        self.assertEqual(hint.repository, UPSTREAM_CONTAINERLAB_REPO)
+        self.assertEqual(hint.revision, "HEAD")
 
     @patch("engulf_clab_ensure_containerlab.containerlab._run")
     @patch("engulf_clab_ensure_containerlab.containerlab.shutil.which")

@@ -36,6 +36,7 @@ from .containerlab import (
     enable_sudoless,
     ensure_binary,
     require_containerlab_dependencies,
+    require_containerlab_privilege,
     resolved_containerlab_source,
     sudoless_user,
 )
@@ -46,6 +47,8 @@ from .contract import (
 )
 from .errors import EnsureContainerlabError
 from .logging import use_logger
+
+_PRIVILEGED_COMMANDS = frozenset({"deploy", "redeploy", "destroy"})
 
 PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.ensure_containerlab", package="engulf_clab_ensure_containerlab")
@@ -268,12 +271,15 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
 
     def help(self, api: HelpAPI) -> str:
         api.logger.debug("rendering Containerlab provisioning help")
+        launcher = api.application.short_product_name or api.application.product
         return (
             "  sudoless                          Enable SUID, clab_admins, and Docker access\n"
+            "  deploy/redeploy/destroy           Require sudo-less setup for an unprivileged "
+            f"caller; run {launcher} sudoless\n"
             "  --eclab-containerlab-bin PATH     Use an executable binary\n"
             "  --eclab-containerlab-dir DIR      Use or build a source checkout\n"
             "  --eclab-containerlab-repo URL     Override clone source (default: "
-            "https://github.com/srl-labs/containerlab/tree/master)\n"
+            "https://github.com/srl-labs/containerlab.git)\n"
             "  --eclab-containerlab-update       Check a Git checkout for updates (daily)\n"
             "  --eclab-containerlab-version REV  Clamp to a Git tag, commit, or revision\n"
             "  CONTAINERLAB_{BIN,DIR,REPO,UPDATE,VERSION} are persistent environment defaults; "
@@ -296,6 +302,12 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
             require_containerlab_dependencies()
             with use_logger(api.logger), api.lease(CONTAINERLAB_REPOSITORY_LEASE):
                 binary = ensure_binary(api.state(StateScope.USER), event.environment)
+            if event.wrapper_args and event.wrapper_args[0] in _PRIVILEGED_COMMANDS:
+                require_containerlab_privilege(
+                    binary,
+                    command=event.wrapper_args[0],
+                    launcher=api.application.short_product_name or api.application.product,
+                )
             publish_containerlab_source(api, resolved_containerlab_source(binary))
             self._original_path = os.environ.get("PATH")
             current_path = self._original_path or ""

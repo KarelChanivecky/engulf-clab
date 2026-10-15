@@ -62,6 +62,12 @@ diagnostics and must restore the process `PATH` after each call.
   root-own and set mode `4755` on the resolved binary. It must create/authorize
   both `clab_admins` and `docker` before enabling SUID, reject root callers, and
   never use a shell.
+- Keep the privilege guard in `prepare_call()` after executable selection and
+  before source publication or `PATH` mutation. It protects privileged lifecycle
+  commands using effective UID, root ownership, SUID, and active session groups;
+  it must not reject read-only commands or infer membership from account records
+  before the user has logged in again. Follow Containerlab's missing-group
+  behavior and use the callback's application name in recovery instructions.
 - Keep dynamic help, `USAGE.md` resolution/update tables, defaults, and code
   synchronized.
 - Run containerlab resolution/plugin tests plus ensure-checkout tests. Mock Git,

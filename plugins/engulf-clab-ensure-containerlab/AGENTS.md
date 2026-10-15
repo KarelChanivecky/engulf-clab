@@ -60,6 +60,12 @@ diagnostics and must restore the process `PATH` after each call.
   explicit binary during normal resolution. `sudoless` is an explicit mutation:
   create/authorize `clab_admins` and `docker` first, reject root callers, then
   root-own the resolved binary and set exact mode `4755`, always without a shell.
+- Guard `deploy`, `redeploy`, and `destroy` after resolving the selected binary
+  but before publishing it or changing `PATH`. Effective root passes; otherwise
+  require root ownership and SUID, plus current-session `clab_admins` membership
+  when that group exists. Containerlab allows all SUID callers if the group is
+  absent. Leave nonprivileged commands available and name the active launcher
+  in the error's `sudoless` instruction.
 - Keep dynamic help, `USAGE.md` resolution/update tables, defaults, and code
   synchronized.
 - Run containerlab resolution/plugin tests plus ensure-checkout tests. Mock Git,

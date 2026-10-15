@@ -24,15 +24,25 @@ from engulf_clab_schema_api import (
 from engulf_executable_wrapper_api import (
     AfterCallEvent,
     CallMode,
+    HelpAPI,
     PreparationFailedEvent,
     PreparedCallEvent,
 )
 
 from engulf_clab_ensure_containerlab.containerlab import executable
+from engulf_clab_ensure_containerlab.errors import EnsureContainerlabError
 from engulf_clab_ensure_containerlab.plugin import EnsureContainerlabPlugin
 
 
 class PluginLifecycleTest(unittest.TestCase):
+    def test_help_names_active_launcher_for_sudoless_setup(self) -> None:
+        api = Mock(spec=HelpAPI)
+        api.application.short_product_name = "fclab"
+
+        help_text = EnsureContainerlabPlugin().help(api)
+
+        self.assertIn("run fclab sudoless", help_text)
+
     @patch("engulf_clab_ensure_containerlab.plugin.record_plugin_schema")
     @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
     @patch("engulf_clab_ensure_containerlab.plugin.enable_sudoless")
@@ -143,6 +153,76 @@ class PluginLifecycleTest(unittest.TestCase):
         published = publish.call_args.args[1]
         self.assertIs(published.kind, ContainerlabSourceKind.BINARY)
         self.assertTrue(published.resolved)
+
+    @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_privilege")
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
+    @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_dependencies")
+    @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
+    def test_only_privileged_lifecycle_calls_check_selected_binary(
+        self,
+        ensure: Mock,
+        _dependencies: Mock,
+        _publish: Mock,
+        privilege: Mock,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            binary = Path(directory) / "containerlab"
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            ensure.return_value = binary
+            api = Mock(spec=InvocationAPI)
+            api.application.short_product_name = "fclab"
+            api.lease.return_value = nullcontext()
+            plugin = EnsureContainerlabPlugin()
+
+            for command in ("deploy", "redeploy", "destroy", "version"):
+                with self.subTest(command=command):
+                    privilege.reset_mock()
+                    plugin.prepare_call(
+                        PreparedCallEvent(
+                            "containerlab", (command,), (command,), CallMode.NORMAL
+                        ),
+                        api,
+                    )
+                    if command == "version":
+                        privilege.assert_not_called()
+                    else:
+                        privilege.assert_called_once_with(
+                            binary, command=command, launcher="fclab"
+                        )
+                    plugin.after_call(Mock(spec=AfterCallEvent), api)
+
+    @patch("engulf_clab_ensure_containerlab.plugin.publish_containerlab_source")
+    @patch("engulf_clab_ensure_containerlab.plugin.require_containerlab_dependencies")
+    @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
+    def test_unprivileged_deploy_fails_before_exposing_unprepared_binary(
+        self,
+        ensure: Mock,
+        _dependencies: Mock,
+        publish: Mock,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            binary = Path(directory) / "containerlab"
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            ensure.return_value = binary
+            api = Mock(spec=InvocationAPI)
+            api.application.short_product_name = "fclab"
+            api.lease.return_value = nullcontext()
+            original_path = os.environ.get("PATH")
+
+            with (
+                patch("engulf_clab_ensure_containerlab.containerlab.os.geteuid", return_value=1000),
+                self.assertRaisesRegex(EnsureContainerlabError, "fclab sudoless"),
+            ):
+                EnsureContainerlabPlugin().prepare_call(
+                    PreparedCallEvent("containerlab", ("deploy",), ("deploy",), CallMode.NORMAL),
+                    api,
+                )
+
+            self.assertEqual(os.environ.get("PATH"), original_path)
+            publish.assert_not_called()
+            api.logger.error.assert_called_once()
 
     @patch("engulf_clab_ensure_containerlab.plugin.ensure_binary")
     def test_custom_wrapper_binary_is_not_replaced(self, ensure: Mock) -> None:

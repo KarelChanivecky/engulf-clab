@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import grp
 import os
 import pwd
 import re
@@ -25,8 +26,8 @@ from engulf_clab_schema_api import ContainerlabSourceHint, ContainerlabSourceKin
 from .errors import EnsureContainerlabError
 from .logging import info, warning
 
-DEFAULT_CONTAINERLAB_REPO = "https://github.com/srl-labs/containerlab/tree/master"
 UPSTREAM_CONTAINERLAB_REPO = "https://github.com/srl-labs/containerlab.git"
+DEFAULT_CONTAINERLAB_REPO = UPSTREAM_CONTAINERLAB_REPO
 DEFAULT_CONTAINERLAB_VERSION = "0.0.0"
 _CANONICAL_CONTAINERLAB_MODULE = "github.com/srl-labs/containerlab"
 
@@ -106,6 +107,32 @@ def enable_sudoless(binary: Path, username: str) -> None:
     ):
         raise EnsureContainerlabError(
             f"sudo-less setup did not leave {binary} root-owned with mode 4755"
+        )
+
+
+def require_containerlab_privilege(binary: Path, *, command: str, launcher: str) -> None:
+    """Check the selected binary and current session before a privileged call."""
+    if os.geteuid() == 0:
+        return
+
+    metadata = binary.stat()
+    if metadata.st_uid != 0 or not metadata.st_mode & stat.S_ISUID:
+        raise EnsureContainerlabError(
+            f"{command} requires Containerlab root access: {binary} is not root-owned "
+            f"with the SUID bit set; run {launcher} sudoless as your normal user, "
+            "then log out and back in"
+        )
+
+    try:
+        admin_gid = grp.getgrnam("clab_admins").gr_gid
+    except KeyError:
+        # Containerlab permits every caller when no clab_admins group exists.
+        return
+    if admin_gid not in {os.getgid(), os.getegid(), *os.getgroups()}:
+        raise EnsureContainerlabError(
+            f"{command} requires Containerlab root access: the current session is "
+            f"not in clab_admins; run {launcher} sudoless as your normal user, "
+            "then log out and back in"
         )
 
 
