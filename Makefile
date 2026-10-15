@@ -6,6 +6,7 @@ PACKAGES := \
 	engulf-clab-lab-registry-api \
 	engulf-clab-freeze-api \
 	engulf-clab-pki-api \
+	engulf-clab-instructions-api \
 	engulf-clab-schema \
 	engulf-clab-develop-eclab-lab \
 	engulf-clab-develop-eclab-lab-static \
@@ -42,6 +43,7 @@ PACKAGES := \
 	engulf-clab-vrnetlab-fortigate-license-injector \
 	engulf-clab-fortinet-operation-guard \
 	engulf-clab-port-check \
+	engulf-clab-instructions \
 	engulf-clab-all-plugins \
 	engulf-clab \
 	engulf-clab-demo-lab \
@@ -54,6 +56,7 @@ DIR_engulf-clab-skill-collector := plugins/engulf-clab-skill-collector
 DIR_engulf-clab-lab-registry-api := plugins/engulf-clab-lab-registry-api
 DIR_engulf-clab-freeze-api := plugins/engulf-clab-freeze-api
 DIR_engulf-clab-pki-api := plugins/engulf-clab-pki-api
+DIR_engulf-clab-instructions-api := plugins/engulf-clab-instructions-api
 DIR_engulf-clab-schema := plugins/engulf-clab-schema
 DIR_engulf-clab-develop-eclab-lab := plugins/engulf-clab-develop-eclab-lab
 DIR_engulf-clab-develop-eclab-lab-static := skills/engulf-clab-develop-eclab-lab-static
@@ -90,6 +93,7 @@ DIR_engulf-clab-vrnetlab-fortigate-pki-injector := plugins/engulf-clab-vrnetlab-
 DIR_engulf-clab-vrnetlab-fortigate-license-injector := plugins/engulf-clab-vrnetlab-fortigate-license-injector
 DIR_engulf-clab-fortinet-operation-guard := plugins/engulf-clab-fortinet-operation-guard
 DIR_engulf-clab-port-check := plugins/engulf-clab-port-check
+DIR_engulf-clab-instructions := plugins/engulf-clab-instructions
 DIR_engulf-clab-all-plugins := plugins/engulf-clab-all-plugins
 DIR_engulf-clab := engulf-clab
 DIR_engulf-clab-demo-lab := demo-lab

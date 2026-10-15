@@ -24,5 +24,6 @@ own.
 - Validate metadata with a package build, inspect the wheel for code-free
   contents, install it into a temporary environment with the wrapper, run
   `python -m pip check`, and inspect `eclab --engulf-plugin-list`.
-- Regenerate the bundled skill README/AGENTS snapshots after changing this
-  package's documentation or dependency catalog.
+- Keep the frozen `develop-eclab-lab-static` comparison snapshots unchanged for
+  routine package catalog edits. The runtime-generated skill derives its active
+  plugin inventory from installed declarations and packaged `USAGE.md` files.

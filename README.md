@@ -359,28 +359,9 @@ lab discovery, validation, deploy/destroy jobs, status, node logs, diagnostics,
 and job controls—never arbitrary commands, arbitrary flags, arbitrary paths, or
 `destroy --all`.
 
-From a source checkout, one guided command installs the root-owned service
-runtime, creates the local-only service, and collects the initial configuration:
-
-```bash
-ENGULF_DIR=../engulf ./install-mcp.sh
-```
-
-It asks for allowed topology roots, the local users allowed to operate labs, and
-optional service-owned profile variables (with a hidden prompt for secrets).
-It then validates the generated configuration and starts the service. Docker,
-Containerlab, and Python 3.12 or newer must already be available on the host.
-
-For an unattended installation, provide the trusted root and operator directly:
-
-```bash
-ENGULF_DIR=../engulf ./install-mcp.sh --noninteractive \
-  --lab-root labs=/srv/eclab-labs \
-  --user "$USER"
-```
-
-After publishing the packages, install the service runtime in an
-administrator-owned environment and use the same guided service installer:
+Install the service runtime in an administrator-owned environment and run the
+guided service installer. Docker, Containerlab, and Python 3.12 or newer must
+already be available on the host:
 
 ```bash
 sudo python3.12 -m venv /opt/eclab-mcp/venv
@@ -399,9 +380,9 @@ sudo /opt/eclab-mcp/venv/bin/eclab-mcp-install-system \
 See [the MCP server guide](mcp-server/README.md) for its root-owned TOML
 configuration, client setup, environment override boundary, and uninstall
 procedure. Members of the `eclab-mcp` group are trusted lab operators; a
-writable configured lab root is privileged input. The guided source installer
-uses `/opt/eclab-mcp/venv`, not this user-writable development virtual
-environment.
+writable configured lab root is privileged input. The service uses the
+administrator-owned `/opt/eclab-mcp/venv`, not a user-writable development
+virtual environment.
 
 Engulf discovers installed plugin entry points automatically. `eclab`
 passes ordinary arguments through to Containerlab. Wrapper diagnostic options
@@ -496,6 +477,8 @@ required host tools, and cleanup behavior.
 | `engulf-clab-wan` | `engulf_clab.wan` | Creates DHCP/NAT WAN bridges for marked nodes. |
 | `engulf-clab-lab-parser` | `engulf_clab.lab_parser` | Shared original-topology and deferred-mutation API. |
 | `engulf-clab-lab-writer` | `engulf_clab.lab_writer` | Renders deferred mutations into a temporary topology. |
+| `engulf-clab-instructions-api` | Contract only | Invocation-scoped API for plugin-contributed post-deployment instructions. |
+| `engulf-clab-instructions` | `engulf_clab.instructions` | Displays topology and plugin follow-up messages after successful deployment. |
 | `engulf-clab-sticky-ip` | `engulf_clab.sticky_ip` | Assigns stable private management subnets and fixed node IPs after topology parsing. |
 
 ## Packaged containers
@@ -723,14 +706,6 @@ For a side-by-side baseline, install
 `engulf-clab-develop-eclab-lab-static` and explicitly invoke
 `$develop-eclab-lab-static`. Its target is distinct from the generated
 `$develop-eclab-lab` skill.
-Commits that change wrapper, plugin, or MCP behavior or documentation must
-include exactly one review trailer:
-
-```text
-Skill-Impact: updated
-```
-
-or `Skill-Impact: none`.
 
 ## License
 

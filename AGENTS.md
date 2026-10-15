@@ -227,7 +227,3 @@ example `engulf_clab.example`.
   changes. Validate a release candidate by building the schema API/compiler,
   skill API/collector, and generated-skill provider, then invoke
   `install-skills` against a temporary configuration root.
-- Commits that change wrapper, plugin, MCP, schema, skill, or referenced
-  documentation paths need exactly one `Skill-Impact: updated` or
-  `Skill-Impact: none` trailer. Use `updated` when declarations, compilation, or
-  the generated skill contract changes.

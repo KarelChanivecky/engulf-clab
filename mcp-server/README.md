@@ -60,40 +60,6 @@ are correct. Use read-only diagnostics and validation after installation.
 
 ## Install
 
-### One guided install from a checkout
-
-The checkout includes a single user-facing installer. It builds the local
-Engulf and eclab packages into a root-owned `/opt/eclab-mcp/venv`, installs the
-systemd service, and collects its initial configuration in one flow:
-
-```bash
-ENGULF_DIR=../engulf ./install-mcp.sh
-```
-
-The wizard asks for:
-
-- each trusted topology root;
-- the local users allowed to access the MCP socket; and
-- optional named profiles plus service-owned environment variables and secrets.
-
-Secrets are entered with a hidden terminal prompt and the resulting
-`/etc/eclab-mcp/config.toml` is mode `0600`. The installer validates that
-Docker, Containerlab, and the service commands are available before it writes
-the configuration or enables the service. It does not overwrite an existing
-configuration.
-
-For automation, avoid prompts and supply the authorization boundary directly:
-
-```bash
-ENGULF_DIR=../engulf ./install-mcp.sh --noninteractive \
-  --lab-root labs=/srv/eclab-labs \
-  --user "$USER"
-```
-
-`--venv /path` selects another protected service virtual environment and
-`--no-start` is passed through when the service should be installed but not yet
-started. Run `./install-mcp.sh --help` for all options.
-
 ### Installed-package setup
 
 Install the package and the eclab application/plugins into the environment used
@@ -130,8 +96,7 @@ The script never overwrites an existing `/etc/eclab-mcp/config.toml`. To avoid
 the wizard, pass `--lab-root labs=/srv/eclab-labs --user "$USER"` instead.
 Copy and edit [`config.toml.example`](etc/eclab-mcp/config.toml.example) first
 when the standard paths do not apply. It expects `eclab`, `containerlab`, and
-`docker` to already be installed at the configured absolute paths. From an
-uninstalled source checkout, prefer `./install-mcp.sh`; the lower-level
+`docker` to already be installed at the configured absolute paths. The lower-level
 `sudo mcp-server/scripts/install-system.sh --interactive` only installs and
 configures an already-built service runtime.
 

@@ -281,16 +281,6 @@ privileged MCP installation unless the task explicitly requires them.
 
 ## Commits and release preparation
 
-Commits that change wrapper, plugin, MCP, schema, skill, or related documentation
-need exactly one review trailer:
-
-```text
-Skill-Impact: updated
-```
-
-Use `Skill-Impact: updated` when runtime declarations, compiler output, or the
-generated skill contract changes. Use `none` only after reviewing the impact.
-
 Keep commits focused. Before releasing, update each changed distribution's
 version and compatible dependency range together, build all artifacts with
 `make build`, and inspect the wheel contents. Artifact publication is handled by

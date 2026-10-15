@@ -44,12 +44,15 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-vrnetlab-fortigate-license-injector` | Mounts a registered FortiGate license read-only for vrnetlab startup. |
 | `engulf-clab-fortinet-operation-guard` | Rejects unsupported reconfigure, restart, and already-running deploy operations for Fortinet nodes. |
 | `engulf-clab-port-check` | Offers interactive or automatic protocol-specific replacements for occupied deploy host ports. |
+| `engulf-clab-instructions` and `engulf-clab-instructions-api` | Prints topology messages and plugin-contributed commands or URLs after successful deployment. |
 
 Included feature packages are Dockerfile builds, the packaged-container manager,
 core and PKI collections, Containerlab and vrnetlab provisioning, vrnetlab image
 builds, license pools, managed DHCP/NAT WAN bridges, resource-consumption reports, frozen shareable archives,
 PKI catalogs, certificate mounts, FortiGate PKI and registered-license injection,
-sticky management addresses, interactive host-port replacement, and the topology mutation/collector infrastructure. Review the individual package READMEs before
+sticky management addresses, interactive host-port replacement,
+post-deployment instructions, and the topology mutation/collector infrastructure.
+Review the individual package READMEs before
 enabling host-affecting features such as WAN bridges or
 automatic source updates.
 

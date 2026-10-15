@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "engulf-clab-all-plugins"
-version = "0.2.0"
+version = "0.2.3"
 description = "Meta-package that installs all engulf-clab plugins (requires Python 3.12+)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -41,6 +41,7 @@ dependencies = [
     "engulf-clab-vrnetlab-fortigate-license-injector>=0.1,<1",
     "engulf-clab-fortinet-operation-guard>=0.1,<1",
     "engulf-clab-port-check>=0.1,<1",
+    "engulf-clab-instructions>=0.1,<1",
     "engulf-clab-lab-parser>=0.1,<1",
     "engulf-clab-lab-writer>=0.2,<1",
     "engulf-clab-sticky-ip>=0.1,<1",

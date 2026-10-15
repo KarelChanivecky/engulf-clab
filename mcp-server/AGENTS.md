@@ -81,5 +81,5 @@ access to configured lab roots and the Docker daemon.
 - Use temporary directories, fake executables, and mocked subprocesses in unit
   tests. Do not install/restart the system service or run real lab lifecycle
   operations unless explicitly authorized.
-- After README or behavior changes, regenerate the packaged skill reference and
-  use `Skill-Impact: updated` when committing it.
+- Keep active MCP documentation aligned with behavior. The static comparison
+  skill is a frozen snapshot and is not regenerated for routine changes.
