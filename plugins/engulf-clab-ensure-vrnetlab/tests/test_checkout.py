@@ -162,9 +162,9 @@ class EnsureCheckoutTest(unittest.TestCase):
                     "git",
                     "clone",
                     "--branch",
-                    "master",
+                    "main",
                     "--",
-                    "https://github.com/KarelChanivecky/vrnetlab.git",
+                    "https://github.com/srl-labs/vrnetlab.git",
                     run.call_args.args[0][-1],
                 ],
             )

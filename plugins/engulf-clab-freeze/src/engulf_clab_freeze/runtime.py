@@ -19,7 +19,7 @@ from engulf_clab_freeze_api import runtime_provider
 from . import command
 
 _DEFAULT_CONTAINERLAB_REPOSITORY = "https://github.com/KarelChanivecky/containerlab"
-_DEFAULT_VRNETLAB_REPOSITORY = "https://github.com/KarelChanivecky/vrnetlab"
+_DEFAULT_VRNETLAB_REPOSITORY = "https://github.com/srl-labs/vrnetlab"
 # Records the source revision of a bundled vrnetlab tree, which has no .git.
 _REVISION_MARKER = ".eclab-freeze-revision"
 

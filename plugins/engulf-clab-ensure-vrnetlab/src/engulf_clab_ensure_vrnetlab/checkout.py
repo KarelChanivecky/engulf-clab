@@ -19,7 +19,7 @@ from engulf_clab_schema_api import VrnetlabSourceHint
 from .errors import EnsureVrnetlabError
 from .logging import info, warning
 
-DEFAULT_VRNETLAB_REPO = "https://github.com/KarelChanivecky/vrnetlab/tree/master"
+DEFAULT_VRNETLAB_REPO = "https://github.com/srl-labs/vrnetlab/tree/main"
 VRNETLAB_CHECKOUT_BASENAME = "vrnetlab"
 
 _CHECKOUT_CONFIG = CheckoutConfig(
