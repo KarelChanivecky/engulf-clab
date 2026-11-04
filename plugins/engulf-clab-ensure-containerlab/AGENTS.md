@@ -60,6 +60,9 @@ diagnostics and must restore the process `PATH` after each call.
   explicit binary during normal resolution. `sudoless` is an explicit mutation:
   create/authorize `clab_admins` and `docker` first, reject root callers, then
   root-own the resolved binary and set exact mode `4755`, always without a shell.
+- Other installed plugins may extend `sudoless` before this plugin preempts it.
+  Keep those order edges in packaging and preserve this plugin's user validation
+  and Containerlab setup.
 - Guard `deploy`, `redeploy`, and `destroy` after resolving the selected binary
   but before publishing it or changing `PATH`. Effective root passes; otherwise
   require root ownership and SUID, plus current-session `clab_admins` membership

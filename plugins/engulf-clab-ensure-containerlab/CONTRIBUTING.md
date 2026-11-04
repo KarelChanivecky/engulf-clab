@@ -62,6 +62,9 @@ diagnostics and must restore the process `PATH` after each call.
   root-own and set mode `4755` on the resolved binary. It must create/authorize
   both `clab_admins` and `docker` before enabling SUID, reject root callers, and
   never use a shell.
+- Other installed plugins may extend `sudoless` before this plugin preempts the
+  command. Keep those preprocessing order edges in packaging and preserve this
+  plugin's own account validation and Containerlab setup.
 - Keep the privilege guard in `prepare_call()` after executable selection and
   before source publication or `PATH` mutation. It protects privileged lifecycle
   commands using effective UID, root ownership, SUID, and active session groups;

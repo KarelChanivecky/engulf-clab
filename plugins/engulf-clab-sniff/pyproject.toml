@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engulf-clab-sniff"
+version = "0.1.3"
+description = "Capture traffic on direct Containerlab node links through a disposable tcpdump helper"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "engulf-api>=1.0,<2",
+    "engulf-executable-wrapper-api>=1.0,<2",
+    "engulf-clab-schema-api>=1.0,<3",
+    "engulf-clab-schema>=0.1,<1",
+    "engulf-clab-lab-parser>=0.1,<1",
+    "engulf-clab-ensure-containerlab>=0.2,<1",
+]
+
+[project.scripts]
+eclab-sniff-extcap = "engulf_clab_sniff.extcap:main"
+
+[project.entry-points."engulf.plugins.v1.goal.v1.org_engulf_executable_wrapper"]
+"engulf_clab.sniff" = "engulf_clab_sniff:plugin"
+
+[project.entry-points."engulf.plugins.v1.application.engulf_clab"]
+"engulf_clab.sniff" = "engulf_clab_sniff:plugin"
+
+[project.entry-points."engulf.plugins.v1.dependency.engulf_clab_sniff"]
+"engulf_clab.schema" = "preprocess=after; postprocess=none"
+"engulf_clab.lab_parser" = "preprocess=after; postprocess=none"
+"engulf_clab.ensure_containerlab" = "preprocess=after; postprocess=none"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engulf_clab_sniff"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "engulf_clab_sniff/README.md"
+"AGENTS.md" = "engulf_clab_sniff/AGENTS.md"
+"CONTRIBUTING.md" = "engulf_clab_sniff/CONTRIBUTING.md"
+"USAGE.md" = "engulf_clab_sniff/USAGE.md"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/AGENTS.md", "/CONTRIBUTING.md", "/LICENSE", "/README.md", "/USAGE.md", "/pyproject.toml"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/engulf_clab_sniff"]

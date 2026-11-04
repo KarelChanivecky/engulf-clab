@@ -34,6 +34,7 @@ PACKAGES := \
 	engulf-clab-lab-registry \
 	engulf-clab-reclaim \
 	engulf-clab-consumption \
+	engulf-clab-sniff \
 	engulf-clab-pki \
 	engulf-clab-pki-linux-core \
 	engulf-clab-pki-linux-debian \
@@ -84,6 +85,7 @@ DIR_engulf-clab-freeze := plugins/engulf-clab-freeze
 DIR_engulf-clab-lab-registry := plugins/engulf-clab-lab-registry
 DIR_engulf-clab-reclaim := plugins/engulf-clab-reclaim
 DIR_engulf-clab-consumption := plugins/engulf-clab-consumption
+DIR_engulf-clab-sniff := plugins/engulf-clab-sniff
 DIR_engulf-clab-pki := plugins/engulf-clab-pki
 DIR_engulf-clab-pki-linux-core := plugins/engulf-clab-pki-linux-core
 DIR_engulf-clab-pki-linux-debian := plugins/engulf-clab-pki-linux-debian

@@ -21,6 +21,7 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-sticky-ip` | Stable private IPv4 or IPv6 management subnets and fixed node addresses. |
 | `engulf-clab-ensure-checkout` | Shared safe managed-Git-checkout support used by ensure plugins. |
 | `engulf-clab-ensure-containerlab` | Containerlab executable discovery, managed checkout, update, and build. |
+| `engulf-clab-sniff` | Direct node-link packet capture, private pcap output, and managed Wireshark streaming. |
 | `engulf-clab-ensure-vrnetlab` | Conditional vrnetlab checkout discovery and provisioning. |
 | `engulf-clab-vrnetlab-build-api` | Shared per-node source-path context for vrnetlab providers and builder. |
 | `engulf-clab-vrnetlab-build` | Single shared backend that stages inputs and constructs vrnetlab images. |
@@ -46,12 +47,13 @@ discovers those installed entry points when `engulf-clab` runs.
 | `engulf-clab-port-check` | Offers interactive or automatic protocol-specific replacements for occupied deploy host ports. |
 | `engulf-clab-instructions` and `engulf-clab-instructions-api` | Prints topology messages and plugin-contributed commands or URLs after successful deployment. |
 
-Included feature packages are Dockerfile builds, the packaged-container manager,
-core and PKI collections, Containerlab and vrnetlab provisioning, vrnetlab image
-builds, license pools, managed DHCP/NAT WAN bridges, resource-consumption reports, frozen shareable archives,
-PKI catalogs, certificate mounts, FortiGate PKI and registered-license injection,
-sticky management addresses, interactive host-port replacement,
-post-deployment instructions, and the topology mutation/collector infrastructure.
+Included feature packages are direct node-link capture, Dockerfile builds, the
+packaged-container manager, core and PKI collections, Containerlab and vrnetlab
+provisioning, vrnetlab image builds, license pools, managed DHCP/NAT WAN
+bridges, resource-consumption reports, frozen shareable archives, PKI catalogs, certificate mounts,
+FortiGate PKI and registered-license injection, sticky
+management addresses, interactive host-port replacement, post-deployment
+instructions, and the topology mutation/collector infrastructure.
 Review the individual package READMEs before
 enabling host-affecting features such as WAN bridges or
 automatic source updates.

@@ -54,7 +54,7 @@ PLUGIN_SCHEMA = (
     PluginSchema("engulf_clab.ensure_containerlab", package="engulf_clab_ensure_containerlab")
     .add_command(
         SUDOLESS_COMMAND,
-        "Enable Containerlab SUID plus clab_admins and Docker group access.",
+        "Enable sudo-less Containerlab and Docker access plus installed plugin integrations.",
     )
     .add_runtime_var(
         "CONTAINERLAB_BIN",
@@ -112,7 +112,9 @@ PLUGIN_SCHEMA = (
         environment="CONTAINERLAB_VERSION",
     )
     .use_case("Resolve Containerlab from BIN, DIR, PATH, or a managed checkout in that order.")
-    .use_case("Enable sudo-less Containerlab and Docker operation for the current user.")
+    .use_case(
+        "Enable sudo-less Containerlab and Docker operation plus installed plugin integrations."
+    )
     .annotate(
         SUDOLESS_COMMAND,
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
@@ -273,7 +275,7 @@ class EnsureContainerlabPlugin(SchemaBackedPlugin):
         api.logger.debug("rendering Containerlab provisioning help")
         launcher = api.application.short_product_name or api.application.product
         return (
-            "  sudoless                          Enable SUID, clab_admins, and Docker access\n"
+            "  sudoless                          Enable Containerlab, Docker, and installed plugin access\n"
             "  deploy/redeploy/destroy           Require sudo-less setup for an unprivileged "
             f"caller; run {launcher} sudoless\n"
             "  --eclab-containerlab-bin PATH     Use an executable binary\n"

@@ -93,6 +93,7 @@ for a particular environment or edition.
 | [Inspect CPU and RAM consumption for one or all known labs][consumption] | [Inspect lab-directory and Docker-image storage consumption][consumption] |
 | [Compare unique and shared image storage by lab][consumption] | [Poll live lab resource consumption][consumption] |
 | [Distinguish deployed, stopped, and reclaimed labs][consumption] | [Reclaim Docker storage for one lab][reclaim] |
+| [Capture packets on a direct link between lab nodes][sniff] | [Save a selected node-link capture as a private pcap][sniff] |
 | [Destroy one lab and reclaim its Docker resources][reclaim] | [Destroy every lab and reclaim with `destroy --all --reclaim`][reclaim] |
 | [Reclaim every known lab after all labs are destroyed][reclaim] | [Reclaim only labs whose containers are stopped][reclaim] |
 | [Remove lab containers, writable layers, and anonymous volumes][reclaim] | [Remove Docker images used exclusively by reclaimed labs][reclaim] |
@@ -153,6 +154,7 @@ for a particular environment or edition.
 [freeze-archive]: plugins/engulf-clab-freeze/USAGE.md#archive-and-launcher
 [freeze-expand]: plugins/engulf-clab-freeze/USAGE.md#defrost
 [consumption]: plugins/engulf-clab-consumption/USAGE.md
+[sniff]: plugins/engulf-clab-sniff/USAGE.md
 [reclaim]: plugins/engulf-clab-reclaim/USAGE.md
 [schema]: plugins/engulf-clab-schema/USAGE.md
 [schema-source]: plugins/engulf-clab-schema/USAGE.md#source-identity
@@ -466,6 +468,7 @@ required host tools, and cleanup behavior.
 | `engulf-clab-lab-registry` | `engulf_clab.lab_registry` | Tracks deployed and explicitly discovered labs for inventory consumers. |
 | `engulf-clab-reclaim` | `engulf_clab.reclaim` | Reclaims Docker storage for selected, destroyed, or stopped labs, including `destroy --reclaim`, and reports resources and storage reclaimed. |
 | `engulf-clab-consumption` | `engulf_clab.consumption` | Reports deployed, stopped, and reclaimed state with CPU, RAM, lab-directory, and image storage. |
+| `engulf-clab-sniff` | `engulf_clab.sniff` | [Captures traffic][sniff] on direct node links with a disposable helper and Wireshark Stop/Restart support. |
 | `engulf-clab-freeze-api` | Contract only | Typed extension hooks for optional freeze and defrost contributors. |
 | `engulf-clab-pki-api` | Contract only | Immutable authorized node-PKI projections for independent consumers. |
 | `engulf-clab-pki` | `engulf_clab.pki` | Generates PKI catalogs, identities, and least-privilege node views. |

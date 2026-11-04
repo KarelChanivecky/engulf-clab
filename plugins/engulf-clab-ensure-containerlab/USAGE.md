@@ -78,6 +78,11 @@ with `ls -hal "$(command -v containerlab)"` and `groups`: the binary should be
 root-owned with an `s` in the owner execute position, and the user should be in
 both `clab_admins` and `docker`.
 
+Installed plugins may extend `sudoless` with their own narrowly scoped host
+access setup. For example, `engulf-clab-sniff` adds the user to an existing
+Wireshark capture group only when `dumpcap` is already configured for safe
+group execution; it does not change `dumpcap` permissions or capabilities.
+
 Before `deploy`, `redeploy`, or `destroy`, an unprivileged caller must have a
 root-owned Containerlab binary with the SUID bit set and an active
 `clab_admins` group membership when that group exists. The plugin checks the
