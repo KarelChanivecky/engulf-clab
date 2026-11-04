@@ -137,6 +137,8 @@ class StaticImageProviderPluginTest(unittest.TestCase):
                 """
 name: router-lab
 topology:
+  defaults:
+    kind: generic_vm
   nodes:
     r1:
       image: vrnetlab/vendor_router:1
@@ -173,6 +175,8 @@ topology:
                 """
 name: router-lab
 topology:
+  defaults:
+    kind: generic_vm
   nodes:
     r1:
       image: vrnetlab/vendor_router:1

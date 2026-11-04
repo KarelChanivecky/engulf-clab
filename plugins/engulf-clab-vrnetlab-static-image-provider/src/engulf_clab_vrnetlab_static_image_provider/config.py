@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from engulf_clab_vrnetlab_build.node_kinds import expected_node_kind
+
 from .contract import (
     LABEL_PREFIX,
     LEGACY_VRNETLAB_IMAGE_PATH_ENV,
@@ -193,6 +195,14 @@ def build_requests_from_topology(
         builder_type = _optional_string(node_env, type_environment, owner=f"node {node.name}")
         if builder_type is None:
             continue
+        expected_kind = expected_node_kind(builder_type)
+        actual_kind = node.data.get("kind")
+        if actual_kind != expected_kind:
+            actual = "missing" if actual_kind is None else repr(actual_kind)
+            raise VrnetlabError(
+                f"vrnetlab node {node.name} uses {type_environment} {builder_type!r}, "
+                f"which requires kind: {expected_kind}; found kind {actual}"
+            )
         configured_nodes.append((node, node_env, builder_type))
 
     configured_names = {node.name for node, _environment, _builder in configured_nodes}

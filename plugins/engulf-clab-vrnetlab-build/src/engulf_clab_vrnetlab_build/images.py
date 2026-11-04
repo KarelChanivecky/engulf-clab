@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +32,7 @@ class PreparedBuild:
     qcow2: Path
     builder: Path
     source_sha256: str
+    source_identity: Path
 
 
 def _require_command(command: str) -> None:
@@ -176,17 +178,26 @@ def _clean_docker_context(builder: Path) -> None:
             ) from error
 
 
-def _restore_builder_qcow2(builder: Path, backup_dir: Path, staged_name: str) -> None:
-    staged = builder / staged_name
-    if staged.exists() or staged.is_symlink():
-        staged.unlink()
+def _restore_builder_qcow2(
+    builder: Path,
+    backup_dir: Path,
+    staged_names: Sequence[str],
+) -> None:
+    for staged_name in dict.fromkeys(staged_names):
+        staged = builder / staged_name
+        if staged.exists() or staged.is_symlink():
+            staged.unlink()
 
     if backup_dir.is_dir():
         for qcow2 in backup_dir.iterdir():
             shutil.move(str(qcow2), str(builder / qcow2.name))
 
 
-def _cleanup_builder(builder: Path, backup_dir: Path, staged_name: str) -> None:
+def _cleanup_builder(
+    builder: Path,
+    backup_dir: Path,
+    staged_names: Sequence[str],
+) -> None:
     cleanup_error: Exception | None = None
     try:
         _clean_docker_context(builder)
@@ -194,7 +205,7 @@ def _cleanup_builder(builder: Path, backup_dir: Path, staged_name: str) -> None:
         cleanup_error = error
 
     try:
-        _restore_builder_qcow2(builder, backup_dir, staged_name)
+        _restore_builder_qcow2(builder, backup_dir, staged_names)
     except OSError as restore_error:
         if cleanup_error is not None:
             raise VrnetlabError(
@@ -207,7 +218,31 @@ def _cleanup_builder(builder: Path, backup_dir: Path, staged_name: str) -> None:
         raise cleanup_error
 
 
-def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
+def _source_stage_name(source_identity: Path, source_sha256: str) -> str:
+    identity = hashlib.sha256(
+        f"{source_identity.resolve()}\0{source_sha256}".encode("utf-8")
+    ).hexdigest()
+    return f".eclab-source-{identity}.qcow2"
+
+
+def build_native_image(
+    qcow2: Path,
+    builder: Path,
+    image: str,
+    *,
+    source_identity: Path | None = None,
+    source_sha256: str | None = None,
+) -> None:
+    if source_identity is None:
+        source_identity = qcow2
+    if source_sha256 is None:
+        source_sha256 = file_sha256(qcow2)
+
+    staged_name = _source_stage_name(source_identity, source_sha256)
+    input_name = qcow2.name
+    while staged_name == input_name:
+        staged_name = f".{staged_name}"
+
     with tempfile.TemporaryDirectory(prefix="engulf-clab-vrnetlab-build-build-") as directory:
         work_dir = Path(directory)
         backup_dir = work_dir / "existing-qcow2"
@@ -221,10 +256,15 @@ def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
         try:
             _move_existing_qcow2(builder, backup_dir)
             _clean_docker_context(builder)
-            shutil.copy2(source_for_staging, builder / qcow2.name)
+            shutil.copy2(source_for_staging, builder / staged_name)
+            # Preserve builder filename conventions while staging each source separately.
+            (builder / input_name).symlink_to(staged_name)
             target_backup = _protect_target_image(image)
 
-            info(f"building {image} with vrnetlab builder {builder}")
+            info(
+                f"building {image} with vrnetlab builder {builder}; "
+                f"source staged as {staged_name} for builder input {input_name}"
+            )
             try:
                 _run(["make"], cwd=builder)
                 if not docker_image_exists(image):
@@ -296,7 +336,7 @@ def build_native_image(qcow2: Path, builder: Path, image: str) -> None:
 
             cleanup_error: Exception | None = None
             try:
-                _cleanup_builder(builder, backup_dir, qcow2.name)
+                _cleanup_builder(builder, backup_dir, (staged_name, input_name))
             except (OSError, subprocess.SubprocessError, VrnetlabError) as error:
                 cleanup_error = error
 
@@ -337,7 +377,13 @@ def _ensure_builder_images(
     failures: list[str] = []
     for image, prepared in builds:
         try:
-            build_native_image(prepared.qcow2, prepared.builder, image)
+            build_native_image(
+                prepared.qcow2,
+                prepared.builder,
+                image,
+                source_identity=prepared.source_identity,
+                source_sha256=prepared.source_sha256,
+            )
         except (OSError, subprocess.SubprocessError, VrnetlabError) as error:
             failures.append(f"{image}: {error}")
     return failures
@@ -386,6 +432,7 @@ def ensure_images(
                 qcow2=qcow2,
                 builder=builder,
                 source_sha256=source_sha256,
+                source_identity=request.source,
             )
 
             previous = prepared_by_image.get(request.image)

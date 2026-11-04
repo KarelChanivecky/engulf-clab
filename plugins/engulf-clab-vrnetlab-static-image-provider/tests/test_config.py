@@ -18,7 +18,10 @@ from engulf_clab_vrnetlab_static_image_provider.topology import topology_path_fr
 
 
 def topology(node: dict[str, object]) -> dict[str, object]:
-    return {"name": "my-lab", "topology": {"nodes": {"edge-1": node}}}
+    return {
+        "name": "my-lab",
+        "topology": {"defaults": {"kind": "generic_vm"}, "nodes": {"edge-1": node}},
+    }
 
 
 class SourceConfigurationTest(unittest.TestCase):
@@ -196,6 +199,7 @@ class SourceConfigurationTest(unittest.TestCase):
             data = {
                 "name": "my-lab",
                 "topology": {
+                    "defaults": {"kind": "generic_vm"},
                     "nodes": {
                         "specific": {
                             "image": "vrnetlab/specific:1",
@@ -242,6 +246,7 @@ class SourceConfigurationTest(unittest.TestCase):
         data = {
             "name": "my-lab",
             "topology": {
+                "defaults": {"kind": "generic_vm"},
                 "nodes": {
                     "router": {
                         "image": "vrnetlab/router:1",
@@ -267,6 +272,39 @@ class SourceConfigurationTest(unittest.TestCase):
     def test_topology_name_is_not_required_without_opted_in_nodes(self) -> None:
         data = {"topology": {"nodes": {"client": {"image": "alpine:latest"}}}}
         self.assertEqual(build_requests_from_topology(Path("lab.clab.yml"), data, {}), [])
+
+    def test_known_builder_requires_its_dedicated_containerlab_kind(self) -> None:
+        data = topology(
+            {
+                "kind": "generic_vm",
+                "image": "vrnetlab/fortigate:1",
+                "env": {VRNETLAB_TYPE: "fortinet/fortigate"},
+            }
+        )
+        with self.assertRaisesRegex(VrnetlabError, "requires kind: fortinet_fortigate"):
+            build_requests_from_topology(Path("lab.clab.yml"), data, {})
+
+    def test_unknown_builder_requires_generic_vm(self) -> None:
+        data = topology(
+            {
+                "kind": "linux",
+                "image": "vrnetlab/custom:1",
+                "env": {VRNETLAB_TYPE: "custom/vendor-model"},
+            }
+        )
+        with self.assertRaisesRegex(VrnetlabError, "requires kind: generic_vm"):
+            build_requests_from_topology(Path("lab.clab.yml"), data, {})
+
+    def test_known_builder_accepts_expected_kind(self) -> None:
+        data = topology(
+            {
+                "kind": "fortinet_fortigate",
+                "image": "vrnetlab/fortigate:1",
+                "env": {VRNETLAB_TYPE: "fortinet/fortigate"},
+            }
+        )
+        request = build_requests_from_topology(Path("lab.clab.yml"), data, {})[0]
+        self.assertEqual(request.builder_type, "fortinet/fortigate")
 
 
 class ImageExpressionTest(unittest.TestCase):

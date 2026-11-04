@@ -22,6 +22,10 @@ build execution in `engulf-clab-vrnetlab-build`.
 - This plugin owns the user-visible `ECLAB_VRNETLAB_TYPE` and source controls,
   including completion, legacy aliases, build-job limit, dynamic help, and
   `PluginSchema`. Do not move these declarations into the builder.
+- Validate each annotated node's effective Containerlab `kind` against the
+  builder-to-kind mapping owned by `engulf-clab-vrnetlab-build`; unknown builder
+  paths require `generic_vm`. Keep this validation in both provider analysis
+  and the shared builder so alternate source providers receive the same check.
 - Preserve the source selector's exact argument removal so other wrapper
   plugins continue to receive the original command shape.
 

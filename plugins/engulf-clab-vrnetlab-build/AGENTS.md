@@ -16,6 +16,10 @@ topology session.
   `ECLAB_VRNETLAB_TYPE`; exact-node source paths may use distinct types.
 - Preserve safe qcow2 staging, requested-tag restoration, Docker's own build
   cache behavior, leases, per-builder serialization, and invocation-map cleanup.
+- Stage each source under a unique hidden filename derived from the resolved
+  source path and qcow2 checksum. Give the selected Makefile a temporary
+  symlink at the original qcow2 basename, then remove both paths and restore
+  every pre-existing builder qcow2 file on all exits.
 - Invoke the selected vrnetlab Makefile for every source-backed topology
   mutation. Do not persist build fingerprints or skip Make based on source or
   checkout fingerprints; Docker decides whether its build cache can be reused.
@@ -38,5 +42,9 @@ topology session.
   remains optional when no consumer is installed.
 - Keep reads of `ECLAB_VRNETLAB_TYPE` internal to selecting the vrnetlab
   builder directory; user-facing syntax remains declared by providers.
+- Validate each annotated node's effective Containerlab `kind` against the
+  builder-to-kind map in `vrnetlab-kind-map.json`; unknown builder paths use
+  `generic_vm`. Keep this check in the source provider's analysis too, so
+  mismatches fail before preparation begins.
 - Do not declare source flags, environment aliases, node controls, completion,
   or freeze source discovery here. Those contracts belong to providers.

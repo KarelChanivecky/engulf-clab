@@ -11,6 +11,7 @@ from engulf_clab_lab_parser import TopologyError, effective_nodes
 from engulf_clab_vrnetlab_build_api import VrnetlabBuildAPI
 
 from .errors import VrnetlabError
+from .node_kinds import expected_node_kind
 
 _IMAGE_EXPRESSION = re.compile(r"^\$\{([^}:]+)(?:(:?[-=])(.*))?\}$")
 
@@ -67,6 +68,15 @@ def build_requests_from_topology(
         builder_type = node_environment.get(type_environment)
         if not isinstance(builder_type, str) or not builder_type.strip():
             continue
+        builder_type = builder_type.strip()
+        expected_kind = expected_node_kind(builder_type)
+        actual_kind = node.data.get("kind")
+        if actual_kind != expected_kind:
+            actual = "missing" if actual_kind is None else repr(actual_kind)
+            raise VrnetlabError(
+                f"vrnetlab node {node.name} uses ECLAB_VRNETLAB_TYPE {builder_type!r}, "
+                f"which requires kind: {expected_kind}; found kind {actual}"
+            )
         image_value = node.data.get("image")
         if not isinstance(image_value, str) or not image_value.strip():
             raise VrnetlabError(f"vrnetlab node {node.name} is missing image")
@@ -77,7 +87,7 @@ def build_requests_from_topology(
             BuildRequest(
                 node_name=node.name,
                 image=image,
-                builder_type=builder_type.strip(),
+                builder_type=builder_type,
                 source=None if build_api is None else build_api.source_for(node.name),
                 source_provider_id=(
                     None

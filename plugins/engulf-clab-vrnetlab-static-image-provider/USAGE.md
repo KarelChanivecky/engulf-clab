@@ -29,15 +29,48 @@ name: my-lab
 topology:
   nodes:
     router:
-      kind: vendor_router
+      kind: generic_vm
       image: vrnetlab/my-lab-router:1.0.0
       env:
         ECLAB_VRNETLAB_TYPE: vendor/router
 ```
 
 `ECLAB_VRNETLAB_TYPE` is the required opt-in builder path beneath the prepared
-vrnetlab checkout. Supply a qcow2 or supported archive per node or as a
-default:
+vrnetlab checkout. The annotated builder type determines the required
+Containerlab kind. Known builder paths use Containerlab's dedicated VM kind;
+other paths use `generic_vm`. For example, `fortinet/fortigate` requires
+`kind: fortinet_fortigate`, while `vendor/router` requires `kind: generic_vm`.
+The check includes kinds inherited through Containerlab defaults, kinds, and
+groups. A mismatch or missing kind fails during analysis before image work.
+Known builder paths map to these dedicated kinds:
+
+| vrnetlab builder path | Required Containerlab kind |
+| --- | --- |
+| `arista/veos` | `arista_veos` |
+| `aruba/aoscx` | `aruba_aoscx` |
+| `cisco/c8000` | `cisco_c8000` |
+| `cisco/c8000v` | `cisco_c8000v` |
+| `cisco/cat9kv` | `cisco_cat9kv` |
+| `cisco/csr` | `cisco_csr1000v` |
+| `cisco/ftdv` | `cisco_ftdv` |
+| `cisco/n9kv` | `cisco_n9kv` |
+| `cisco/xrd` | `cisco_xrd_vrouter` |
+| `cisco/xrv` | `cisco_xrv` |
+| `cisco/xrv9k` | `cisco_xrv9k` |
+| `dell/ftosv` | `dell_ftosv` |
+| `fortinet/fortigate` | `fortinet_fortigate` |
+| `huawei/vrp` | `huawei_vrp` |
+| `ipinfusion/ocnos` | `ipinfusion_ocnos` |
+| `juniper/vmx` | `juniper_vmx` |
+| `juniper/vqfx` | `juniper_vqfx` |
+| `juniper/vsrx` | `juniper_vsrx` |
+| `mikrotik/ros` | `mikrotik_ros` |
+| `nokia/sros` | `nokia_sros` |
+| `paloalto/pan` | `paloalto_panos` |
+| `sonic/vm` | `sonic-vm` |
+| `vyos/vyos` | `vyosnetworks_vyos` |
+
+Supply a qcow2 or supported archive per node or as a default:
 
 ```bash
 eclab deploy -t lab.clab.yml \
@@ -134,7 +167,10 @@ positive job count, and builder-relative type safety before preparation begins.
 The type must be a safe relative `vendor/type` directory containing a
 `Makefile`; absolute paths, traversal, or missing builders fail. Source archives
 are not extracted wholesale: the shared builder streams only the single qcow2
-member, retaining its basename for builder tag logic.
+member. The shared builder stages that content under a source-specific hidden
+filename and exposes it through a temporary link using the member's original
+basename, preserving the selected Makefile's input naming while keeping
+different source paths distinct in the builder directory.
 
 During preparation, this provider resolves and publishes source paths, its
 plugin ID as their provenance, and the validated job limit. The shared builder

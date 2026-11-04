@@ -22,6 +22,12 @@ serializes work that targets one builder directory, protects existing
 requested Docker tags, and restores builder qcow2 files. It does not persist
 build fingerprints or use them to skip Docker builds.
 
+Each source is staged in the builder directory under a unique hidden
+`.eclab-source-<sha256>.qcow2` filename derived from its resolved source path
+and extracted qcow2 checksum. A temporary symlink at the qcow2 member's original
+basename keeps the selected Makefile's input name stable. The builder removes
+both temporary paths and restores any prior qcow2 files after the build.
+
 When replacing an image tag, the builder checks whether running containers use
 the previous image before removing its temporary backup tag. If any do, it
 keeps the successfully built image under the requested tag, retains the old
