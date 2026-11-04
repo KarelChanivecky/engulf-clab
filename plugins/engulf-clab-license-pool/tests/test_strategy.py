@@ -43,18 +43,20 @@ from engulf_clab_license_pool.plugin import (
     _mark_deploy_pending,
     _parse_init_license_pool,
     _prompt_requests,
-    _register_pool,
     _registered_pools,
     _release_workspace,
     _requests,
     _warn_legacy_uuid,
+    _write_pool_metadata,
     license_contract,
 )
+from engulf_clab_license_pool.plugin import _register_pool as _register_pool_state
 from engulf_clab_license_pool_api import (
     LicensePoolMetadataContext,
     LicensePoolVariable,
     LicensePoolVariableType,
     PoolMetadata,
+    load_pool_metadata,
 )
 from engulf_clab_license_pool_lib import (
     LICENSE_POOL_AVAILABILITY_CONTEXT,
@@ -98,6 +100,12 @@ class MemoryState:
 
 def _request(pool: Path, workspace: str) -> tuple[str, str, None, str]:
     return ("router", str(pool.resolve()), None, f"{workspace}:router")
+
+
+def _register_pool(state: MemoryState, pool: Path, kind: str) -> bool:
+    metadata = load_pool_metadata(pool).merged({}, kind=kind)
+    _write_pool_metadata(pool, metadata)
+    return _register_pool_state(state, pool, kind)
 
 
 def _filename(assignments: dict[str, str], workspace: str) -> str:
@@ -655,6 +663,9 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
             )
 
             self.assertIsNone(result)
+            manifest = json.loads((root / ".lic-pool").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["version"], 2)
+            self.assertEqual(manifest["kind"], DEFAULT_LICENSE_KIND)
             self.assertEqual(
                 [(entry.path, entry.kind) for entry in _registered_pools(state)],
                 [(str(root.resolve()), DEFAULT_LICENSE_KIND)],
@@ -672,6 +683,32 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
             self.assertIsNotNone(contribution)
             assert contribution is not None
             self.assertEqual(contribution.preempt_exit_code, 0)
+
+    def test_version_one_pool_manifest_upgrades_with_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory)
+            manifest_path = pool / ".lic-pool"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "contributors": {"example.edition": {"region": "west"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            upgraded = load_pool_metadata(pool).merged(
+                {}, kind=DEFAULT_LICENSE_KIND
+            )
+            _write_pool_metadata(pool, upgraded)
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["version"], 2)
+            self.assertEqual(manifest["kind"], DEFAULT_LICENSE_KIND)
+            self.assertEqual(
+                manifest["contributors"]["example.edition"], {"region": "west"}
+            )
 
     def test_failed_init_is_deferred_to_wrapper_preemption(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -718,6 +755,7 @@ class RegisteredLicensePoolTestCase(unittest.TestCase):
             self.assertTrue(_register_pool(state, first, DEFAULT_LICENSE_KIND))
             self.assertTrue(_register_pool(state, second, "linux"))
             self.assertFalse(_register_pool(state, first, "nokia_srlinux"))
+            (first / ".lic-pool").unlink()
             first.rmdir()
 
             registrations = _registered_pools(state)
@@ -853,6 +891,44 @@ class AutomaticLicensePoolTestCase(unittest.TestCase):
                     Path("/workspace"),
                     self._contract(),
                     registered=_registered_pools(state),
+                )
+
+    def test_registered_pool_manifest_kind_is_checked_at_deploy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            pool = root / "pool"
+            pool.mkdir()
+            (pool / "router.lic").write_text("license", encoding="utf-8")
+            state = MemoryState()
+            _register_pool(state, pool, DEFAULT_LICENSE_KIND)
+            manifest = load_pool_metadata(pool).merged({}, kind="linux")
+            _write_pool_metadata(pool, manifest)
+            session = TopologySession(
+                workspace / "lab.clab.yml",
+                self._document(AUTO_LICENSE),
+            )
+            api = Mock(spec=InvocationAPI)
+            api.application = self._APPLICATION
+            api.require_context.return_value = session
+            api.state.side_effect = lambda scope: (
+                SimpleNamespace(root=workspace)
+                if scope is StateScope.WORKSPACE
+                else state
+            )
+            api.leases.return_value = nullcontext()
+
+            with self.assertRaisesRegex(LicensePoolError, "manifest kind 'linux'.*registered kind"):
+                LicensePoolPlugin().prepare_call(
+                    PreparedCallEvent(
+                        "containerlab",
+                        ("deploy",),
+                        ("deploy", "-t", str(session.path)),
+                        CallMode.NORMAL,
+                        {},
+                    ),
+                    api,
                 )
 
     def test_first_registered_pool_with_capacity_wins(self) -> None:

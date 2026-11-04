@@ -12,10 +12,11 @@ from types import MappingProxyType
 from typing import Any, Protocol, cast, runtime_checkable
 
 POOL_METADATA_FILENAME = ".lic-pool"
-POOL_METADATA_VERSION = 1
+POOL_METADATA_VERSION = 2
 POOL_METADATA_CONTRIBUTOR_GROUP = "engulf_clab.license_pool.metadata.v1"
 _CONTRIBUTOR_ID = re.compile(r"[a-z0-9]+(?:[._][a-z0-9]+)*\Z")
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\Z")
+_NODE_KIND = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 
 
 class LicensePoolMetadataError(RuntimeError):
@@ -297,6 +298,7 @@ class PoolMetadata:
     legacy_flat: bool
     contributors: Mapping[str, Mapping[str, Any]]
     legacy: Mapping[str, Any]
+    kind: str | None = None
 
     def for_contributor(self, contributor_id: str) -> Mapping[str, Any]:
         return cast(
@@ -304,7 +306,12 @@ class PoolMetadata:
             _freeze_json(self.contributors.get(contributor_id, {})),
         )
 
-    def merged(self, contributions: Mapping[str, Mapping[str, Any]]) -> PoolMetadata:
+    def merged(
+        self,
+        contributions: Mapping[str, Mapping[str, Any]],
+        *,
+        kind: str | None = None,
+    ) -> PoolMetadata:
         contributors = {
             contributor_id: {key: _thaw_json(value) for key, value in fields.items()}
             for contributor_id, fields in self.contributors.items()
@@ -319,7 +326,7 @@ class PoolMetadata:
             if not current:
                 contributors.pop(contributor_id, None)
         result = PoolMetadata(
-            exists=self.exists or bool(contributions),
+            exists=self.exists or bool(contributions) or kind is not None,
             legacy_flat=False,
             contributors=MappingProxyType(
                 {
@@ -328,6 +335,7 @@ class PoolMetadata:
                 }
             ),
             legacy=_freeze_json(self.legacy),
+            kind=self.kind if kind is None else kind,
         )
         result.to_document()  # Validate JSON compatibility before publication.
         return result
@@ -342,6 +350,12 @@ class PoolMetadata:
                 for contributor_id, fields in self.contributors.items()
             },
         }
+        if self.kind is not None:
+            if not isinstance(self.kind, str) or _NODE_KIND.fullmatch(self.kind) is None:
+                raise LicensePoolMetadataError(
+                    "license-pool kind must be a lowercase Containerlab kind token"
+                )
+            document["kind"] = self.kind
         if self.legacy:
             document["legacy"] = _thaw_json(self.legacy)
         try:
@@ -427,20 +441,22 @@ def load_pool_metadata(pool: Path | str) -> PoolMetadata:
             MappingProxyType({}),
             _freeze_json(document),
         )
-    if (
-        type(document.get("version")) is not int
-        or document.get("version") != POOL_METADATA_VERSION
-    ):
+    version = document.get("version")
+    if type(version) is not int or version not in {1, POOL_METADATA_VERSION}:
         raise LicensePoolMetadataError(
-            f"{path} has unsupported metadata version {document.get('version')!r}"
+            f"{path} has unsupported metadata version {version!r}"
         )
-    unknown = set(document) - {"version", "contributors", "legacy"}
+    allowed = {"version", "contributors", "legacy"}
+    if version >= 2:
+        allowed.add("kind")
+    unknown = set(document) - allowed
     if unknown:
         raise LicensePoolMetadataError(
             f"{path} has unknown top-level keys: {', '.join(sorted(unknown))}"
         )
     contributors = document.get("contributors", {})
     legacy = document.get("legacy", {})
+    kind = document.get("kind")
     if not isinstance(contributors, dict) or not isinstance(legacy, dict):
         raise LicensePoolMetadataError(
             f"{path} contributors and legacy fields must be JSON objects"
@@ -454,6 +470,12 @@ def load_pool_metadata(pool: Path | str) -> PoolMetadata:
         raise LicensePoolMetadataError(
             f"{path} contributor metadata must map IDs to string-keyed objects"
         )
+    if kind is not None and (
+        version < 2 or not isinstance(kind, str) or _NODE_KIND.fullmatch(kind) is None
+    ):
+        raise LicensePoolMetadataError(
+            f"{path} kind must be a lowercase Containerlab kind token"
+        )
     return PoolMetadata(
         True,
         False,
@@ -464,6 +486,7 @@ def load_pool_metadata(pool: Path | str) -> PoolMetadata:
             }
         ),
         _freeze_json(legacy),
+        kind,
     )
 
 

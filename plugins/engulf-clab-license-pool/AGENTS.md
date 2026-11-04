@@ -44,8 +44,8 @@ through the shared topology editor.
   place. Interactive calls prompt for kind when it is omitted; `--kind` remains
   an alias. Discover metadata contributors from
   `engulf_clab.license_pool.metadata.v1`, collect outside the registry lease,
-  then re-read and merge their namespaced metadata under the lease before
-  registration. A contributor reuses its existing namespace unless update
+  then re-read and merge their namespaced metadata and the selected device kind
+  under the lease before registration. A contributor reuses its existing namespace unless update
   mode is set; declared missing variables are prompted by the collector and
   saved in that namespace. Resolve declared values in this order:
   `--eclab-licence-pool-var`, the optional contributor resolver, stored values
@@ -73,6 +73,9 @@ through the shared topology editor.
   `ECLAB_AUTO_LICENSE` always requests automatic allocation; an unresolved
   license `$VARIABLE` requests it unless effective node env sets
   `ECLAB_DISABLE_AUTO_LICENSE=true`.
+- Before allocation, compare each registered pool's `.lic-pool` manifest kind
+  with its user-state registration under the registry and pool leases. Fail
+  closed when the manifest kind is absent or does not match.
 - Preserve an active automatic claim across retries. Otherwise scan matching
   registered pools in registration order and select from the first pool with
   an available license under the invocation's configured strategy.

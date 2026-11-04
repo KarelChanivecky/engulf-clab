@@ -291,6 +291,7 @@ PLUGIN_SCHEMA = (
         lifecycle=(LifecycleStage.BEFORE_GOAL,),
         implies=(
             "the canonical pool path and node kind are stored in ordered user state",
+            "the pool manifest records the kind and deploy checks it against registration",
             "normal Containerlab execution is preempted",
         ),
         examples=(
@@ -733,13 +734,12 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             )
             with api.leases(("license-pool-registry",)):
                 current_metadata = load_pool_metadata(pool)
-                if contributions:
-                    merged_metadata = current_metadata.merged(contributions)
-                    metadata_changed = (
-                        merged_metadata.to_document() != current_metadata.to_document()
-                    )
-                    if metadata_changed:
-                        _write_pool_metadata(pool, merged_metadata)
+                merged_metadata = current_metadata.merged(contributions, kind=kind)
+                metadata_changed = (
+                    merged_metadata.to_document() != current_metadata.to_document()
+                )
+                if metadata_changed:
+                    _write_pool_metadata(pool, merged_metadata)
                 manager = LicensePoolManager(api.state(StateScope.USER))
                 managed = run_pool_managers(
                     (manager,),
@@ -853,14 +853,6 @@ class LicensePoolPlugin(SchemaBackedPlugin):
         contract = license_contract(api.application)
         strategy = _license_strategy(event.environment)
         state = api.state(StateScope.USER)
-        registered = _registered_pools(state)
-        requests = _requests(
-            topology,
-            event.environment,
-            workspace,
-            contract,
-            registered=registered,
-        )
         prompt_requests, direct, automatic_prompts = _prompt_requests(
             topology,
             event.environment,
@@ -868,32 +860,51 @@ class LicensePoolPlugin(SchemaBackedPlugin):
             contract,
             auto_prompts=_auto_license_requested(event.environment),
         )
-        automatic = _automatic_requests(
-            topology,
-            event.environment,
-            workspace,
-            contract,
-            registered,
-            automatic_prompts=automatic_prompts,
-        )
-        requests.extend(prompt_requests)
-        requested_pools = {
-            pool for _node, pool, _clamp, _claim in requests
-        } | {pool for request in automatic for pool in request.pools}
         # The registry lease fences every allocation mutation. Take a snapshot
-        # first to learn which per-pool leases are needed, then verify that no
-        # new active pool appeared while those leases were being acquired.
+        # first to learn which per-pool leases are needed, then verify that the
+        # registrations and active pools stayed stable while acquiring leases.
         while True:
+            registered = _registered_pools(state)
+            requests = _requests(
+                topology,
+                event.environment,
+                workspace,
+                contract,
+                registered=registered,
+            )
+            automatic = _automatic_requests(
+                topology,
+                event.environment,
+                workspace,
+                contract,
+                registered,
+                automatic_prompts=automatic_prompts,
+            )
+            requests.extend(prompt_requests)
+            requested_pools = {
+                pool for _node, pool, _clamp, _claim in requests
+            } | {pool for request in automatic for pool in request.pools}
             initial_registry = _read_pool_registry(state)
-            locked_pools = _active_allocation_pool_paths(initial_registry) | requested_pools
+            registry_pools = _registered_pools_from_registry(initial_registry)
+            if registry_pools != registered:
+                continue
+            locked_pools = (
+                _active_allocation_pool_paths(initial_registry)
+                | requested_pools
+                | {pool.path for pool in registered}
+            )
             leases = tuple(
                 sorted({"license-pool-registry"} | {_lease(pool) for pool in locked_pools})
             )
             with api.leases(leases):
                 registry = _read_pool_registry(state)
+                current_registered = _registered_pools(state)
+                if current_registered != registered:
+                    continue
                 active_pools = _active_allocation_pool_paths(registry)
                 if not active_pools.issubset(locked_pools):
                     continue
+                _validate_registered_pool_kinds(registered)
                 registry, reclaimed = _reconcile_registry_allocations(
                     state,
                     registry,
@@ -2044,6 +2055,40 @@ def _registered_pools(state: Any) -> tuple[_RegisteredPool, ...]:
         _RegisteredPool(pool.path, pool.kind)
         for pool in LicensePoolManager(state).registered_pools()
     )
+
+
+def _registered_pools_from_registry(registry: Mapping[str, Any]) -> tuple[_RegisteredPool, ...]:
+    registrations = registry.get("registrations")
+    if not isinstance(registrations, list):
+        raise LicensePoolError("invalid license-pool state")
+    return tuple(
+        _RegisteredPool(registration["path"], registration["kind"])
+        for registration in registrations
+        if isinstance(registration, dict)
+        and isinstance(registration.get("path"), str)
+        and isinstance(registration.get("kind"), str)
+        and Path(registration["path"]).is_dir()
+    )
+
+
+def _validate_registered_pool_kinds(
+    registrations: tuple[_RegisteredPool, ...],
+) -> None:
+    for registration in registrations:
+        metadata = load_pool_metadata(registration.path)
+        if metadata.kind == registration.kind:
+            continue
+        if metadata.kind is None:
+            raise LicensePoolError(
+                f"license pool {registration.path} manifest does not record a device kind; "
+                "run init-license-pool again with "
+                f"--eclab-kind {registration.kind} to record its registered kind"
+            )
+        raise LicensePoolError(
+            f"license pool {registration.path} manifest kind {metadata.kind!r} does not "
+            f"match registered kind {registration.kind!r}; run init-license-pool again "
+            "with the intended --eclab-kind"
+        )
 
 
 def _load(state: Any) -> dict[str, Any]:

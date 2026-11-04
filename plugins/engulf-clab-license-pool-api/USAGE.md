@@ -118,12 +118,13 @@ overlap. `string-list` and `multi-choice` values use `;` between entries and
 `;;` for a literal semicolon. Choice values must match a declared option;
 booleans accept `true`/`false`, `yes`/`no`, `y`/`n`, and `1`/`0`.
 
-The shared `.lic-pool` file uses this versioned structure after a contributor
-adds metadata:
+The shared `.lic-pool` file uses this versioned structure after pool
+registration or when a contributor adds metadata:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "kind": "fortinet_fortigate",
   "contributors": {
     "example.edition": {
       "region": "lab-a"
@@ -131,6 +132,11 @@ adds metadata:
   }
 }
 ```
+
+`kind` is the registered Containerlab device kind. The pool manager checks it
+against the user-state registration before deploy-time allocation. Version 1
+manifests remain readable; running `init-license-pool` again writes the current
+kind and upgrades the manifest.
 
 Fields belong to the contributor namespace. Omitted fields keep their current
 values; returning `null` for a field removes it. Existing unversioned flat

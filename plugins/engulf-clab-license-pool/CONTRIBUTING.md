@@ -51,8 +51,8 @@ exited.
   calls ask for a kind unless supplied; noninteractive calls retain the
   `fortinet_fortigate` default. Discover metadata contributors through the
   license-pool API, call them before taking the registry lease, then re-read,
-  merge, and atomically publish their deltas under that lease before
-  registration. Each contributor reuses existing declared variables unless
+  merge, and atomically publish their deltas and selected device kind under
+  that lease before registration. Each contributor reuses existing declared variables unless
   update mode is requested; the collector resolves declarations in this order:
   explicit `--eclab-licence-pool-var`, contributor `resolve_variable_values`,
   existing value on ordinary init, interactive answer, then declared default.
@@ -68,6 +68,10 @@ exited.
   the command. Keep this plugin's `before_goal` priority above any edition
   adapter that reads the registration result in that phase; package lifecycle
   dependency edges do not order `before_goal` callbacks.
+- Before allocation, compare each registered pool's `.lic-pool` manifest kind
+  with its user-state registration while holding the registry and pool leases.
+  Fail closed on a missing or mismatched manifest kind and ask the operator to
+  re-run `init-license-pool`.
 - `inspect-license-pool [PATH] [--all] [--alloc-details]` reconciles every active
   allocation before reporting, even when a single `PATH` is selected. Acquire
   the registry and all active pool leases plus the selected pool, then check

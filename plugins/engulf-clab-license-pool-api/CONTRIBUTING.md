@@ -29,7 +29,10 @@ Do not write `.lic-pool` or perform registry operations in a contributor.
 Metadata must be JSON-compatible and must not contain license contents,
 secrets, or local license paths.
 
-The API reads legacy flat `.lic-pool` objects as `legacy` and writes the
-versioned namespaced form only when the collector has a contribution to save.
+The API reads legacy flat `.lic-pool` objects as `legacy` and reads version 1
+and version 2 manifests. The collector writes version 2 with the registration's
+Containerlab kind, including when there are no contributor fields. Keep the
+kind top-level and separate from contributor namespaces; the plugin validates
+it against the user-state registration before deploy-time allocation.
 When touching this contract, update both direct consumer docs and their package
 dependency floors. Run the focused API and collector checks when requested.

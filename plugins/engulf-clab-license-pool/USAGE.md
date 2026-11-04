@@ -21,13 +21,18 @@ command asks for the product's Containerlab node kind unless
 `--eclab-kind KIND` is supplied. `--kind KIND` remains as a legacy alias. In a
 noninteractive invocation, an omitted kind keeps the historical
 `fortinet_fortigate` default. The command stores the canonical directory and
-kind in ordered user state; it does not copy, inspect, or log license contents.
+kind in ordered user state and in the pool's `.lic-pool` manifest; it does not
+copy, inspect, or log license contents. Before deploy-time allocation, eclab
+checks that each registered pool manifest kind matches its user-state
+registration. Re-run `init-license-pool` to add the kind to an older manifest or
+to correct a mismatch.
 Re-registering the same path updates its kind in place. There may be multiple
 pools for a kind. An active claim remains stable; a new claim scans matching
 pools in registration order and uses the first one with an available license.
 The collector discovers installed metadata contributors before registration.
 Their fields are stored in separate namespaces in the pool's `.lic-pool` file,
-and the collector writes contributions atomically before registering the path.
+and the collector writes the kind and any contributed fields atomically before
+registering the path.
 Contributors can declare typed variables in the license-pool API; the collector
 prompts for missing values and reuses recorded ones on ordinary init.
 Contributors may implement `resolve_variable_values(context)` to return typed
@@ -41,8 +46,8 @@ prompts and is used automatically in noninteractive calls. A required missing
 noninteractive value without a default must be provided with the flag. A
 missing optional variable may be left blank or omitted when it has no default.
 On update, an existing value is shown as the prompt default and Enter keeps it.
-Old flat `.lic-pool` files remain readable and are preserved when a contributor
-adds namespaced data.
+Old flat and version 1 `.lic-pool` files remain readable. Re-registering a pool
+upgrades the manifest to version 2 and preserves legacy flat metadata.
 
 The API supports `string`, `string-list`, `choice`, `multi-choice`, `boolean`,
 `integer`, and `float` variables. Choice declarations include their allowed

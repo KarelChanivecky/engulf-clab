@@ -16,5 +16,7 @@ omitted. Contributors return only additional owned metadata fields. Omitted
 keys preserve stored values; a `None` value removes an owned key. Never let a
 contributor write the shared manifest directly.
 
-Keep legacy flat manifests readable. Do not put secrets, license contents, or
-license paths in metadata. Use the package's own docs for the public contract.
+Keep legacy flat and version 1 manifests readable. Version 2 `.lic-pool`
+documents carry the registered Containerlab kind at top level; contributor
+fields remain namespaced. Do not put secrets, license contents, or license
+paths in metadata. Use the package's own docs for the public contract.
